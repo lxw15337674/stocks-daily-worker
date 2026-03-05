@@ -24,22 +24,43 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 
 ## Setup
 
-1. Install dependencies:
+1. Login Cloudflare:
+
+```bash
+npx wrangler login
+```
+
+2. Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Local dev:
+3. Create D1 database (first time):
+
+```bash
+npx wrangler d1 create china-stocks-daily
+```
+
+Then update `wrangler.toml` with returned `database_id`.
+
+4. Local dev:
 
 ```bash
 npm run dev
 ```
 
-3. Deploy:
+5. Deploy:
 
 ```bash
 npm run deploy
+```
+
+6. Verify:
+
+```bash
+curl https://<your-worker>.workers.dev/health
+curl https://<your-worker>.workers.dev/docs
 ```
 
 ## Optional configuration
@@ -69,6 +90,8 @@ Set `STOCK_LIST_JSON` as a Wrangler secret or variable. Format:
   { "symbol": "BABA", "name": "Alibaba", "aliases": ["阿里", "阿里巴巴"] }
 ]
 ```
+
+You can also use `.dev.vars` locally. A template is provided in `.dev.vars.example`.
 
 ### Archive markdown to R2
 
