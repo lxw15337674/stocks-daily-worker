@@ -129,10 +129,6 @@
     @apply order-1 min-w-0;
   }
 
-  .report-right {
-    @apply order-3;
-  }
-
   .report-sticky {
     @apply lg:sticky lg:top-6;
   }
@@ -163,7 +159,7 @@
 
   @media (min-width: 1024px) {
     .report-layout {
-      grid-template-columns: 17rem minmax(0, 1fr) 17rem;
+      grid-template-columns: 19rem minmax(0, 1fr);
       align-items: start;
     }
 
@@ -173,10 +169,6 @@
 
     .report-main {
       @apply order-2;
-    }
-
-    .report-right {
-      @apply order-3;
     }
   }
 }

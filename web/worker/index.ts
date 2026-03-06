@@ -37,6 +37,10 @@ const API_STATIC_PATHS = new Set(["/health", "/latest", "/reports", "/rss.xml", 
 const STOCKS_API_PATH = /^\/stocks(?:\/preview|\/\d+(?:\/aliases\/regenerate)?)?$/;
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 
+function isLocalDevHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
+}
+
 function resolveApiPath(pathname: string): string | null {
   if (pathname === "/rss.xml" || pathname === "/atom.xml" || pathname === "/feed.json") {
     return pathname;
@@ -74,8 +78,9 @@ export default {
 
     const apiPath = resolveApiPath(url.pathname);
     if (apiPath) {
+      const shouldSkipServiceBinding = isLocalDevHost(url.hostname);
       const upstreamUrl = new URL(`https://stocks-api.internal${apiPath}${url.search}`);
-      if (env.STOCKS_API) {
+      if (!shouldSkipServiceBinding && env.STOCKS_API) {
         const proxied = await env.STOCKS_API.fetch(new Request(upstreamUrl.toString(), request));
         if (!(await shouldFallbackToPublicApi(proxied))) {
           return proxied;
@@ -83,6 +88,9 @@ export default {
       }
 
       const fallbackApiUrl = new URL(`${resolveFallbackApiBaseUrl(env)}${apiPath}${url.search}`);
+      if (fallbackApiUrl.origin === url.origin) {
+        return new Response("STOCKS_API_BASE_URL cannot point to the same web worker origin.", { status: 500 });
+      }
       return fetch(new Request(fallbackApiUrl.toString(), request));
     }
 
