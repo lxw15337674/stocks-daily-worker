@@ -70,6 +70,16 @@ curl https://<your-worker>.workers.dev/
 
 ## Optional configuration
 
+### Website frontend (vinext + shadcn/ui)
+
+The web UI project is under `web/` and supports date lookup pages.
+
+```bash
+cd web
+pnpm install
+pnpm dev
+```
+
 ### Persist reports to D1
 
 Bind D1 in `wrangler.toml` (replace with your values):

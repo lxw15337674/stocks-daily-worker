@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 228 24% 8%;
+    --foreground: 210 40% 96%;
+    --card: 229 24% 12%;
+    --card-foreground: 210 40% 96%;
+    --primary: 16 88% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226 20% 20%;
+    --secondary-foreground: 210 35% 94%;
+    --muted: 226 16% 18%;
+    --muted-foreground: 215 18% 72%;
+    --accent: 193 72% 36%;
+    --accent-foreground: 0 0% 100%;
+    --border: 226 18% 26%;
+    --input: 226 18% 26%;
+    --ring: 16 88% 58%;
+    --radius: 0.85rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans), "Segoe UI", sans-serif;
+    background-image: radial-gradient(circle at 15% 0%, rgba(255, 122, 70, 0.25), transparent 45%),
+      radial-gradient(circle at 80% 100%, rgba(33, 169, 203, 0.22), transparent 40%);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-serif), Georgia, serif;
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply container py-8 md:py-12;
+  }
+
+  .hero-card {
+    @apply relative overflow-hidden rounded-2xl border bg-card/90 p-6 shadow-lg shadow-black/30 md:p-8;
+  }
+
+  .hero-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(125deg, rgba(240, 100, 40, 0.18), transparent 55%, rgba(38, 167, 196, 0.2));
+    pointer-events: none;
+  }
+
+  .hero-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .eyebrow {
+    @apply text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  .hero-summary {
+    @apply mt-3 max-w-3xl text-base text-muted-foreground;
+  }
+
+  .grid-two {
+    @apply mt-6 grid gap-6 md:grid-cols-2;
+  }
+
+  .feed-list {
+    @apply mt-1 grid gap-2 text-sm;
+  }
+
+  .feed-list a {
+    @apply rounded-md bg-secondary px-3 py-2 transition hover:bg-secondary/70;
+  }
+
+  .empty {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .report-list {
+    @apply mt-4 grid gap-3;
+  }
+
+  .report-list li {
+    @apply flex items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2;
+  }
+
+  .report-list li a {
+    @apply font-medium text-primary hover:underline;
+  }
+
+  .report-list li span {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .meta {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .date-form-error {
+    @apply mt-2 text-xs font-medium text-primary;
+  }
+}
+
+@layer utilities {
+  .markdown-body {
+    @apply prose prose-invert max-w-none;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3 {
+    @apply scroll-m-20;
+  }
+
+  .markdown-body table {
+    @apply block w-full overflow-x-auto;
+  }
+}

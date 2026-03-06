@@ -1,0 +1,15 @@
+{
+  "name": "china-stocks-daily-web",
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "dist/client"
+  },
+  "compatibility_date": "2026-03-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "services": [
+    {
+      "binding": "STOCKS_API",
+      "service": "china-stocks-daily-worker"
+    }
+  ]
+}
