@@ -4,23 +4,25 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 
 ## What it does
 
-- Pulls daily price data from Yahoo Finance for KWEB top-10 default constituents (configurable).
+- Pulls daily price data from Yahoo Finance for KWEB top-10 holdings only.
 - Pulls related news from Google News RSS.
 - Generates markdown report with:
-  - market overview
-  - top gainers
-  - top losers
+  - AI market overview (OpenAI-compatible API, e.g. maxx)
+  - full stock data table
   - per-company news links
 - Runs on cron trigger and can also be called manually via HTTP.
+- OpenAPI schema is generated from route annotations via `hono-openapi`.
 
 ## Endpoints
 
 - `GET /health`: health check
 - `GET /run`: generate report immediately and return markdown
 - `GET /latest`: return latest report (D1 first, fallback to R2)
+- `GET /reports?limit=30&cursor=<cursor>`: list report history with pagination (D1 first, fallback to R2)
 - `GET /report/:date`: read report by date from D1 first, then R2; if date is today (ET) and missing, it auto-generates on demand
 - `GET /openapi.json`: OpenAPI 3.1 JSON schema for all endpoints
-- `GET /docs`: interactive API docs (Swagger UI)
+- `GET /`: interactive API docs (Swagger UI)
+- `GET /docs`: interactive API docs alias (backward compatible)
 
 ## Setup
 
@@ -60,7 +62,7 @@ npm run deploy
 
 ```bash
 curl https://<your-worker>.workers.dev/health
-curl https://<your-worker>.workers.dev/docs
+curl https://<your-worker>.workers.dev/
 ```
 
 ## Optional configuration
@@ -81,13 +83,14 @@ When `DB` is configured, each run stores:
 - quote snapshots (`report_quotes`)
 - news items with AI summary (`report_news`)
 
-### Custom stock universe
+### Custom stock metadata (KWEB top-10 only)
 
-Set `STOCK_LIST_JSON` as a Wrangler secret or variable. Format:
+Set `STOCK_LIST_JSON` as a Wrangler secret or variable to override display name/aliases for KWEB top-10 symbols only.
+Symbols outside the KWEB top-10 set are ignored. Format:
 
 ```json
 [
-  { "symbol": "BABA", "name": "Alibaba", "aliases": ["阿里", "阿里巴巴"] }
+  { "symbol": "9988.HK", "name": "Alibaba Group", "aliases": ["阿里巴巴", "阿里"] }
 ]
 ```
 
@@ -114,30 +117,18 @@ Set `WEBHOOK_URL` secret. The worker posts JSON payload:
 }
 ```
 
-### AI Gateway summary
+### AI summary via OpenAI-compatible API
 
-Set these secrets/vars for Cloudflare AI Gateway (OpenAI-compatible endpoint):
+Set these vars/secrets:
 
-- `AI_GATEWAY_BASE_URL` example:
-  - `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/openai/chat/completions`
-- `AI_API_KEY`: upstream provider key passed through gateway (if required)
-- `AI_MODEL`: optional, default is `@cf/zai-org/glm-4.7-flash`
+- `OPENAI_BASE_URL` example:
+  - `https://maxx.cloverstd.com`
+  - If you pass only host/base path, worker auto-completes to `/v1/chat/completions`
+- `OPENAI_API_KEY`: API key for the provider
+- `AI_MODEL`: optional, default `gpt-5.2`
 
-If `AI_GATEWAY_BASE_URL` is configured, the worker will:
-- summarize each stock's news into one Chinese sentence
-- generate one market overview sentence for the report
-
-### Use Cloudflare native AI directly (recommended)
-
-In `wrangler.toml`:
-
-```toml
-[ai]
-binding = "AI"
-```
-
-With this binding, the worker calls Cloudflare Workers AI directly (default: `@cf/zai-org/glm-4.7-flash`) and does not require external API keys.
-If direct AI call fails, it can still fall back to AI Gateway config when provided.
+If `OPENAI_BASE_URL` is configured, the worker will:
+- generate one market overview summary (max 200 Chinese chars)
 
 ## Cron
 

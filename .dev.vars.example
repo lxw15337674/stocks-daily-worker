@@ -1,9 +1,10 @@
 # Optional webhook for markdown push
 WEBHOOK_URL=
 
-# Optional fallback gateway (OpenAI-compatible)
-AI_GATEWAY_BASE_URL=
-AI_API_KEY=
+# Optional OpenAI-compatible endpoint (e.g. maxx)
+OPENAI_BASE_URL=https://maxx.cloverstd.com
+OPENAI_API_KEY=
+AI_MODEL=gpt-5.2
 
-# Optional override stock universe JSON
-# STOCK_LIST_JSON=[{"symbol":"BABA","name":"Alibaba","aliases":["阿里","阿里巴巴"]}]
+# Optional override stock metadata (KWEB top-10 symbols only)
+# STOCK_LIST_JSON=[{"symbol":"9988.HK","name":"Alibaba Group","aliases":["阿里","阿里巴巴"]}]

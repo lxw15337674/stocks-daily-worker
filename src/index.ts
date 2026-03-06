@@ -1,14 +1,18 @@
+import { swaggerUI } from "@hono/swagger-ui";
 import { Hono } from "hono";
+import { describeRoute, openAPIRouteHandler } from "hono-openapi";
 
 interface Env {
-  AI?: Ai;
   DB?: D1Database;
   REPORT_BUCKET?: R2Bucket;
   STOCK_LIST_JSON?: string;
   WEBHOOK_URL?: string;
+  OPENAI_BASE_URL?: string;
+  OPENAI_API_KEY?: string;
+  AI_MODEL?: string;
+  // Backward-compatible aliases.
   AI_GATEWAY_BASE_URL?: string;
   AI_API_KEY?: string;
-  AI_MODEL?: string;
 }
 
 type Stock = {
@@ -41,139 +45,404 @@ type ReportSummary = {
   marketOverview: string;
 };
 
-const DEFAULT_STOCKS: Stock[] = [
-  { symbol: "TCEHY", name: "Tencent", aliases: ["腾讯"] },
-  { symbol: "BABA", name: "Alibaba", aliases: ["阿里", "阿里巴巴"] },
+type ReportListItem = {
+  key: string;
+  fileName: string;
+  reportDateEt: string;
+  createdAt: string;
+  source: "d1" | "r2";
+};
+
+// KWEB top-10 holdings (KraneShares, data as of 2026-03-04).
+const KWEB_TOP10_STOCKS: Stock[] = [
+  { symbol: "0700.HK", name: "Tencent Holdings", aliases: ["腾讯"] },
+  { symbol: "9988.HK", name: "Alibaba Group", aliases: ["阿里巴巴", "阿里"] },
   { symbol: "PDD", name: "PDD Holdings", aliases: ["拼多多"] },
-  { symbol: "JD", name: "JD.com", aliases: ["京东"] },
-  { symbol: "BIDU", name: "Baidu", aliases: ["百度"] },
-  { symbol: "NTES", name: "NetEase", aliases: ["网易"] },
-  { symbol: "TCOM", name: "Trip.com", aliases: ["携程"] },
-  { symbol: "YMM", name: "Full Truck Alliance", aliases: ["满帮"] },
-  { symbol: "BILI", name: "Bilibili", aliases: ["哔哩哔哩", "B站"] },
-  { symbol: "BEKE", name: "KE Holdings", aliases: ["贝壳"] }
+  { symbol: "3690.HK", name: "Meituan", aliases: ["美团"] },
+  { symbol: "9999.HK", name: "NetEase", aliases: ["网易"] },
+  { symbol: "2423.HK", name: "KE Holdings", aliases: ["贝壳"] },
+  { symbol: "9888.HK", name: "Baidu", aliases: ["百度"] },
+  { symbol: "1024.HK", name: "Kuaishou", aliases: ["快手"] },
+  { symbol: "6618.HK", name: "JD Health", aliases: ["京东健康"] },
+  { symbol: "9618.HK", name: "JD.com", aliases: ["京东"] }
 ];
 
 const ET_TIMEZONE = "America/New_York";
 const CN_TIMEZONE = "Asia/Shanghai";
 const OPENAPI_VERSION = "3.1.0";
-const CF_AI_DEFAULT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.get("/health", (c) => c.json({ ok: true, service: "china-stocks-daily-worker" }));
-
-app.get("/openapi.json", (c) => {
-  const openapi = buildOpenApiSpec(c.req.url);
-  return c.json(openapi);
-});
-
-app.get("/docs", (c) => {
-  const url = new URL(c.req.url);
-  const specUrl = `${url.origin}/openapi.json`;
-  return c.html(buildDocsHtml(specUrl));
-});
-
-app.get("/run", async (c) => {
-  const result = await generateAndPersistReport(c.env);
-  return new Response(result.markdown, {
-    headers: {
-      "content-type": "text/markdown; charset=utf-8",
-      "x-report-file": result.fileName
-    }
-  });
-});
-
-app.get("/latest", async (c) => {
-  const latestFromDb = await getLatestReportFromD1(c.env);
-  if (latestFromDb) {
-    return new Response(latestFromDb.markdown, {
-      headers: {
-        "content-type": "text/markdown; charset=utf-8",
-        "x-report-file": latestFromDb.fileName,
-        "x-report-source": "d1"
-      }
-    });
-  }
-
-  if (!c.env.REPORT_BUCKET) {
-    return c.text("No report found in D1 and REPORT_BUCKET is not configured.", 404);
-  }
-
-  const listing = await c.env.REPORT_BUCKET.list({ prefix: "reports/", limit: 1000 });
-  const names = listing.objects.map((obj) => obj.key).sort((a, b) => b.localeCompare(a));
-  const newest = names[0];
-  if (!newest) {
-    return c.text("No archived reports.", 404);
-  }
-
-  const object = await c.env.REPORT_BUCKET.get(newest);
-  if (!object) {
-    return c.text("Archived report missing.", 404);
-  }
-
-  return new Response(await object.text(), {
-    headers: {
-      "content-type": "text/markdown; charset=utf-8",
-      "x-report-file": newest,
-      "x-report-source": "r2"
-    }
-  });
-});
-
-app.get("/report/:date", async (c) => {
-  const date = c.req.param("date");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return c.text("Invalid date format. Use YYYY-MM-DD.", 400);
-  }
-
-  const reportFromDb = await getReportByDateFromD1(c.env, date);
-  if (reportFromDb) {
-    return new Response(reportFromDb.markdown, {
-      headers: {
-        "content-type": "text/markdown; charset=utf-8",
-        "x-report-file": reportFromDb.fileName,
-        "x-report-source": "d1"
-      }
-    });
-  }
-
-  const key = `reports/china-stocks-daily-${date}.md`;
-  if (c.env.REPORT_BUCKET) {
-    const object = await c.env.REPORT_BUCKET.get(key);
-    if (object) {
-      return new Response(await object.text(), {
-        headers: {
-          "content-type": "text/markdown; charset=utf-8",
-          "x-report-file": key,
-          "x-report-source": "r2"
+app.get(
+  "/health",
+  describeRoute({
+    tags: ["Meta"],
+    summary: "Health check",
+    responses: {
+      "200": {
+        description: "Service health status",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                ok: { type: "boolean" },
+                service: { type: "string" }
+              },
+              required: ["ok", "service"]
+            }
+          }
         }
-      });
+      }
     }
-  }
+  }),
+  (c) => c.json({ ok: true, service: "china-stocks-daily-worker" })
+);
 
-  const todayEt = formatDate(new Date(), ET_TIMEZONE);
-  if (date === todayEt) {
+app.get(
+  "/run",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "Generate report now",
+    description: "Generate the daily report immediately and return markdown.",
+    responses: {
+      "200": {
+        description: "Generated markdown report",
+        headers: {
+          "x-report-file": {
+            description: "Generated report file name",
+            schema: { type: "string" }
+          }
+        },
+        content: {
+          "text/markdown": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
     const result = await generateAndPersistReport(c.env);
     return new Response(result.markdown, {
       headers: {
         "content-type": "text/markdown; charset=utf-8",
-        "x-report-file": `reports/${result.fileName}`
+        "x-report-file": result.fileName
       }
     });
   }
+);
 
-  if (!c.env.REPORT_BUCKET) {
-    return c.text("REPORT_BUCKET binding not configured. Can only generate today's report.", 400);
+app.get(
+  "/latest",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "Get latest archived report",
+    description: "Reads from D1 first, then falls back to R2.",
+    responses: {
+      "200": {
+        description: "Latest markdown report",
+        content: {
+          "text/markdown": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "404": {
+        description: "No archived report found",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const latestFromDb = await getLatestReportFromD1(c.env);
+    if (latestFromDb) {
+      return new Response(latestFromDb.markdown, {
+        headers: {
+          "content-type": "text/markdown; charset=utf-8",
+          "x-report-file": latestFromDb.fileName,
+          "x-report-source": "d1"
+        }
+      });
+    }
+
+    if (!c.env.REPORT_BUCKET) {
+      return c.text("No report found in D1 and REPORT_BUCKET is not configured.", 404);
+    }
+
+    const listing = await c.env.REPORT_BUCKET.list({ prefix: "reports/", limit: 1000 });
+    const names = listing.objects.map((obj) => obj.key).sort((a, b) => b.localeCompare(a));
+    const newest = names[0];
+    if (!newest) {
+      return c.text("No archived reports.", 404);
+    }
+
+    const object = await c.env.REPORT_BUCKET.get(newest);
+    if (!object) {
+      return c.text("Archived report missing.", 404);
+    }
+
+    return new Response(await object.text(), {
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "x-report-file": newest,
+        "x-report-source": "r2"
+      }
+    });
   }
+);
 
-  return c.text("Report not found.", 404);
-});
+app.get(
+  "/reports",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "List archived reports",
+    description: "Lists report history with pagination. Uses D1 first, then R2 when DB is unavailable.",
+    parameters: [
+      {
+        name: "limit",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 200, default: 30 },
+        description: "Page size"
+      },
+      {
+        name: "cursor",
+        in: "query",
+        required: false,
+        schema: { type: "string" },
+        description: "Pagination cursor. D1 uses id; R2 uses key."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Paginated report list",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                source: { type: "string", enum: ["d1", "r2"] },
+                limit: { type: "integer" },
+                cursor: { anyOf: [{ type: "string" }, { type: "null" }] },
+                nextCursor: { anyOf: [{ type: "string" }, { type: "null" }] },
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      key: { type: "string" },
+                      fileName: { type: "string" },
+                      reportDateEt: { type: "string" },
+                      createdAt: { type: "string" },
+                      source: { type: "string", enum: ["d1", "r2"] }
+                    },
+                    required: ["key", "fileName", "reportDateEt", "createdAt", "source"]
+                  }
+                }
+              },
+              required: ["source", "limit", "nextCursor", "items"]
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid request parameters or missing storage binding",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const limit = parseLimit(c.req.query("limit"));
+    if (!limit) {
+      return c.text("Invalid limit. Use integer between 1 and 200.", 400);
+    }
 
-app.get("/", (c) =>
-  c.text(
-    "Use /run to generate report, /latest to read latest report, /report/:date to read a specific report, /openapi.json for API spec, /docs for API docs UI, /health for status."
-  )
+    const cursor = c.req.query("cursor")?.trim();
+
+    if (c.env.DB) {
+      let beforeId: number | null = null;
+      if (cursor) {
+        const parsed = Number(cursor);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          return c.text("Invalid cursor for D1 listing. Use positive integer id.", 400);
+        }
+        beforeId = parsed;
+      }
+
+      const list = await getReportListFromD1(c.env, limit, beforeId);
+      return c.json({
+        source: "d1",
+        limit,
+        cursor,
+        nextCursor: list.nextCursor,
+        items: list.items
+      });
+    }
+
+    if (c.env.REPORT_BUCKET) {
+      const list = await getReportListFromR2(c.env, limit, cursor);
+      if (!list) {
+        return c.text("Invalid cursor for R2 listing.", 400);
+      }
+
+      return c.json({
+        source: "r2",
+        limit,
+        cursor,
+        nextCursor: list.nextCursor,
+        items: list.items
+      });
+    }
+
+    return c.text("Neither DB nor REPORT_BUCKET is configured.", 400);
+  }
+);
+
+app.get(
+  "/report/:date",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "Get report by date",
+    description: "Reads from D1 first, then R2. If missing and date is today (ET), generates on demand.",
+    parameters: [
+      {
+        name: "date",
+        in: "path",
+        required: true,
+        schema: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        description: "Date in YYYY-MM-DD format"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Markdown report",
+        content: {
+          "text/markdown": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid date format or missing REPORT_BUCKET for non-today date",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "404": {
+        description: "Report not found",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const date = c.req.param("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.text("Invalid date format. Use YYYY-MM-DD.", 400);
+    }
+
+    const reportFromDb = await getReportByDateFromD1(c.env, date);
+    if (reportFromDb) {
+      return new Response(reportFromDb.markdown, {
+        headers: {
+          "content-type": "text/markdown; charset=utf-8",
+          "x-report-file": reportFromDb.fileName,
+          "x-report-source": "d1"
+        }
+      });
+    }
+
+    const key = `reports/china-stocks-daily-${date}.md`;
+    if (c.env.REPORT_BUCKET) {
+      const object = await c.env.REPORT_BUCKET.get(key);
+      if (object) {
+        return new Response(await object.text(), {
+          headers: {
+            "content-type": "text/markdown; charset=utf-8",
+            "x-report-file": key,
+            "x-report-source": "r2"
+          }
+        });
+      }
+    }
+
+    const todayEt = formatDate(new Date(), ET_TIMEZONE);
+    if (date === todayEt) {
+      const result = await generateAndPersistReport(c.env);
+      return new Response(result.markdown, {
+        headers: {
+          "content-type": "text/markdown; charset=utf-8",
+          "x-report-file": `reports/${result.fileName}`
+        }
+      });
+    }
+
+    if (!c.env.REPORT_BUCKET) {
+      return c.text("REPORT_BUCKET binding not configured. Can only generate today's report.", 400);
+    }
+
+    return c.text("Report not found.", 404);
+  }
+);
+
+app.get(
+  "/openapi.json",
+  openAPIRouteHandler(app, {
+    documentation: {
+      openapi: OPENAPI_VERSION,
+      info: {
+        title: "China Stocks Daily Worker API",
+        version: "0.1.0",
+        description: "Generate and fetch markdown reports for China ADR daily summary."
+      }
+    }
+  })
+);
+
+app.get(
+  "/",
+  describeRoute({
+    tags: ["Meta"],
+    summary: "Interactive API docs",
+    description: "Swagger UI page powered by /openapi.json.",
+    responses: {
+      "200": {
+        description: "HTML docs page",
+        content: {
+          "text/html": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  swaggerUI({
+    url: "/openapi.json",
+    title: "China Stocks Daily Worker API Docs"
+  })
+);
+
+app.get(
+  "/docs",
+  swaggerUI({
+    url: "/openapi.json",
+    title: "China Stocks Daily Worker API Docs"
+  })
 );
 
 export default {
@@ -206,7 +475,6 @@ async function generateAndPersistReport(env: Env): Promise<{ markdown: string; f
     stocks,
     quotes,
     newsBySymbol,
-    stockSummaryBySymbol: aiSummary.stockSummaryBySymbol,
     marketOverview: aiSummary.marketOverview
   });
 
@@ -240,15 +508,33 @@ async function generateAndPersistReport(env: Env): Promise<{ markdown: string; f
 }
 
 function getStockUniverse(env: Env): Stock[] {
+  const kwebMap = new Map(KWEB_TOP10_STOCKS.map((stock) => [stock.symbol, stock]));
+
   if (!env.STOCK_LIST_JSON) {
-    return DEFAULT_STOCKS;
+    return KWEB_TOP10_STOCKS;
   }
 
   try {
     const parsed = JSON.parse(env.STOCK_LIST_JSON) as Stock[];
-    return parsed.filter((stock) => stock.symbol && stock.name && Array.isArray(stock.aliases));
+    const customMap = new Map<string, Stock>();
+
+    for (const stock of parsed) {
+      if (!stock?.symbol || !stock?.name || !Array.isArray(stock.aliases)) {
+        continue;
+      }
+      if (!kwebMap.has(stock.symbol)) {
+        continue;
+      }
+      customMap.set(stock.symbol, {
+        symbol: stock.symbol,
+        name: stock.name,
+        aliases: stock.aliases
+      });
+    }
+
+    return KWEB_TOP10_STOCKS.map((stock) => customMap.get(stock.symbol) ?? stock);
   } catch {
-    return DEFAULT_STOCKS;
+    return KWEB_TOP10_STOCKS;
   }
 }
 
@@ -415,79 +701,58 @@ function buildMarkdown(params: {
   stocks: Stock[];
   quotes: Quote[];
   newsBySymbol: Map<string, NewsItem[]>;
-  stockSummaryBySymbol: Map<string, string>;
   marketOverview: string;
 }): string {
-  const { reportDateEt, generatedAtCn, stocks, quotes, newsBySymbol, stockSummaryBySymbol, marketOverview } =
-    params;
-
-  const gainers = [...quotes].sort((a, b) => b.changePct - a.changePct).slice(0, 10);
-  const losers = [...quotes].sort((a, b) => a.changePct - b.changePct).slice(0, 10);
-
-  const up = quotes.filter((q) => q.changePct > 0).length;
-  const down = quotes.filter((q) => q.changePct < 0).length;
-  const flat = quotes.filter((q) => q.changePct === 0).length;
-  const avgChange = quotes.length > 0 ? quotes.reduce((sum, q) => sum + q.changePct, 0) / quotes.length : 0;
+  const { reportDateEt, generatedAtCn, stocks, quotes, newsBySymbol, marketOverview } = params;
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
 
   const lines: string[] = [];
   lines.push(`# 中概日报 | ${reportDateEt}（美东交易日）`);
   lines.push("");
   lines.push(`> 生成时间：${generatedAtCn}（北京时间）`);
-  lines.push(`> 样本范围：中概核心池（N=${stocks.length}）`);
+  lines.push(`> 样本范围：KWEB前10成分股（N=${stocks.length}）`);
   lines.push(`> 有效行情：${quotes.length} 只`);
   lines.push("");
-  lines.push("## 一、市场概览");
-  lines.push(`- 中概整体：上涨 ${up} 家，下跌 ${down} 家，平盘 ${flat} 家`);
-  lines.push(`- 平均涨跌幅：${formatSignedPct(avgChange)}`);
-  lines.push(`- AI总览：${marketOverview}`);
+  lines.push("## 一、AI总览");
+  lines.push(`> ${sanitizeTitle(marketOverview)}`);
   lines.push("");
-  lines.push("## 二、涨幅榜 TOP 10");
-  lines.push("| 排名 | 代码 | 名称 | 收盘价 | 涨跌幅 | 估算成交额 |\n|---|---|---|---:|---:|---:|");
-  gainers.forEach((quote, index) => {
+  lines.push("## 二、股票数据");
+  lines.push("| 代码 | 名称 | 收盘价 | 涨跌幅 | 成交量 | 估算成交额 |\n|---|---|---:|---:|---:|---:|");
+  for (const stock of stocks) {
+    const quote = quoteBySymbol.get(stock.symbol);
     lines.push(
-      `| ${index + 1} | ${quote.symbol} | ${quote.name} | ${formatPrice(quote.close, quote.currency)} | ${formatSignedPct(
-        quote.changePct
-      )} | ${formatMoney(quote.turnoverEstimate, quote.currency)} |`
+      `| ${stock.symbol} | ${stock.name} | ${
+        quote ? formatPrice(quote.close, quote.currency) : "-"
+      } | ${quote ? formatSignedPct(quote.changePct) : "-"} | ${
+        quote ? quote.volume.toLocaleString("en-US") : "-"
+      } | ${quote ? formatMoney(quote.turnoverEstimate, quote.currency) : "-"} |`
     );
-  });
-  lines.push("");
-  lines.push("## 三、跌幅榜 TOP 10");
-  lines.push("| 排名 | 代码 | 名称 | 收盘价 | 涨跌幅 | 估算成交额 |\n|---|---|---|---:|---:|---:|");
-  losers.forEach((quote, index) => {
-    lines.push(
-      `| ${index + 1} | ${quote.symbol} | ${quote.name} | ${formatPrice(quote.close, quote.currency)} | ${formatSignedPct(
-        quote.changePct
-      )} | ${formatMoney(quote.turnoverEstimate, quote.currency)} |`
-    );
-  });
-  lines.push("");
-  lines.push("## 四、个股新闻汇总（按公司）");
+  }
 
-  const symbolsByHotness = stocks
-    .map((stock) => stock.symbol)
-    .sort((a, b) => (newsBySymbol.get(b)?.length ?? 0) - (newsBySymbol.get(a)?.length ?? 0));
+  lines.push("");
+  lines.push("## 三、相关新闻（按公司）");
 
-  for (const symbol of symbolsByHotness) {
-    const company = stocks.find((stock) => stock.symbol === symbol);
-    if (!company) {
-      continue;
-    }
-    const items = newsBySymbol.get(symbol) ?? [];
+  for (const stock of stocks) {
+    const quote = quoteBySymbol.get(stock.symbol);
+    const changeLabel = quote ? formatSignedPct(quote.changePct) : "行情暂无";
+    lines.push(`### ${stock.symbol}（${stock.name}） ${changeLabel}`);
+
+    const items = newsBySymbol.get(stock.symbol) ?? [];
     if (items.length === 0) {
+      lines.push("- 暂无相关新闻");
+      lines.push("");
       continue;
     }
 
-    lines.push(`### ${company.symbol}（${company.name}）`);
     for (const item of items) {
       lines.push(
         `- [${sanitizeTitle(item.title)}](${item.link})（来源：${item.source}，时间：${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET）`
       );
     }
-    lines.push(`- 摘要：${stockSummaryBySymbol.get(symbol) ?? sanitizeTitle(items[0].title)}。`);
     lines.push("");
   }
 
-  lines.push("## 五、数据来源与免责声明");
+  lines.push("## 四、数据来源与免责声明");
   lines.push("- 行情：Yahoo Finance 免费公开接口");
   lines.push("- 新闻：Google News RSS 公开源");
   lines.push("- 免责声明：本报告仅做公开信息整理，不构成任何投资建议。\n");
@@ -497,6 +762,15 @@ function buildMarkdown(params: {
 
 function sanitizeTitle(title: string): string {
   return title.replace(/\s+/g, " ").trim();
+}
+
+function truncateByChars(input: string, maxChars: number): string {
+  const normalized = input.trim();
+  const chars = Array.from(normalized);
+  if (chars.length <= maxChars) {
+    return normalized;
+  }
+  return `${chars.slice(0, maxChars).join("")}...`;
 }
 
 function formatDate(date: Date, timeZone: string): string {
@@ -548,146 +822,6 @@ function formatMoney(value: number, currency: string): string {
   return `${symbol}${value.toFixed(2)}`;
 }
 
-function buildOpenApiSpec(requestUrl: string): Record<string, unknown> {
-  const server = new URL(requestUrl).origin;
-  return {
-    openapi: OPENAPI_VERSION,
-    info: {
-      title: "China Stocks Daily Worker API",
-      version: "0.1.0",
-      description: "Generate and fetch markdown reports for China ADR daily summary."
-    },
-    servers: [{ url: server }],
-    paths: {
-      "/health": {
-        get: {
-          summary: "Health check",
-          responses: {
-            "200": {
-              description: "Service health status",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      ok: { type: "boolean" },
-                      service: { type: "string" }
-                    },
-                    required: ["ok", "service"]
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "/run": {
-        get: {
-          summary: "Generate report now",
-          description: "Generate the daily report immediately and return markdown.",
-          responses: {
-            "200": {
-              description: "Generated markdown report",
-              headers: {
-                "x-report-file": {
-                  description: "Generated report file name",
-                  schema: { type: "string" }
-                }
-              },
-              content: {
-                "text/markdown": {
-                  schema: { type: "string" }
-                }
-              }
-            }
-          }
-        }
-      },
-      "/latest": {
-        get: {
-          summary: "Get latest archived report",
-          description: "Reads from D1 first, then falls back to R2.",
-          responses: {
-            "200": {
-              description: "Latest markdown report",
-              content: {
-                "text/markdown": {
-                  schema: { type: "string" }
-                }
-              }
-            },
-            "404": { description: "No archived report found" }
-          }
-        }
-      },
-      "/report/{date}": {
-        get: {
-          summary: "Get report by date",
-          description:
-            "Reads from D1 first, then R2. If missing and date is today (ET), generates on demand.",
-          parameters: [
-            {
-              name: "date",
-              in: "path",
-              required: true,
-              schema: {
-                type: "string",
-                pattern: "^\\d{4}-\\d{2}-\\d{2}$"
-              },
-              description: "Date in YYYY-MM-DD format"
-            }
-          ],
-          responses: {
-            "200": {
-              description: "Markdown report",
-              content: {
-                "text/markdown": {
-                  schema: { type: "string" }
-                }
-              }
-            },
-            "400": { description: "Invalid date format" },
-            "404": { description: "Report not found" }
-          }
-        }
-      },
-      "/openapi.json": {
-        get: {
-          summary: "OpenAPI schema",
-          responses: {
-            "200": {
-              description: "OpenAPI JSON",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "/docs": {
-        get: {
-          summary: "Interactive API docs",
-          description: "Swagger UI page powered by /openapi.json.",
-          responses: {
-            "200": {
-              description: "HTML docs page",
-              content: {
-                "text/html": {
-                  schema: { type: "string" }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  };
-}
-
 async function getLatestReportFromD1(env: Env): Promise<{ markdown: string; fileName: string } | null> {
   if (!env.DB) {
     return null;
@@ -717,6 +851,99 @@ async function getReportByDateFromD1(
   return row ?? null;
 }
 
+async function getReportListFromD1(
+  env: Env,
+  limit: number,
+  beforeId: number | null
+): Promise<{ items: ReportListItem[]; nextCursor: string | null }> {
+  if (!env.DB) {
+    return { items: [], nextCursor: null };
+  }
+
+  await ensureD1Schema(env.DB);
+  const pageSize = limit + 1;
+  const result = beforeId
+    ? await env.DB
+        .prepare(
+          "SELECT id, report_date_et AS reportDateEt, file_name AS fileName, created_at AS createdAt FROM report_runs WHERE id < ? ORDER BY id DESC LIMIT ?"
+        )
+        .bind(beforeId, pageSize)
+        .all<{ id: number; reportDateEt: string; fileName: string; createdAt: string }>()
+    : await env.DB
+        .prepare(
+          "SELECT id, report_date_et AS reportDateEt, file_name AS fileName, created_at AS createdAt FROM report_runs ORDER BY id DESC LIMIT ?"
+        )
+        .bind(pageSize)
+        .all<{ id: number; reportDateEt: string; fileName: string; createdAt: string }>();
+
+  const rows = result.results ?? [];
+  const hasMore = rows.length > limit;
+  const visibleRows = hasMore ? rows.slice(0, limit) : rows;
+  const items = visibleRows.map((row) => ({
+    key: `reports/${row.fileName}`,
+    fileName: row.fileName,
+    reportDateEt: row.reportDateEt,
+    createdAt: row.createdAt,
+    source: "d1" as const
+  }));
+  const nextCursor = hasMore && visibleRows.length > 0 ? String(visibleRows[visibleRows.length - 1].id) : null;
+
+  return { items, nextCursor };
+}
+
+async function getReportListFromR2(
+  env: Env,
+  limit: number,
+  cursor?: string
+): Promise<{ items: ReportListItem[]; nextCursor: string | null } | null> {
+  if (!env.REPORT_BUCKET) {
+    return { items: [], nextCursor: null };
+  }
+
+  const listing = await env.REPORT_BUCKET.list({ prefix: "reports/", limit: 1000 });
+  const objects = [...listing.objects].sort((a, b) => b.key.localeCompare(a.key));
+
+  let startIndex = 0;
+  if (cursor) {
+    const cursorIndex = objects.findIndex((obj) => obj.key === cursor);
+    if (cursorIndex < 0) {
+      return null;
+    }
+    startIndex = cursorIndex + 1;
+  }
+
+  const page = objects.slice(startIndex, startIndex + limit);
+  const nextCursor =
+    startIndex + limit < objects.length && page.length > 0 ? page[page.length - 1].key : null;
+
+  const items = page.map((obj) => ({
+    key: obj.key,
+    fileName: obj.key.replace(/^reports\//, ""),
+    reportDateEt: extractDateFromReportKey(obj.key),
+    createdAt: obj.uploaded.toISOString(),
+    source: "r2" as const
+  }));
+
+  return { items, nextCursor };
+}
+
+function parseLimit(rawLimit: string | undefined): number | null {
+  if (!rawLimit) {
+    return 30;
+  }
+
+  const parsed = Number(rawLimit);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
+    return null;
+  }
+  return parsed;
+}
+
+function extractDateFromReportKey(key: string): string {
+  const matched = key.match(/(\d{4}-\d{2}-\d{2})/);
+  return matched?.[1] ?? "";
+}
+
 async function buildAiSummary(
   env: Env,
   stocks: Stock[],
@@ -724,84 +951,79 @@ async function buildAiSummary(
   newsBySymbol: Map<string, NewsItem[]>
 ): Promise<ReportSummary> {
   const stockSummaryBySymbol = new Map<string, string>();
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
 
-  for (const stock of stocks) {
-    const items = newsBySymbol.get(stock.symbol) ?? [];
-    if (items.length === 0) {
-      continue;
-    }
+  const quoteLines = stocks
+    .map((stock) => {
+      const quote = quoteBySymbol.get(stock.symbol);
+      return quote
+        ? `- ${stock.symbol} (${stock.name}): 收盘${formatPrice(quote.close, quote.currency)}, 涨跌幅${formatSignedPct(
+            quote.changePct
+          )}, 成交量${quote.volume.toLocaleString("en-US")}, 估算成交额${formatMoney(
+            quote.turnoverEstimate,
+            quote.currency
+          )}`
+        : `- ${stock.symbol} (${stock.name}): 行情数据缺失`;
+    })
+    .join("\n");
 
-    const quote = quotes.find((q) => q.symbol === stock.symbol);
-    const fallback = sanitizeTitle(items[0].title);
-    const prompt = [
-      `股票: ${stock.symbol} (${stock.name})`,
-      quote ? `当日涨跌幅: ${formatSignedPct(quote.changePct)}` : "当日涨跌幅: 无",
-      "请根据以下新闻生成一句中文总结，20-40字，聚焦事件影响。",
-      ...items.map((item, index) => `${index + 1}. ${sanitizeTitle(item.title)} (${item.source})`)
-    ].join("\n");
+  const allMarketNews = stocks
+    .flatMap((stock) => {
+      const items = newsBySymbol.get(stock.symbol) ?? [];
+      return items.map((item) => ({
+        symbol: stock.symbol,
+        title: sanitizeTitle(item.title),
+        source: item.source,
+        publishedAt: item.publishedAt
+      }));
+    })
+    .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
 
-    const aiText = await callAiGateway(env, "你是财经编辑，请输出客观、简洁的中文总结。", prompt);
-    stockSummaryBySymbol.set(stock.symbol, aiText ?? fallback);
-  }
-
-  const topMoves = [...quotes]
-    .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct))
-    .slice(0, 5)
-    .map((q) => `${q.symbol} ${formatSignedPct(q.changePct)}`)
-    .join("; ");
-
-  const stockSummaryLines = Array.from(stockSummaryBySymbol.entries())
-    .slice(0, 8)
-    .map(([symbol, summary]) => `${symbol}: ${summary}`)
+  const allMarketNewsLines = allMarketNews
+    .map(
+      (item, index) =>
+        `${index + 1}. [${item.symbol}] ${item.title} (${item.source}, ${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET)`
+    )
     .join("\n");
 
   const marketPrompt = [
-    "请基于以下中概市场数据生成一句中文总览，30-60字，包含市场情绪和主要驱动。",
-    `异动: ${topMoves || "无"}`,
-    stockSummaryLines ? `个股摘要:\n${stockSummaryLines}` : "个股摘要: 无"
+    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多200字。",
+    "要求：只基于提供的信息总结；语言客观；不要分点；不要投资建议。",
+    `股票数据:\n${quoteLines}`,
+    allMarketNewsLines ? `相关新闻:\n${allMarketNewsLines}` : "相关新闻: 无"
   ].join("\n\n");
 
-  const marketOverview =
-    (await callAiGateway(env, "你是中概日报主编，输出一句客观市场总览。", marketPrompt)) ??
-    "当日中概分化运行，重点关注涨跌幅居前个股与对应新闻事件。";
+  const marketOverviewRaw = (await callAiCompatible(
+    env,
+    "你是中概日报主编，请输出一段不超过200字的中文市场总览。",
+    marketPrompt
+  )) ?? "";
+  const marketOverview = truncateByChars(marketOverviewRaw, 200);
 
   return { stockSummaryBySymbol, marketOverview };
 }
 
-async function callAiGateway(env: Env, systemPrompt: string, userPrompt: string): Promise<string | null> {
-  if (env.AI) {
-    try {
-      const ai = env.AI as unknown as { run: (model: string, input: unknown) => Promise<unknown> };
-      const response = await ai.run(env.AI_MODEL ?? CF_AI_DEFAULT_MODEL, {
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        max_tokens: 220,
-        temperature: 0.2
-      });
-
-      const text = extractCloudflareAiText(response);
-      if (text) {
-        return text;
-      }
-    } catch {
-      // Fall through to optional gateway call.
-    }
-  }
-
-  if (!env.AI_GATEWAY_BASE_URL) {
+async function callAiCompatible(env: Env, systemPrompt: string, userPrompt: string): Promise<string | null> {
+  const baseUrl = env.OPENAI_BASE_URL ?? env.AI_GATEWAY_BASE_URL;
+  if (!baseUrl) {
     return null;
   }
 
-  const response = await fetch(env.AI_GATEWAY_BASE_URL, {
+  const endpoint = resolveChatCompletionsEndpoint(baseUrl);
+  const headers: Record<string, string> = {
+    "content-type": "application/json"
+  };
+
+  const apiKey = env.OPENAI_API_KEY ?? env.AI_API_KEY;
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(env.AI_API_KEY ? { authorization: `Bearer ${env.AI_API_KEY}` } : {})
-    },
+    headers,
     body: JSON.stringify({
-      model: env.AI_MODEL ?? "gpt-4o-mini",
+      model: env.AI_MODEL ?? OPENAI_DEFAULT_MODEL,
       temperature: 0.2,
       messages: [
         { role: "system", content: systemPrompt },
@@ -826,20 +1048,26 @@ async function callAiGateway(env: Env, systemPrompt: string, userPrompt: string)
   return content && content.length > 0 ? content : null;
 }
 
-function extractCloudflareAiText(response: unknown): string | null {
-  if (!response || typeof response !== "object") {
-    return null;
+function resolveChatCompletionsEndpoint(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    const path = url.pathname.replace(/\/+$/, "");
+    if (path.endsWith("/chat/completions")) {
+      return url.toString();
+    }
+    if (path === "" || path === "/") {
+      url.pathname = "/v1/chat/completions";
+      return url.toString();
+    }
+    if (path.endsWith("/v1")) {
+      url.pathname = `${path}/chat/completions`;
+      return url.toString();
+    }
+    url.pathname = `${path}/chat/completions`;
+    return url.toString();
+  } catch {
+    return baseUrl;
   }
-
-  const maybe = response as {
-    result?: {
-      response?: string;
-    };
-    response?: string;
-  };
-
-  const text = maybe.result?.response ?? maybe.response;
-  return typeof text === "string" && text.trim().length > 0 ? text.trim() : null;
 }
 
 async function persistReportToD1(
@@ -915,31 +1143,3 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
   }
 }
 
-function buildDocsHtml(specUrl: string): string {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>China Stocks Daily Worker API Docs</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
-    <style>
-      body { margin: 0; background: #fafafa; }
-      #swagger-ui { max-width: 1200px; margin: 0 auto; }
-    </style>
-  </head>
-  <body>
-    <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-    <script>
-      window.ui = SwaggerUIBundle({
-        url: ${JSON.stringify(specUrl)},
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        presets: [SwaggerUIBundle.presets.apis],
-        layout: 'BaseLayout'
-      });
-    </script>
-  </body>
-</html>`;
-}

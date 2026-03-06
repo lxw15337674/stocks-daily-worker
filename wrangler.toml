@@ -10,9 +10,7 @@ binding = "DB"
 database_name = "china-stocks-daily"
 database_id = "8db1c9cb-c3a9-4093-aa0e-36142c0a773b"
 
-# Optional vars for AI Gateway.
+# Optional vars for OpenAI-compatible providers.
 [vars]
-AI_MODEL = "@cf/zai-org/glm-4.7-flash"
-
-[ai]
-binding = "AI"
+OPENAI_BASE_URL = "https://maxx.cloverstd.com"
+AI_MODEL = "gpt-5.2"
