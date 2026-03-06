@@ -987,18 +987,17 @@ async function buildAiSummary(
     .join("\n");
 
   const marketPrompt = [
-    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多200字。",
+    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多400字。",
     "要求：只基于提供的信息总结；语言客观；不要分点；不要投资建议。",
     `股票数据:\n${quoteLines}`,
     allMarketNewsLines ? `相关新闻:\n${allMarketNewsLines}` : "相关新闻: 无"
   ].join("\n\n");
 
-  const marketOverviewRaw = (await callAiCompatible(
+  const marketOverview = (await callAiCompatible(
     env,
-    "你是中概日报主编，请输出一段不超过200字的中文市场总览。",
+    "你是中概日报主编，请输出一段不超过400字的中文市场总览。",
     marketPrompt
   )) ?? "";
-  const marketOverview = truncateByChars(marketOverviewRaw, 200);
 
   return { stockSummaryBySymbol, marketOverview };
 }
