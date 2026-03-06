@@ -19,6 +19,11 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 - `GET /run`: generate report immediately and return markdown
 - `GET /latest`: return latest report (D1 first, fallback to R2)
 - `GET /reports?limit=30&cursor=<cursor>`: list report history with pagination (D1 first, fallback to R2)
+- `GET /stocks`: list stock pool (`?includeInactive=true` requires `x-admin-token`)
+- `POST /stocks`: create stock (requires `x-admin-token`, auto-generate aliases by AI)
+- `PUT /stocks/:id`: update stock (requires `x-admin-token`, auto-regenerate aliases)
+- `DELETE /stocks/:id`: soft-delete stock (requires `x-admin-token`)
+- `POST /stocks/:id/aliases/regenerate`: regenerate aliases for one stock (requires `x-admin-token`)
 - `GET /report/:date`: read report by date from D1 first, then R2; if date is today (ET) and missing, it auto-generates on demand
 - `GET /rss.xml?limit=30`: RSS 2.0 feed for latest reports with full markdown content in each item (D1 first, fallback to R2)
 - `GET /atom.xml?limit=30`: Atom 1.0 feed for latest reports (D1 first, fallback to R2)
@@ -96,18 +101,24 @@ When `DB` is configured, each run stores:
 - quote snapshots (`report_quotes`)
 - news items with AI summary (`report_news`)
 
-### Custom stock metadata
+### Stock Pool Management (D1 + Admin Token)
 
-Set `STOCK_LIST_JSON` as a Wrangler secret or variable to override display name/aliases for stocks in the default list.
-Symbols outside the default stock set are ignored. Format:
+Stock pool is now stored in D1 table `stocks`.
+On first startup, default stocks are automatically seeded if the table is empty.
 
-```json
-[
-  { "symbol": "BABA", "name": "Alibaba Group", "aliases": ["阿里巴巴", "阿里"] }
-]
+Set `ADMIN_TOKEN` (Wrangler secret or variable) for stock admin APIs:
+
+```bash
+npx wrangler secret put ADMIN_TOKEN
 ```
 
-You can also use `.dev.vars` locally. A template is provided in `.dev.vars.example`.
+Admin endpoints require header:
+
+```http
+x-admin-token: <ADMIN_TOKEN>
+```
+
+Web frontend provides `/stocks` page for CRUD and alias regeneration.
 
 ### Archive markdown to R2
 
@@ -142,6 +153,7 @@ Set these vars/secrets:
 
 If `OPENAI_BASE_URL` is configured, the worker will:
 - generate one market overview summary (max 200 Chinese chars)
+- auto-generate stock aliases for stock CRUD operations
 
 ## Cron
 

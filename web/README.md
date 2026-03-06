@@ -7,6 +7,7 @@ This folder contains the website frontend built with `vinext` (Next.js API on Vi
 - Home dashboard with latest summary and feed links
 - Date lookup (`YYYY-MM-DD`) and report detail page
 - Archive page listing historical reports
+- Stock admin page (`/stocks`) for CRUD and AI alias regeneration (requires `ADMIN_TOKEN`)
 - Markdown rendering for full report content
 
 ## Commands

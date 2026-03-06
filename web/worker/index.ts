@@ -34,6 +34,7 @@ interface Env {
 
 const REPORT_DATE_PATH = /^\/report\/\d{4}-\d{2}-\d{2}$/;
 const API_STATIC_PATHS = new Set(["/health", "/latest", "/reports", "/rss.xml", "/atom.xml", "/feed.json"]);
+const STOCKS_API_PATH = /^\/stocks(?:\/\d+(?:\/aliases\/regenerate)?)?$/;
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 
 function resolveApiPath(pathname: string): string | null {
@@ -46,7 +47,7 @@ function resolveApiPath(pathname: string): string | null {
   }
 
   const apiPath = pathname.slice(4) || "/";
-  if (API_STATIC_PATHS.has(apiPath) || REPORT_DATE_PATH.test(apiPath)) {
+  if (API_STATIC_PATHS.has(apiPath) || REPORT_DATE_PATH.test(apiPath) || STOCKS_API_PATH.test(apiPath)) {
     return apiPath;
   }
 

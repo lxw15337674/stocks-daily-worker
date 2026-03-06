@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Newspaper, Rss } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Newspaper, Rss, Settings2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -209,6 +209,12 @@ export default async function HomePage(props: HomePageProps) {
                   <Link href="/archive">
                     <Newspaper className="h-4 w-4" />
                     历史日报
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href="/stocks">
+                    <Settings2 className="h-4 w-4" />
+                    股票管理
                   </Link>
                 </Button>
                 <Button asChild size="sm" className="w-full">

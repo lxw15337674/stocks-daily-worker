@@ -6,5 +6,5 @@ OPENAI_BASE_URL=https://maxx.cloverstd.com
 OPENAI_API_KEY=
 AI_MODEL=gpt-5.2
 
-# Optional override stock metadata for stocks in default list
-# STOCK_LIST_JSON=[{"symbol":"BABA","name":"Alibaba Group","aliases":["阿里","阿里巴巴"]}]
+# Required for stock admin APIs (/stocks CRUD)
+ADMIN_TOKEN=

@@ -1,12 +1,15 @@
 import { swaggerUI } from "@hono/swagger-ui";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { Feed } from "feed";
 import { Hono } from "hono";
 import { describeRoute, openAPIRouteHandler } from "hono-openapi";
+import { stocks as stocksTable } from "./db/schema";
 
 interface Env {
   DB?: D1Database;
   REPORT_BUCKET?: R2Bucket;
-  STOCK_LIST_JSON?: string;
+  ADMIN_TOKEN?: string;
   WEBHOOK_URL?: string;
   OPENAI_BASE_URL?: string;
   OPENAI_API_KEY?: string;
@@ -22,7 +25,6 @@ type Stock = {
   displayName: string;
   codes: string;
   businessType: string;
-  approxWeight: string;
   aliases: string[];
 };
 
@@ -68,6 +70,33 @@ type RssFeedItem = {
   markdown: string | null;
 };
 
+type StockAdminItem = {
+  id: number;
+  symbol: string;
+  name: string;
+  displayName: string;
+  codes: string;
+  businessType: string;
+  aliases: string[];
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+type StockMutationInput = {
+  symbol?: string;
+  name?: string;
+  displayName?: string;
+  codes?: string;
+  businessType?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+};
+
+type StockRecord = typeof stocksTable.$inferSelect;
+
 // Default stock list (mixed US/HK tradable symbols).
 const DEFAULT_STOCKS: Stock[] = [
   {
@@ -76,7 +105,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "中国互联网ETF (KWEB)",
     codes: "KWEB",
     businessType: "中国互联网指数ETF",
-    approxWeight: "N/A",
     aliases: ["KWEB", "KraneShares", "中国互联网ETF"]
   },
   {
@@ -85,7 +113,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "中国互联网2倍杠杆ETF (CWEB)",
     codes: "CWEB",
     businessType: "中国互联网指数2倍杠杆ETF",
-    approxWeight: "N/A",
     aliases: ["CWEB", "Direxion", "中国互联网2倍杠杆ETF"]
   },
   {
@@ -94,7 +121,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "腾讯控股 (Tencent)",
     codes: "HK:0700",
     businessType: "社交、游戏、支付",
-    approxWeight: "~10.2%",
     aliases: ["腾讯", "腾讯控股", "Tencent", "HK:0700", "0700.HK"]
   },
   {
@@ -103,7 +129,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "阿里巴巴 (Alibaba)",
     codes: "BABA / HK:9988",
     businessType: "电商、云服务",
-    approxWeight: "~8.7%",
     aliases: ["阿里", "阿里巴巴", "Alibaba", "BABA", "HK:9988", "9988.HK"]
   },
   {
@@ -112,7 +137,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "拼多多 (PDD Holdings)",
     codes: "PDD",
     businessType: "跨境电商、国内电商",
-    approxWeight: "~8.0%",
     aliases: ["拼多多", "PDD", "PDD Holdings"]
   },
   {
@@ -121,7 +145,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "美团 (Meituan)",
     codes: "HK:3690",
     businessType: "本地生活、外卖",
-    approxWeight: "~7.5%",
     aliases: ["美团", "Meituan", "HK:3690", "3690.HK"]
   },
   {
@@ -130,7 +153,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "网易 (NetEase)",
     codes: "NTES / HK:9999",
     businessType: "游戏、在线教育",
-    approxWeight: "~6.1%",
     aliases: ["网易", "NetEase", "NTES", "HK:9999", "9999.HK"]
   },
   {
@@ -139,7 +161,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "百度 (Baidu)",
     codes: "BIDU / HK:9888",
     businessType: "AI、搜索、自动驾驶",
-    approxWeight: "~4.3%",
     aliases: ["百度", "Baidu", "BIDU", "HK:9888", "9888.HK"]
   },
   {
@@ -148,7 +169,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "携程 (Trip.com)",
     codes: "TCOM / HK:9961",
     businessType: "在线旅游",
-    approxWeight: "~4.2%",
     aliases: ["携程", "Trip.com", "TCOM", "HK:9961", "9961.HK"]
   },
   {
@@ -157,7 +177,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "京东 (JD.com)",
     codes: "JD / HK:9618",
     businessType: "电商、物流",
-    approxWeight: "~4.0%",
     aliases: ["京东", "JD", "JD.com", "HK:9618", "9618.HK"]
   },
   {
@@ -166,7 +185,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "腾讯音乐 (Tencent Music)",
     codes: "TME / HK:1698",
     businessType: "在线音乐",
-    approxWeight: "~3.9%",
     aliases: ["腾讯音乐", "Tencent Music", "TME", "HK:1698", "1698.HK"]
   },
   {
@@ -175,7 +193,6 @@ const DEFAULT_STOCKS: Stock[] = [
     displayName: "快手 (Kuaishou)",
     codes: "HK:1024",
     businessType: "短视频、直播",
-    approxWeight: "~3.8%",
     aliases: ["快手", "Kuaishou", "HK:1024", "1024.HK"]
   }
 ];
@@ -418,6 +435,269 @@ app.get(
     }
 
     return c.text("Neither DB nor REPORT_BUCKET is configured.", 400);
+  }
+);
+
+app.get(
+  "/stocks",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "List stock universe",
+    description: "Returns active stocks by default. Set includeInactive=true with admin token to include soft-deleted rows.",
+    parameters: [
+      {
+        name: "includeInactive",
+        in: "query",
+        required: false,
+        schema: { type: "boolean", default: false },
+        description: "Include inactive rows. Requires admin token."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Stock list",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "integer" },
+                      symbol: { type: "string" },
+                      name: { type: "string" },
+                      displayName: { type: "string" },
+                      codes: { type: "string" },
+                      businessType: { type: "string" },
+                      aliases: { type: "array", items: { type: "string" } },
+                      isActive: { type: "boolean" },
+                      sortOrder: { type: "integer" },
+                      createdAt: { type: "string" },
+                      updatedAt: { type: "string" },
+                      deletedAt: { anyOf: [{ type: "string" }, { type: "null" }] }
+                    },
+                    required: [
+                      "id",
+                      "symbol",
+                      "name",
+                      "displayName",
+                      "codes",
+                      "businessType",
+                      "aliases",
+                      "isActive",
+                      "sortOrder",
+                      "createdAt",
+                      "updatedAt",
+                      "deletedAt"
+                    ]
+                  }
+                }
+              },
+              required: ["items"]
+            }
+          }
+        }
+      },
+      "401": {
+        description: "Missing or invalid admin token"
+      }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const includeInactive = parseBooleanQuery(c.req.query("includeInactive"));
+    if (includeInactive && !isAdminRequestAuthorized(c.req.header("x-admin-token"), c.env)) {
+      return c.text("Unauthorized.", 401);
+    }
+
+    const items = await listStocksFromD1(c.env.DB, { includeInactive });
+    return c.json({ items });
+  }
+);
+
+app.post(
+  "/stocks",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Create stock",
+    description: "Create a stock row and auto-generate aliases with AI.",
+    responses: {
+      "201": { description: "Created stock row" },
+      "400": { description: "Invalid payload" },
+      "401": { description: "Missing or invalid admin token" }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const payload = await readJsonSafe(c.req.raw);
+    if (!payload || typeof payload !== "object") {
+      return c.text("Invalid JSON payload.", 400);
+    }
+
+    const parsed = parseStockMutationInput(payload, { requireSymbol: true });
+    if (!parsed.ok) {
+      return c.text(parsed.error, 400);
+    }
+
+    const result = await createStock(c.env, parsed.value);
+    if (!result.ok) {
+      return new Response(result.error, { status: result.status });
+    }
+
+    return c.json(result.item, 201);
+  }
+);
+
+app.put(
+  "/stocks/:id",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Update stock",
+    description: "Update stock fields and auto-regenerate aliases with AI.",
+    responses: {
+      "200": { description: "Updated stock row" },
+      "400": { description: "Invalid payload" },
+      "401": { description: "Missing or invalid admin token" },
+      "404": { description: "Stock not found" }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const stockId = Number(c.req.param("id"));
+    if (!Number.isInteger(stockId) || stockId < 1) {
+      return c.text("Invalid stock id.", 400);
+    }
+
+    const payload = await readJsonSafe(c.req.raw);
+    if (!payload || typeof payload !== "object") {
+      return c.text("Invalid JSON payload.", 400);
+    }
+
+    const parsed = parseStockMutationInput(payload, { requireSymbol: false });
+    if (!parsed.ok) {
+      return c.text(parsed.error, 400);
+    }
+
+    const result = await updateStock(c.env, stockId, parsed.value);
+    if (!result.ok) {
+      return new Response(result.error, { status: result.status });
+    }
+
+    return c.json(result.item);
+  }
+);
+
+app.delete(
+  "/stocks/:id",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Soft-delete stock",
+    description: "Marks a stock as inactive.",
+    responses: {
+      "200": { description: "Soft delete success" },
+      "401": { description: "Missing or invalid admin token" },
+      "404": { description: "Stock not found" }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const stockId = Number(c.req.param("id"));
+    if (!Number.isInteger(stockId) || stockId < 1) {
+      return c.text("Invalid stock id.", 400);
+    }
+
+    const row = await getStockRowById(c.env.DB, stockId);
+    if (!row) {
+      return c.text("Stock not found.", 404);
+    }
+
+    const db = drizzle(c.env.DB);
+    await db
+      .update(stocksTable)
+      .set({ isActive: false, deletedAt: sql`CURRENT_TIMESTAMP`, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(stocksTable.id, stockId));
+
+    const updated = await getStockRowById(c.env.DB, stockId);
+    return c.json(updated ? stockRowToItem(updated) : { ok: true });
+  }
+);
+
+app.post(
+  "/stocks/:id/aliases/regenerate",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Regenerate aliases by AI",
+    description: "Regenerates aliases for a stock with AI and conflict filters.",
+    responses: {
+      "200": { description: "Updated stock row" },
+      "401": { description: "Missing or invalid admin token" },
+      "404": { description: "Stock not found" }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const stockId = Number(c.req.param("id"));
+    if (!Number.isInteger(stockId) || stockId < 1) {
+      return c.text("Invalid stock id.", 400);
+    }
+
+    const row = await getStockRowById(c.env.DB, stockId);
+    if (!row) {
+      return c.text("Stock not found.", 404);
+    }
+
+    const aliases = await buildAliasesForStock(c.env, stockRowToItem(row), stockId);
+    const db = drizzle(c.env.DB);
+    await db
+      .update(stocksTable)
+      .set({ aliasesJson: JSON.stringify(aliases), updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(stocksTable.id, stockId));
+
+    const updated = await getStockRowById(c.env.DB, stockId);
+    return c.json(updated ? stockRowToItem(updated) : { ok: true });
   }
 );
 
@@ -729,7 +1009,7 @@ async function generateAndPersistReport(
   env: Env,
   options?: { requireDb?: boolean }
 ): Promise<{ markdown: string; fileName: string }> {
-  const stocks = getStockUniverse(env);
+  const stocks = await getStockUniverse(env);
   const quotes = (await Promise.all(stocks.map((stock) => fetchQuote(stock)))).filter(
     (item): item is Quote => item !== null
   );
@@ -784,43 +1064,441 @@ async function generateAndPersistReport(
   return { markdown, fileName };
 }
 
-function getStockUniverse(env: Env): Stock[] {
-  const defaultStockMap = new Map(DEFAULT_STOCKS.map((stock) => [stock.symbol, stock]));
-
-  if (!env.STOCK_LIST_JSON) {
+async function getStockUniverse(env: Env): Promise<Stock[]> {
+  if (!env.DB) {
     return DEFAULT_STOCKS;
   }
 
   try {
-    const parsed = JSON.parse(env.STOCK_LIST_JSON) as Stock[];
-    const customMap = new Map<string, Stock>();
-
-    for (const stock of parsed) {
-      if (!stock?.symbol || !stock?.name || !Array.isArray(stock.aliases)) {
-        continue;
+    await ensureD1Schema(env.DB);
+    const items = await listStocksFromD1(env.DB, { includeInactive: false });
+    if (items.length === 0) {
+      const all = await listStocksFromD1(env.DB, { includeInactive: true });
+      if (all.length > 0) {
+        return [];
       }
-      if (!defaultStockMap.has(stock.symbol)) {
-        continue;
-      }
-      const base = defaultStockMap.get(stock.symbol);
-      if (!base) {
-        continue;
-      }
-      customMap.set(stock.symbol, {
-        symbol: stock.symbol,
-        name: stock.name,
-        displayName: stock.displayName || base.displayName,
-        codes: stock.codes || base.codes,
-        businessType: stock.businessType || base.businessType,
-        approxWeight: stock.approxWeight || base.approxWeight,
-        aliases: stock.aliases
-      });
+      return DEFAULT_STOCKS;
     }
 
-    return DEFAULT_STOCKS.map((stock) => customMap.get(stock.symbol) ?? stock);
+    return items.map((item) => ({
+      symbol: item.symbol,
+      name: item.name,
+      displayName: item.displayName,
+      codes: item.codes,
+      businessType: item.businessType,
+      aliases: item.aliases
+    }));
   } catch {
     return DEFAULT_STOCKS;
   }
+}
+
+function parseBooleanQuery(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function isAdminRequestAuthorized(token: string | undefined, env: Env): boolean {
+  const expected = env.ADMIN_TOKEN?.trim();
+  if (!expected) {
+    return false;
+  }
+  return token === expected;
+}
+
+function ensureAdminToken(
+  token: string | undefined,
+  env: Env
+): { status: number; message: string } | null {
+  const expected = env.ADMIN_TOKEN?.trim();
+  if (!expected) {
+    return { status: 500, message: "ADMIN_TOKEN is not configured." };
+  }
+  if (token !== expected) {
+    return { status: 401, message: "Unauthorized." };
+  }
+  return null;
+}
+
+async function readJsonSafe(request: Request): Promise<unknown | null> {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStringField(value: unknown, maxLength = 200): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized.slice(0, maxLength);
+}
+
+function normalizeSymbol(value: unknown): string | undefined {
+  const normalized = normalizeStringField(value, 32);
+  return normalized ? normalized.toUpperCase() : undefined;
+}
+
+function normalizeSortOrder(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return undefined;
+  }
+  if (value < -1_000_000 || value > 1_000_000) {
+    return undefined;
+  }
+  return value;
+}
+
+type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function parseStockMutationInput(
+  payload: unknown,
+  options: { requireSymbol: boolean }
+): ParseResult<StockMutationInput> {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Payload must be an object." };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const symbol = normalizeSymbol(body.symbol);
+  const name = normalizeStringField(body.name);
+  const displayName = normalizeStringField(body.displayName);
+  const codes = normalizeStringField(body.codes);
+  const businessType = normalizeStringField(body.businessType);
+  const sortOrder = normalizeSortOrder(body.sortOrder);
+  const isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
+
+  if (options.requireSymbol && !symbol) {
+    return { ok: false, error: "symbol is required." };
+  }
+
+  const parsed: StockMutationInput = {
+    symbol,
+    name,
+    displayName,
+    codes,
+    businessType,
+    sortOrder,
+    isActive
+  };
+
+  if (
+    !options.requireSymbol &&
+    symbol === undefined &&
+    name === undefined &&
+    displayName === undefined &&
+    codes === undefined &&
+    businessType === undefined &&
+    sortOrder === undefined &&
+    isActive === undefined
+  ) {
+    return { ok: false, error: "At least one updatable field is required." };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseAliasesJson(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function stockRowToItem(row: StockRecord): StockAdminItem {
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    name: row.name,
+    displayName: row.displayName,
+    codes: row.codes,
+    businessType: row.businessType,
+    aliases: parseAliasesJson(row.aliasesJson),
+    isActive: row.isActive,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    deletedAt: row.deletedAt
+  };
+}
+
+async function listStocksFromD1(
+  dbBinding: D1Database,
+  options: { includeInactive: boolean }
+): Promise<StockAdminItem[]> {
+  const db = drizzle(dbBinding);
+  const rows = options.includeInactive
+    ? await db.select().from(stocksTable).orderBy(asc(stocksTable.sortOrder), asc(stocksTable.id))
+    : await db
+        .select()
+        .from(stocksTable)
+        .where(eq(stocksTable.isActive, true))
+        .orderBy(asc(stocksTable.sortOrder), asc(stocksTable.id));
+  return rows.map(stockRowToItem);
+}
+
+async function getStockRowById(dbBinding: D1Database, stockId: number): Promise<StockRecord | null> {
+  const db = drizzle(dbBinding);
+  const rows = await db.select().from(stocksTable).where(eq(stocksTable.id, stockId)).limit(1);
+  return rows[0] ?? null;
+}
+
+async function getStockRowBySymbol(dbBinding: D1Database, symbol: string): Promise<StockRecord | null> {
+  const db = drizzle(dbBinding);
+  const rows = await db.select().from(stocksTable).where(eq(stocksTable.symbol, symbol)).limit(1);
+  return rows[0] ?? null;
+}
+
+async function getNextSortOrder(dbBinding: D1Database): Promise<number> {
+  const db = drizzle(dbBinding);
+  const rows = await db
+    .select({ sortOrder: stocksTable.sortOrder })
+    .from(stocksTable)
+    .orderBy(desc(stocksTable.sortOrder))
+    .limit(1);
+  return (rows[0]?.sortOrder ?? 0) + 10;
+}
+
+type StockMutationResult =
+  | { ok: true; item: StockAdminItem }
+  | { ok: false; status: number; error: string };
+
+async function createStock(env: Env, input: StockMutationInput): Promise<StockMutationResult> {
+  if (!env.DB || !input.symbol) {
+    return { ok: false, status: 400, error: "DB and symbol are required." };
+  }
+
+  const existing = await getStockRowBySymbol(env.DB, input.symbol);
+  if (existing) {
+    return { ok: false, status: 409, error: "Stock symbol already exists." };
+  }
+
+  const name = input.name ?? input.symbol;
+  const displayName = input.displayName ?? (name === input.symbol ? input.symbol : `${name} (${input.symbol})`);
+  const db = drizzle(env.DB);
+  const sortOrder = input.sortOrder ?? (await getNextSortOrder(env.DB));
+  const nowDeletedAt = input.isActive === false ? sql`CURRENT_TIMESTAMP` : null;
+
+  await db.insert(stocksTable).values({
+    symbol: input.symbol,
+    name,
+    displayName,
+    codes: input.codes ?? input.symbol,
+    businessType: input.businessType ?? "N/A",
+    aliasesJson: "[]",
+    isActive: input.isActive ?? true,
+    sortOrder,
+    deletedAt: nowDeletedAt
+  });
+
+  const created = await getStockRowBySymbol(env.DB, input.symbol);
+  if (!created) {
+    return { ok: false, status: 500, error: "Failed to create stock." };
+  }
+
+  const aliases = await buildAliasesForStock(env, stockRowToItem(created), created.id);
+  await db
+    .update(stocksTable)
+    .set({ aliasesJson: JSON.stringify(aliases), updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(stocksTable.id, created.id));
+
+  const latest = await getStockRowById(env.DB, created.id);
+  if (!latest) {
+    return { ok: false, status: 500, error: "Failed to load created stock." };
+  }
+  return { ok: true, item: stockRowToItem(latest) };
+}
+
+async function updateStock(env: Env, stockId: number, input: StockMutationInput): Promise<StockMutationResult> {
+  if (!env.DB) {
+    return { ok: false, status: 400, error: "DB is required." };
+  }
+
+  const current = await getStockRowById(env.DB, stockId);
+  if (!current) {
+    return { ok: false, status: 404, error: "Stock not found." };
+  }
+
+  const nextSymbol = input.symbol ?? current.symbol;
+  const db = drizzle(env.DB);
+  const conflict = await db
+    .select({ id: stocksTable.id })
+    .from(stocksTable)
+    .where(and(eq(stocksTable.symbol, nextSymbol), ne(stocksTable.id, stockId)))
+    .limit(1);
+  if (conflict.length > 0) {
+    return { ok: false, status: 409, error: "Stock symbol already exists." };
+  }
+
+  const nextName = input.name ?? current.name;
+  const nextDisplayName =
+    input.displayName ?? current.displayName ?? (nextName === nextSymbol ? nextSymbol : `${nextName} (${nextSymbol})`);
+  const nextIsActive = input.isActive ?? current.isActive;
+
+  await db
+    .update(stocksTable)
+    .set({
+      symbol: nextSymbol,
+      name: nextName,
+      displayName: nextDisplayName,
+      codes: input.codes ?? current.codes,
+      businessType: input.businessType ?? current.businessType,
+      sortOrder: input.sortOrder ?? current.sortOrder,
+      isActive: nextIsActive,
+      deletedAt: nextIsActive ? null : sql`CURRENT_TIMESTAMP`,
+      updatedAt: sql`CURRENT_TIMESTAMP`
+    })
+    .where(eq(stocksTable.id, stockId));
+
+  const updated = await getStockRowById(env.DB, stockId);
+  if (!updated) {
+    return { ok: false, status: 500, error: "Failed to load updated stock." };
+  }
+
+  const aliases = await buildAliasesForStock(env, stockRowToItem(updated), stockId);
+  await db
+    .update(stocksTable)
+    .set({ aliasesJson: JSON.stringify(aliases), updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(stocksTable.id, stockId));
+
+  const latest = await getStockRowById(env.DB, stockId);
+  if (!latest) {
+    return { ok: false, status: 500, error: "Failed to load updated stock." };
+  }
+  return { ok: true, item: stockRowToItem(latest) };
+}
+
+function collectAliasCandidates(stock: Pick<StockAdminItem, "symbol" | "name" | "displayName" | "codes">): string[] {
+  return [stock.symbol, stock.name, stock.displayName, stock.codes]
+    .flatMap((value) => value.split("/"))
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function normalizeAliasList(input: string[]): string[] {
+  const blocked = new Set(["股票", "港股", "美股", "公司", "集团"]);
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of input) {
+    const normalized = item.trim();
+    if (normalized.length < 2 || normalized.length > 40) {
+      continue;
+    }
+    const lower = normalized.toLowerCase();
+    if (blocked.has(normalized) || seen.has(lower)) {
+      continue;
+    }
+    seen.add(lower);
+    out.push(normalized);
+    if (out.length >= 24) {
+      break;
+    }
+  }
+
+  return out;
+}
+
+function extractJsonArray(raw: string): string[] {
+  const trimmed = raw.trim();
+  const direct = tryParseAliasJson(trimmed);
+  if (direct) {
+    return direct;
+  }
+
+  const first = trimmed.indexOf("[");
+  const last = trimmed.lastIndexOf("]");
+  if (first >= 0 && last > first) {
+    return tryParseAliasJson(trimmed.slice(first, last + 1)) ?? [];
+  }
+  return [];
+}
+
+function tryParseAliasJson(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return null;
+  }
+}
+
+async function filterConflictingAliases(
+  dbBinding: D1Database,
+  aliases: string[],
+  symbol: string,
+  selfId?: number
+): Promise<string[]> {
+  const db = drizzle(dbBinding);
+  const rows = await db
+    .select({ id: stocksTable.id, symbol: stocksTable.symbol, aliasesJson: stocksTable.aliasesJson })
+    .from(stocksTable)
+    .where(
+      and(
+        eq(stocksTable.isActive, true),
+        selfId ? ne(stocksTable.id, selfId) : sql`1 = 1`
+      )
+    );
+
+  const occupied = new Map<string, string>();
+  for (const row of rows) {
+    const values = parseAliasesJson(row.aliasesJson);
+    for (const alias of values) {
+      occupied.set(alias.toLowerCase(), row.symbol);
+    }
+  }
+
+  return aliases.filter((alias) => {
+    const owner = occupied.get(alias.toLowerCase());
+    return !owner || owner === symbol;
+  });
+}
+
+async function buildAliasesForStock(
+  env: Env,
+  stock: Pick<StockAdminItem, "symbol" | "name" | "displayName" | "codes">,
+  selfId?: number
+): Promise<string[]> {
+  const seed = collectAliasCandidates(stock);
+  const aiPrompt = [
+    "请为下面这只股票生成别名数组（JSON string array）。",
+    "要求：只输出 JSON 数组，不要解释；包含中英文常见简称、代码写法；不要输出泛词。",
+    `symbol: ${stock.symbol}`,
+    `name: ${stock.name}`,
+    `displayName: ${stock.displayName}`,
+    `codes: ${stock.codes}`
+  ].join("\n");
+  const aiRaw = await callAiCompatible(
+    env,
+    "你是金融数据清洗助手。严格输出 JSON string array，不能输出任何额外文本。",
+    aiPrompt
+  );
+
+  const aiAliases = aiRaw ? extractJsonArray(aiRaw) : [];
+  const merged = normalizeAliasList([...seed, ...aiAliases]);
+  if (!env.DB) {
+    return merged;
+  }
+  return filterConflictingAliases(env.DB, merged, stock.symbol, selfId);
 }
 
 async function fetchQuote(stock: Stock): Promise<Quote | null> {
@@ -1007,13 +1685,11 @@ function buildMarkdown(params: {
   lines.push(`相关新闻：${aiOverview.newsParagraph}`);
   lines.push("");
   lines.push("## 二、股票数据");
-  lines.push(
-    "| 排名 | 公司名称 | 股票代码 (美股/港股) | 业务类型 | 约重比例 | 收盘价 | 涨跌幅 |\n|---:|---|---|---|---:|---:|---:|"
-  );
+  lines.push("| 排名 | 公司名称 | 股票代码 (美股/港股) | 业务类型 | 收盘价 | 涨跌幅 |\n|---:|---|---|---|---:|---:|");
   for (const [index, stock] of stocks.entries()) {
     const quote = quoteBySymbol.get(stock.symbol);
     lines.push(
-      `| ${index + 1} | ${stock.displayName} | ${stock.codes} | ${stock.businessType} | ${stock.approxWeight} | ${
+      `| ${index + 1} | ${stock.displayName} | ${stock.codes} | ${stock.businessType} | ${
         quote ? formatPrice(quote.close, quote.currency) : "-"
       } | ${quote ? formatSignedPct(quote.changePct) : "-"} |`
     );
@@ -1502,7 +2178,7 @@ async function buildAiSummary(
     )
     .join("\n");
 
-  const fallbackStockParagraph = buildFallbackStockOverview(stocks, quoteBySymbol, quotes);
+  const fallbackStockParagraph = await buildFallbackStockOverview(env, stocks, quoteBySymbol, quotes);
   const fallbackNewsParagraph = buildFallbackNewsOverview(allMarketNews);
 
   const marketPrompt = [
@@ -1533,31 +2209,44 @@ async function buildAiSummary(
   return { stockSummaryBySymbol, marketOverview };
 }
 
-function buildFallbackStockOverview(
+async function buildFallbackStockOverview(
+  env: Env,
   stocks: Stock[],
   quoteBySymbol: Map<string, Quote>,
   quotes: Quote[]
-): string {
+): Promise<string> {
   if (quotes.length === 0) {
     return "当日股票行情数据缺失，暂无可用的市场表现结论。";
   }
 
-  const risingCount = quotes.filter((quote) => quote.changePct > 0).length;
-  const fallingCount = quotes.filter((quote) => quote.changePct < 0).length;
-  const flatCount = quotes.length - risingCount - fallingCount;
-  const averageChange = quotes.reduce((sum, quote) => sum + quote.changePct, 0) / quotes.length;
+  const quoteLines = stocks
+    .map((stock) => {
+      const quote = quoteBySymbol.get(stock.symbol);
+      return quote
+        ? `- ${stock.symbol} (${stock.displayName}): 收盘${formatPrice(quote.close, quote.currency)}, 涨跌幅${formatSignedPct(
+            quote.changePct
+          )}`
+        : `- ${stock.symbol} (${stock.displayName}): 行情数据缺失`;
+    })
+    .join("\n");
 
-  const sortedByChange = [...quotes].sort((a, b) => b.changePct - a.changePct);
-  const strongest = sortedByChange[0];
-  const weakest = sortedByChange[sortedByChange.length - 1];
+  const prompt = [
+    "请基于以下中概股行情，生成一段中文股票市场概览。",
+    "要求：只讲股票市场，不提新闻；语气客观；不要投资建议；不要项目符号；120字以内。",
+    `行情数据:\n${quoteLines}`
+  ].join("\n\n");
 
-  return sanitizeParagraph(
-    `样本股中，上涨${risingCount}只、下跌${fallingCount}只、平盘${flatCount}只，整体平均涨跌幅约为${formatSignedPct(
-      averageChange
-    )}。表现相对较强的是${strongest.symbol}（${formatSignedPct(strongest.changePct)}），相对偏弱的是${
-      weakest.symbol
-    }（${formatSignedPct(weakest.changePct)}）。`
+  const aiRaw = await callAiCompatible(
+    env,
+    "你是中概股日报编辑。仅输出一段中文股票市场概览，不要附加标题。",
+    prompt
   );
+  const normalized = sanitizeParagraph((aiRaw ?? "").replace(/^\s*(?:股票市场|第一段)\s*[：:]\s*/i, ""));
+  if (normalized) {
+    return normalized;
+  }
+
+  return "当日股票市场概览生成失败，请参考下方个股行情数据。";
 }
 
 function buildFallbackNewsOverview(
@@ -1711,16 +2400,22 @@ async function persistReportToD1(
 
   await ensureD1Schema(env.DB);
 
-  const runResult = await env.DB.prepare(
-    "INSERT INTO report_runs (report_date_et, file_name, markdown, market_overview) VALUES (?, ?, ?, ?)"
+  await env.DB.prepare(
+    "INSERT INTO report_runs (report_date_et, file_name, markdown, market_overview) VALUES (?, ?, ?, ?) ON CONFLICT(report_date_et) DO UPDATE SET file_name = excluded.file_name, markdown = excluded.markdown, market_overview = excluded.market_overview, created_at = CURRENT_TIMESTAMP"
   )
     .bind(input.reportDateEt, input.fileName, input.markdown, input.marketOverview)
     .run();
 
-  const runId = Number(runResult.meta.last_row_id ?? 0);
+  const run = await env.DB.prepare("SELECT id FROM report_runs WHERE report_date_et = ? LIMIT 1")
+    .bind(input.reportDateEt)
+    .first<{ id: number }>();
+  const runId = Number(run?.id ?? 0);
   if (!runId) {
     return;
   }
+
+  await env.DB.prepare("DELETE FROM report_news WHERE run_id = ?").bind(runId).run();
+  await env.DB.prepare("DELETE FROM report_quotes WHERE run_id = ?").bind(runId).run();
 
   for (const quote of input.quotes) {
     await env.DB.prepare(
@@ -1757,11 +2452,69 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
     "CREATE TABLE IF NOT EXISTS report_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, report_date_et TEXT NOT NULL, file_name TEXT NOT NULL, markdown TEXT NOT NULL, market_overview TEXT, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP))",
     "CREATE TABLE IF NOT EXISTS report_quotes (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, name TEXT NOT NULL, close REAL NOT NULL, previous_close REAL NOT NULL, change_pct REAL NOT NULL, volume INTEGER NOT NULL, turnover_estimate REAL NOT NULL, currency TEXT NOT NULL, FOREIGN KEY(run_id) REFERENCES report_runs(id))",
     "CREATE TABLE IF NOT EXISTS report_news (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, title TEXT NOT NULL, link TEXT NOT NULL, source TEXT NOT NULL, published_at TEXT NOT NULL, ai_summary TEXT, FOREIGN KEY(run_id) REFERENCES report_runs(id))",
+    "CREATE TABLE IF NOT EXISTS stocks (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT NOT NULL, codes TEXT NOT NULL, business_type TEXT NOT NULL, aliases_json TEXT NOT NULL DEFAULT '[]', is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), deleted_at TEXT)",
     "CREATE INDEX IF NOT EXISTS idx_report_runs_date ON report_runs(report_date_et)",
-    "CREATE INDEX IF NOT EXISTS idx_report_news_run_symbol ON report_news(run_id, symbol)"
+    "CREATE INDEX IF NOT EXISTS idx_report_news_run_symbol ON report_news(run_id, symbol)",
+    "CREATE INDEX IF NOT EXISTS idx_stocks_active_sort ON stocks(is_active, sort_order, id)"
   ];
 
   for (const sql of statements) {
     await db.prepare(sql).run();
+  }
+
+  await deduplicateReportRunsByDate(db);
+  await db
+    .prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_report_runs_date_unique ON report_runs(report_date_et)")
+    .run();
+  await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_stocks_symbol_unique ON stocks(symbol)").run();
+  await seedDefaultStocksIfEmpty(db);
+}
+
+async function deduplicateReportRunsByDate(db: D1Database): Promise<void> {
+  const duplicateDateResult = await db
+    .prepare("SELECT report_date_et AS reportDateEt FROM report_runs GROUP BY report_date_et HAVING COUNT(*) > 1")
+    .all<{ reportDateEt: string }>();
+  const duplicateDates = duplicateDateResult.results ?? [];
+
+  for (const duplicateDate of duplicateDates) {
+    const runsResult = await db
+      .prepare("SELECT id FROM report_runs WHERE report_date_et = ? ORDER BY id DESC")
+      .bind(duplicateDate.reportDateEt)
+      .all<{ id: number }>();
+    const runs = runsResult.results ?? [];
+
+    if (runs.length <= 1) {
+      continue;
+    }
+
+    const staleRuns = runs.slice(1);
+    for (const staleRun of staleRuns) {
+      await db.prepare("DELETE FROM report_news WHERE run_id = ?").bind(staleRun.id).run();
+      await db.prepare("DELETE FROM report_quotes WHERE run_id = ?").bind(staleRun.id).run();
+      await db.prepare("DELETE FROM report_runs WHERE id = ?").bind(staleRun.id).run();
+    }
+  }
+}
+
+async function seedDefaultStocksIfEmpty(dbBinding: D1Database): Promise<void> {
+  const existing = await dbBinding.prepare("SELECT COUNT(1) AS count FROM stocks").first<{ count: number }>();
+  if ((existing?.count ?? 0) > 0) {
+    return;
+  }
+
+  const db = drizzle(dbBinding);
+  const values = DEFAULT_STOCKS.map((stock, index) => ({
+    symbol: stock.symbol,
+    name: stock.name,
+    displayName: stock.displayName,
+    codes: stock.codes,
+    businessType: stock.businessType,
+    aliasesJson: JSON.stringify(stock.aliases),
+    isActive: true,
+    sortOrder: (index + 1) * 10
+  }));
+
+  if (values.length > 0) {
+    await db.insert(stocksTable).values(values);
   }
 }
