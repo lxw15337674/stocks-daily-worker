@@ -73,6 +73,25 @@ curl https://<your-worker>.workers.dev/health
 curl https://<your-worker>.workers.dev/
 ```
 
+## Cloudflare Git Auto Deploy
+
+Use Cloudflare native Git integration (Workers Builds) for auto build/deploy on commit.
+
+Recommended setup for this monorepo:
+
+- Backend Worker project
+  - Root Directory: `/`
+  - Build Command: `npm ci`
+  - Deploy Command: `npx wrangler deploy --config wrangler.toml`
+  - Production Branch: `main`
+- Frontend Worker project
+  - Root Directory: `/web`
+  - Build Command: `corepack enable && pnpm install --frozen-lockfile`
+  - Deploy Command: `pnpm deploy`
+  - Production Branch: `main`
+
+When configured, commits pushed to `main` will trigger Cloudflare auto deploy directly.
+
 ## Optional configuration
 
 ### Website frontend (vinext + shadcn/ui)
