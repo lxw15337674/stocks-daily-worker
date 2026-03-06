@@ -2,6 +2,8 @@
 
 This folder contains the website frontend built with `vinext` (Next.js API on Vite) and `shadcn/ui`.
 
+<!-- trigger: cloudflare web auto build -->
+
 ## Features
 
 - Home dashboard with latest summary and feed links
