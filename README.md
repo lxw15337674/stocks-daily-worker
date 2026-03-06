@@ -20,6 +20,9 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 - `GET /latest`: return latest report (D1 first, fallback to R2)
 - `GET /reports?limit=30&cursor=<cursor>`: list report history with pagination (D1 first, fallback to R2)
 - `GET /report/:date`: read report by date from D1 first, then R2; if date is today (ET) and missing, it auto-generates on demand
+- `GET /rss.xml?limit=30`: RSS 2.0 feed for latest reports (D1 first, fallback to R2)
+- `GET /atom.xml?limit=30`: Atom 1.0 feed for latest reports (D1 first, fallback to R2)
+- `GET /feed.json?limit=30`: JSON Feed for latest reports (D1 first, fallback to R2)
 - `GET /openapi.json`: OpenAPI 3.1 JSON schema for all endpoints
 - `GET /`: interactive API docs (Swagger UI)
 - `GET /docs`: interactive API docs alias (backward compatible)
@@ -134,6 +137,6 @@ If `OPENAI_BASE_URL` is configured, the worker will:
 
 Current cron in `wrangler.toml`:
 
-- `45 23 * * 1-5` (UTC weekdays)
+- `0 0 * * *` (UTC daily, equals 08:00 Asia/Shanghai)
 
-Adjust this based on your preferred publish time.
+The scheduled task requires D1 binding and will fail fast if `DB` is not configured.

@@ -1,4 +1,5 @@
 import { swaggerUI } from "@hono/swagger-ui";
+import { Feed } from "feed";
 import { Hono } from "hono";
 import { describeRoute, openAPIRouteHandler } from "hono-openapi";
 
@@ -51,6 +52,15 @@ type ReportListItem = {
   reportDateEt: string;
   createdAt: string;
   source: "d1" | "r2";
+};
+
+type RssFeedItem = {
+  key: string;
+  fileName: string;
+  reportDateEt: string;
+  createdAt: string;
+  source: "d1" | "r2";
+  marketOverview: string | null;
 };
 
 // KWEB-focused top-10 US tradable symbols (no HK tickers).
@@ -401,6 +411,166 @@ app.get(
 );
 
 app.get(
+  "/rss.xml",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "RSS feed for reports",
+    description: "RSS 2.0 feed for latest reports. Uses D1 first, then R2 fallback.",
+    parameters: [
+      {
+        name: "limit",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 200, default: 30 },
+        description: "Maximum number of feed items"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "RSS XML",
+        content: {
+          "application/rss+xml": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid request parameters",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const limit = parseLimit(c.req.query("limit"));
+    if (!limit) {
+      return c.text("Invalid limit. Use integer between 1 and 200.", 400);
+    }
+
+    const items = await getSyndicationItems(c.env, limit);
+
+    const origin = new URL(c.req.url).origin;
+    const xml = buildRssXml({ origin, items });
+
+    return new Response(xml, {
+      headers: {
+        "content-type": "application/rss+xml; charset=utf-8",
+        "cache-control": "public, max-age=300"
+      }
+    });
+  }
+);
+
+app.get(
+  "/atom.xml",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "Atom feed for reports",
+    description: "Atom 1.0 feed for latest reports. Uses D1 first, then R2 fallback.",
+    parameters: [
+      {
+        name: "limit",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 200, default: 30 },
+        description: "Maximum number of feed items"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Atom XML",
+        content: {
+          "application/atom+xml": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid request parameters",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const limit = parseLimit(c.req.query("limit"));
+    if (!limit) {
+      return c.text("Invalid limit. Use integer between 1 and 200.", 400);
+    }
+
+    const items = await getSyndicationItems(c.env, limit);
+    const origin = new URL(c.req.url).origin;
+    const xml = buildAtomXml({ origin, items });
+
+    return new Response(xml, {
+      headers: {
+        "content-type": "application/atom+xml; charset=utf-8",
+        "cache-control": "public, max-age=300"
+      }
+    });
+  }
+);
+
+app.get(
+  "/feed.json",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "JSON Feed for reports",
+    description: "JSON Feed 1.0 for latest reports. Uses D1 first, then R2 fallback.",
+    parameters: [
+      {
+        name: "limit",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 200, default: 30 },
+        description: "Maximum number of feed items"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "JSON Feed",
+        content: {
+          "application/feed+json": {
+            schema: { type: "string" }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid request parameters",
+        content: {
+          "text/plain": {
+            schema: { type: "string" }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const limit = parseLimit(c.req.query("limit"));
+    if (!limit) {
+      return c.text("Invalid limit. Use integer between 1 and 200.", 400);
+    }
+
+    const items = await getSyndicationItems(c.env, limit);
+    const origin = new URL(c.req.url).origin;
+    const json = buildJsonFeed({ origin, items });
+
+    return new Response(json, {
+      headers: {
+        "content-type": "application/feed+json; charset=utf-8",
+        "cache-control": "public, max-age=300"
+      }
+    });
+  }
+);
+
+app.get(
   "/openapi.json",
   openAPIRouteHandler(app, {
     documentation: {
@@ -448,11 +618,14 @@ app.get(
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
-    await generateAndPersistReport(env);
+    await generateAndPersistReport(env, { requireDb: true });
   }
 };
 
-async function generateAndPersistReport(env: Env): Promise<{ markdown: string; fileName: string }> {
+async function generateAndPersistReport(
+  env: Env,
+  options?: { requireDb?: boolean }
+): Promise<{ markdown: string; fileName: string }> {
   const stocks = getStockUniverse(env);
   const quotes = (await Promise.all(stocks.map((stock) => fetchQuote(stock)))).filter(
     (item): item is Quote => item !== null
@@ -493,7 +666,8 @@ async function generateAndPersistReport(env: Env): Promise<{ markdown: string; f
     quotes,
     newsBySymbol,
     stockSummaryBySymbol: aiSummary.stockSummaryBySymbol,
-    marketOverview: aiSummary.marketOverview
+    marketOverview: aiSummary.marketOverview,
+    requireDb: options?.requireDb ?? false
   });
 
   if (env.WEBHOOK_URL) {
@@ -927,6 +1101,58 @@ async function getReportListFromR2(
   return { items, nextCursor };
 }
 
+async function getRssFeedItemsFromD1(env: Env, limit: number): Promise<RssFeedItem[]> {
+  if (!env.DB) {
+    return [];
+  }
+
+  await ensureD1Schema(env.DB);
+  const result = await env.DB
+    .prepare(
+      "SELECT report_date_et AS reportDateEt, file_name AS fileName, created_at AS createdAt, market_overview AS marketOverview FROM report_runs ORDER BY id DESC LIMIT ?"
+    )
+    .bind(limit)
+    .all<{
+      reportDateEt: string;
+      fileName: string;
+      createdAt: string;
+      marketOverview: string | null;
+    }>();
+
+  const rows = result.results ?? [];
+  return rows.map((row) => ({
+    key: `reports/${row.fileName}`,
+    fileName: row.fileName,
+    reportDateEt: row.reportDateEt,
+    createdAt: row.createdAt,
+    source: "d1" as const,
+    marketOverview: row.marketOverview ?? null
+  }));
+}
+
+async function getRssFeedItemsFromR2(env: Env, limit: number): Promise<RssFeedItem[]> {
+  const list = await getReportListFromR2(env, limit);
+  if (!list) {
+    return [];
+  }
+
+  return list.items.map((item) => ({
+    ...item,
+    marketOverview: null
+  }));
+}
+
+async function getSyndicationItems(env: Env, limit: number): Promise<RssFeedItem[]> {
+  let items: RssFeedItem[] = [];
+  if (env.DB) {
+    items = await getRssFeedItemsFromD1(env, limit);
+  }
+  if (items.length === 0 && env.REPORT_BUCKET) {
+    items = await getRssFeedItemsFromR2(env, limit);
+  }
+  return items;
+}
+
 function parseLimit(rawLimit: string | undefined): number | null {
   if (!rawLimit) {
     return 30;
@@ -942,6 +1168,93 @@ function parseLimit(rawLimit: string | undefined): number | null {
 function extractDateFromReportKey(key: string): string {
   const matched = key.match(/(\d{4}-\d{2}-\d{2})/);
   return matched?.[1] ?? "";
+}
+
+function buildRssXml(params: { origin: string; items: RssFeedItem[] }): string {
+  return createSyndicationFeed(params).rss2();
+}
+
+function buildAtomXml(params: { origin: string; items: RssFeedItem[] }): string {
+  return createSyndicationFeed(params).atom1();
+}
+
+function buildJsonFeed(params: { origin: string; items: RssFeedItem[] }): string {
+  return createSyndicationFeed(params).json1();
+}
+
+function createSyndicationFeed(params: { origin: string; items: RssFeedItem[] }): Feed {
+  const { origin, items } = params;
+  const channelLink = `${origin}/`;
+  const rssLink = `${origin}/rss.xml`;
+  const atomLink = `${origin}/atom.xml`;
+  const jsonLink = `${origin}/feed.json`;
+  const mostRecent = items[0];
+  const updated = mostRecent ? toRssDate(mostRecent.createdAt, mostRecent.reportDateEt) : new Date();
+
+  const feed = new Feed({
+    id: channelLink,
+    link: channelLink,
+    title: "中概日报 RSS",
+    description: "中概日报每日更新，覆盖KWEB前10中概股行情与新闻摘要。",
+    language: "zh-CN",
+    updated,
+    feedLinks: {
+      rss: rssLink,
+      atom: atomLink,
+      json: jsonLink
+    },
+    generator: "china-stocks-daily-worker"
+  });
+
+  for (const item of items) {
+    const itemLink = `${origin}/report/${item.reportDateEt}`;
+    feed.addItem({
+      id: `${origin}/${item.key}`,
+      link: itemLink,
+      title: `中概日报 | ${item.reportDateEt}（美东交易日）`,
+      description: buildRssDescription(item),
+      date: toRssDate(item.createdAt, item.reportDateEt)
+    });
+  }
+
+  return feed;
+}
+
+function buildRssDescription(item: RssFeedItem): string {
+  if (item.marketOverview) {
+    return truncateByChars(sanitizeTitle(item.marketOverview), 300);
+  }
+  return `${item.reportDateEt} 报告已生成，点击查看完整 Markdown 内容。`;
+}
+
+function toRssDate(createdAt: string, fallbackDate: string): Date {
+  const parsed = parseCreatedAt(createdAt);
+  if (parsed) {
+    return parsed;
+  }
+
+  const fallback = new Date(`${fallbackDate}T00:00:00Z`);
+  if (!Number.isNaN(fallback.getTime())) {
+    return fallback;
+  }
+  return new Date();
+}
+
+function parseCreatedAt(value: string): Date | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const direct = new Date(trimmed);
+  if (!Number.isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const withTimezone = /(?:[zZ]|[+\-]\d{2}:\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const parsed = new Date(withTimezone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 async function buildAiSummary(
@@ -1079,9 +1392,13 @@ async function persistReportToD1(
     newsBySymbol: Map<string, NewsItem[]>;
     stockSummaryBySymbol: Map<string, string>;
     marketOverview: string;
+    requireDb: boolean;
   }
 ): Promise<void> {
   if (!env.DB) {
+    if (input.requireDb) {
+      throw new Error("DB binding is required for scheduled report persistence.");
+    }
     return;
   }
 
