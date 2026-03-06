@@ -61,6 +61,7 @@ type RssFeedItem = {
   createdAt: string;
   source: "d1" | "r2";
   marketOverview: string | null;
+  markdown: string | null;
 };
 
 // KWEB-focused top-10 US tradable symbols (no HK tickers).
@@ -1109,7 +1110,7 @@ async function getRssFeedItemsFromD1(env: Env, limit: number): Promise<RssFeedIt
   await ensureD1Schema(env.DB);
   const result = await env.DB
     .prepare(
-      "SELECT report_date_et AS reportDateEt, file_name AS fileName, created_at AS createdAt, market_overview AS marketOverview FROM report_runs ORDER BY id DESC LIMIT ?"
+      "SELECT report_date_et AS reportDateEt, file_name AS fileName, created_at AS createdAt, market_overview AS marketOverview, markdown FROM report_runs ORDER BY id DESC LIMIT ?"
     )
     .bind(limit)
     .all<{
@@ -1117,6 +1118,7 @@ async function getRssFeedItemsFromD1(env: Env, limit: number): Promise<RssFeedIt
       fileName: string;
       createdAt: string;
       marketOverview: string | null;
+      markdown: string;
     }>();
 
   const rows = result.results ?? [];
@@ -1126,20 +1128,35 @@ async function getRssFeedItemsFromD1(env: Env, limit: number): Promise<RssFeedIt
     reportDateEt: row.reportDateEt,
     createdAt: row.createdAt,
     source: "d1" as const,
-    marketOverview: row.marketOverview ?? null
+    marketOverview: row.marketOverview ?? null,
+    markdown: row.markdown
   }));
 }
 
 async function getRssFeedItemsFromR2(env: Env, limit: number): Promise<RssFeedItem[]> {
+  if (!env.REPORT_BUCKET) {
+    return [];
+  }
+
   const list = await getReportListFromR2(env, limit);
   if (!list) {
     return [];
   }
 
-  return list.items.map((item) => ({
-    ...item,
-    marketOverview: null
-  }));
+  const items = await Promise.all(
+    list.items.map(async (item) => {
+      const object = await env.REPORT_BUCKET?.get(item.key);
+      const markdown = object ? await object.text() : null;
+
+      return {
+        ...item,
+        marketOverview: null,
+        markdown
+      };
+    })
+  );
+
+  return items;
 }
 
 async function getSyndicationItems(env: Env, limit: number): Promise<RssFeedItem[]> {
@@ -1208,11 +1225,13 @@ function createSyndicationFeed(params: { origin: string; items: RssFeedItem[] })
 
   for (const item of items) {
     const itemLink = `${origin}/report/${item.reportDateEt}`;
+    const fullContent = buildFeedFullContent(item);
     feed.addItem({
       id: `${origin}/${item.key}`,
       link: itemLink,
       title: `中概日报 | ${item.reportDateEt}（美东交易日）`,
-      description: buildRssDescription(item),
+      description: fullContent,
+      content: markdownToHtmlPre(fullContent),
       date: toRssDate(item.createdAt, item.reportDateEt)
     });
   }
@@ -1220,11 +1239,30 @@ function createSyndicationFeed(params: { origin: string; items: RssFeedItem[] })
   return feed;
 }
 
-function buildRssDescription(item: RssFeedItem): string {
-  if (item.marketOverview) {
-    return truncateByChars(sanitizeTitle(item.marketOverview), 300);
+function buildFeedFullContent(item: RssFeedItem): string {
+  const markdown = item.markdown?.trim();
+  if (markdown) {
+    return markdown;
   }
+
+  if (item.marketOverview) {
+    return sanitizeTitle(item.marketOverview);
+  }
+
   return `${item.reportDateEt} 报告已生成，点击查看完整 Markdown 内容。`;
+}
+
+function markdownToHtmlPre(markdown: string): string {
+  return `<pre>${escapeHtml(markdown)}</pre>`;
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function toRssDate(createdAt: string, fallbackDate: string): Date {
