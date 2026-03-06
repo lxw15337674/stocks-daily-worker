@@ -4,8 +4,10 @@ import Link from "next/link";
 import { CalendarSearch } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchReportList, type ReportListItem } from "@/lib/public-api";
 
 export default function ArchivePage() {
@@ -49,18 +51,34 @@ export default function ArchivePage() {
             <Link href="/">返回首页</Link>
           </Button>
           {loading ? (
-            <p className="empty">正在加载历史数据...</p>
+            <Alert>
+              <AlertDescription>正在加载历史数据...</AlertDescription>
+            </Alert>
           ) : reports.length === 0 ? (
-            <p className="empty">暂无历史数据。</p>
+            <Alert>
+              <AlertDescription>暂无历史数据。</AlertDescription>
+            </Alert>
           ) : (
-            <ul className="report-list">
-              {reports.map((item) => (
-                <li key={`${item.reportDateEt}-${item.createdAt}`}>
-                  <Link href={`/?date=${item.reportDateEt}`}>{item.reportDateEt}</Link>
-                  <span>{new Date(item.createdAt).toLocaleString("zh-CN")}</span>
-                </li>
-              ))}
-            </ul>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-56">交易日</TableHead>
+                  <TableHead>生成时间</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reports.map((item) => (
+                  <TableRow key={`${item.reportDateEt}-${item.createdAt}`}>
+                    <TableCell>
+                      <Link href={`/?date=${item.reportDateEt}`} className="font-medium text-primary hover:underline">
+                        {item.reportDateEt}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(item.createdAt).toLocaleString("zh-CN")}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

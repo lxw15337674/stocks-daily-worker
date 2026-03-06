@@ -7,6 +7,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { isValidReportDate } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function todayDateString(): string {
   const now = new Date();
@@ -34,9 +35,9 @@ export function DateLookupForm(props: { initialValue?: string }) {
 
   return (
     <form className="mt-5 space-y-2" onSubmit={onSubmit}>
-      <label htmlFor="report-date" className="text-sm font-medium text-muted-foreground">
+      <Label htmlFor="report-date" className="text-muted-foreground">
         按日期查询（美东交易日）
-      </label>
+      </Label>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           id="report-date"
