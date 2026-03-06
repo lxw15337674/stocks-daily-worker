@@ -14,5 +14,5 @@ database_id = "8db1c9cb-c3a9-4093-aa0e-36142c0a773b"
 [vars]
 OPENAI_BASE_URL = "https://maxx.cloverstd.com"
 AI_MODEL = "gpt-5.2"
-ADMIN_TOKEN= "lxw123456"
-OPENAI_API_KEY="maxx_2554e9c478001b2698fe91d364fbedb11f2187ea08e0e411245a0b5452f9ea03"
+ADMIN_TOKEN= ""
+OPENAI_API_KEY=""
