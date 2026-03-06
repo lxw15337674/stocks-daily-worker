@@ -29,7 +29,7 @@ export function DateLookupForm(props: { initialValue?: string }) {
       return;
     }
     setError(null);
-    router.push(`/report/${date}`);
+    router.push(`/?date=${date}`);
   }
 
   return (

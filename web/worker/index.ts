@@ -15,7 +15,8 @@ type Fetcher = {
 
 interface Env {
   ASSETS: Fetcher;
-  STOCKS_API: Fetcher;
+  STOCKS_API?: Fetcher;
+  STOCKS_API_BASE_URL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -33,6 +34,7 @@ interface Env {
 
 const REPORT_DATE_PATH = /^\/report\/\d{4}-\d{2}-\d{2}$/;
 const API_STATIC_PATHS = new Set(["/health", "/latest", "/reports", "/rss.xml", "/atom.xml", "/feed.json"]);
+const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 
 function resolveApiPath(pathname: string): string | null {
   if (pathname === "/rss.xml" || pathname === "/atom.xml" || pathname === "/feed.json") {
@@ -51,6 +53,20 @@ function resolveApiPath(pathname: string): string | null {
   return null;
 }
 
+function resolveFallbackApiBaseUrl(env: Env): string {
+  const configured = env.STOCKS_API_BASE_URL?.trim();
+  return (configured && configured.length > 0 ? configured : DEFAULT_API_BASE_URL).replace(/\/+$/, "");
+}
+
+async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
+  if (response.status !== 503) {
+    return false;
+  }
+
+  const body = await response.clone().text();
+  return body.includes("local dev session");
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -58,7 +74,15 @@ export default {
     const apiPath = resolveApiPath(url.pathname);
     if (apiPath) {
       const upstreamUrl = new URL(`https://stocks-api.internal${apiPath}${url.search}`);
-      return env.STOCKS_API.fetch(new Request(upstreamUrl.toString(), request));
+      if (env.STOCKS_API) {
+        const proxied = await env.STOCKS_API.fetch(new Request(upstreamUrl.toString(), request));
+        if (!(await shouldFallbackToPublicApi(proxied))) {
+          return proxied;
+        }
+      }
+
+      const fallbackApiUrl = new URL(`${resolveFallbackApiBaseUrl(env)}${apiPath}${url.search}`);
+      return fetch(new Request(fallbackApiUrl.toString(), request));
     }
 
     // Image optimization via Cloudflare Images binding.

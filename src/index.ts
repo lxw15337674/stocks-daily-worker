@@ -19,6 +19,10 @@ interface Env {
 type Stock = {
   symbol: string;
   name: string;
+  displayName: string;
+  codes: string;
+  businessType: string;
+  approxWeight: string;
   aliases: string[];
 };
 
@@ -64,18 +68,116 @@ type RssFeedItem = {
   markdown: string | null;
 };
 
-// KWEB-focused top-10 US tradable symbols (no HK tickers).
-const KWEB_TOP10_STOCKS: Stock[] = [
-  { symbol: "TCEHY", name: "Tencent Holdings", aliases: ["腾讯"] },
-  { symbol: "BABA", name: "Alibaba Group", aliases: ["阿里巴巴", "阿里"] },
-  { symbol: "PDD", name: "PDD Holdings", aliases: ["拼多多"] },
-  { symbol: "JD", name: "JD.com", aliases: ["京东"] },
-  { symbol: "BIDU", name: "Baidu", aliases: ["百度"] },
-  { symbol: "NTES", name: "NetEase", aliases: ["网易"] },
-  { symbol: "TCOM", name: "Trip.com", aliases: ["携程"] },
-  { symbol: "YMM", name: "Full Truck Alliance", aliases: ["满帮"] },
-  { symbol: "BILI", name: "Bilibili", aliases: ["哔哩哔哩", "B站"] },
-  { symbol: "BEKE", name: "KE Holdings", aliases: ["贝壳"] }
+// Default stock list (mixed US/HK tradable symbols).
+const DEFAULT_STOCKS: Stock[] = [
+  {
+    symbol: "KWEB",
+    name: "KraneShares CSI China Internet ETF",
+    displayName: "中国互联网ETF (KWEB)",
+    codes: "KWEB",
+    businessType: "中国互联网指数ETF",
+    approxWeight: "N/A",
+    aliases: ["KWEB", "KraneShares", "中国互联网ETF"]
+  },
+  {
+    symbol: "CWEB",
+    name: "Direxion Daily CSI China Internet Index Bull 2X Shares",
+    displayName: "中国互联网2倍杠杆ETF (CWEB)",
+    codes: "CWEB",
+    businessType: "中国互联网指数2倍杠杆ETF",
+    approxWeight: "N/A",
+    aliases: ["CWEB", "Direxion", "中国互联网2倍杠杆ETF"]
+  },
+  {
+    symbol: "0700.HK",
+    name: "Tencent Holdings",
+    displayName: "腾讯控股 (Tencent)",
+    codes: "HK:0700",
+    businessType: "社交、游戏、支付",
+    approxWeight: "~10.2%",
+    aliases: ["腾讯", "腾讯控股", "Tencent", "HK:0700", "0700.HK"]
+  },
+  {
+    symbol: "BABA",
+    name: "Alibaba",
+    displayName: "阿里巴巴 (Alibaba)",
+    codes: "BABA / HK:9988",
+    businessType: "电商、云服务",
+    approxWeight: "~8.7%",
+    aliases: ["阿里", "阿里巴巴", "Alibaba", "BABA", "HK:9988", "9988.HK"]
+  },
+  {
+    symbol: "PDD",
+    name: "PDD Holdings",
+    displayName: "拼多多 (PDD Holdings)",
+    codes: "PDD",
+    businessType: "跨境电商、国内电商",
+    approxWeight: "~8.0%",
+    aliases: ["拼多多", "PDD", "PDD Holdings"]
+  },
+  {
+    symbol: "3690.HK",
+    name: "Meituan",
+    displayName: "美团 (Meituan)",
+    codes: "HK:3690",
+    businessType: "本地生活、外卖",
+    approxWeight: "~7.5%",
+    aliases: ["美团", "Meituan", "HK:3690", "3690.HK"]
+  },
+  {
+    symbol: "NTES",
+    name: "NetEase",
+    displayName: "网易 (NetEase)",
+    codes: "NTES / HK:9999",
+    businessType: "游戏、在线教育",
+    approxWeight: "~6.1%",
+    aliases: ["网易", "NetEase", "NTES", "HK:9999", "9999.HK"]
+  },
+  {
+    symbol: "BIDU",
+    name: "Baidu",
+    displayName: "百度 (Baidu)",
+    codes: "BIDU / HK:9888",
+    businessType: "AI、搜索、自动驾驶",
+    approxWeight: "~4.3%",
+    aliases: ["百度", "Baidu", "BIDU", "HK:9888", "9888.HK"]
+  },
+  {
+    symbol: "TCOM",
+    name: "Trip.com",
+    displayName: "携程 (Trip.com)",
+    codes: "TCOM / HK:9961",
+    businessType: "在线旅游",
+    approxWeight: "~4.2%",
+    aliases: ["携程", "Trip.com", "TCOM", "HK:9961", "9961.HK"]
+  },
+  {
+    symbol: "JD",
+    name: "JD.com",
+    displayName: "京东 (JD.com)",
+    codes: "JD / HK:9618",
+    businessType: "电商、物流",
+    approxWeight: "~4.0%",
+    aliases: ["京东", "JD", "JD.com", "HK:9618", "9618.HK"]
+  },
+  {
+    symbol: "TME",
+    name: "Tencent Music",
+    displayName: "腾讯音乐 (Tencent Music)",
+    codes: "TME / HK:1698",
+    businessType: "在线音乐",
+    approxWeight: "~3.9%",
+    aliases: ["腾讯音乐", "Tencent Music", "TME", "HK:1698", "1698.HK"]
+  },
+  {
+    symbol: "1024.HK",
+    name: "Kuaishou",
+    displayName: "快手 (Kuaishou)",
+    codes: "HK:1024",
+    businessType: "短视频、直播",
+    approxWeight: "~3.8%",
+    aliases: ["快手", "Kuaishou", "HK:1024", "1024.HK"]
+  }
 ];
 
 const ET_TIMEZONE = "America/New_York";
@@ -683,10 +785,10 @@ async function generateAndPersistReport(
 }
 
 function getStockUniverse(env: Env): Stock[] {
-  const kwebMap = new Map(KWEB_TOP10_STOCKS.map((stock) => [stock.symbol, stock]));
+  const defaultStockMap = new Map(DEFAULT_STOCKS.map((stock) => [stock.symbol, stock]));
 
   if (!env.STOCK_LIST_JSON) {
-    return KWEB_TOP10_STOCKS;
+    return DEFAULT_STOCKS;
   }
 
   try {
@@ -697,19 +799,27 @@ function getStockUniverse(env: Env): Stock[] {
       if (!stock?.symbol || !stock?.name || !Array.isArray(stock.aliases)) {
         continue;
       }
-      if (!kwebMap.has(stock.symbol)) {
+      if (!defaultStockMap.has(stock.symbol)) {
+        continue;
+      }
+      const base = defaultStockMap.get(stock.symbol);
+      if (!base) {
         continue;
       }
       customMap.set(stock.symbol, {
         symbol: stock.symbol,
         name: stock.name,
+        displayName: stock.displayName || base.displayName,
+        codes: stock.codes || base.codes,
+        businessType: stock.businessType || base.businessType,
+        approxWeight: stock.approxWeight || base.approxWeight,
         aliases: stock.aliases
       });
     }
 
-    return KWEB_TOP10_STOCKS.map((stock) => customMap.get(stock.symbol) ?? stock);
+    return DEFAULT_STOCKS.map((stock) => customMap.get(stock.symbol) ?? stock);
   } catch {
-    return KWEB_TOP10_STOCKS;
+    return DEFAULT_STOCKS;
   }
 }
 
@@ -794,10 +904,9 @@ async function fetchGoogleNews(stock: Stock): Promise<NewsItem[]> {
     const xml = await response.text();
     const items = parseRss(xml)
       .filter((item) => isRelevantNews(item.title, stock))
-      .slice(0, 5)
       .map((item) => ({ ...item, symbol: stock.symbol }));
 
-    return dedupeNews(items).slice(0, 3);
+    return dedupeNews(items).slice(0, 5);
   } catch {
     return [];
   }
@@ -844,7 +953,10 @@ function dedupeNews(items: NewsItem[]): NewsItem[] {
 
 function isRelevantNews(title: string, stock: Stock): boolean {
   const normalized = title.toLowerCase();
-  const aliases = [stock.symbol, stock.name, ...stock.aliases].map((entry) => entry.toLowerCase());
+  const aliases = [stock.symbol, stock.name, stock.displayName, stock.codes, ...stock.aliases]
+    .flatMap((entry) => entry.split("/"))
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
 
   return aliases.some((alias) => alias.length > 1 && normalized.includes(alias));
 }
@@ -880,27 +992,30 @@ function buildMarkdown(params: {
 }): string {
   const { reportDateEt, generatedAtCn, stocks, quotes, newsBySymbol, marketOverview } = params;
   const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const aiOverview = splitAiOverviewParagraphs(marketOverview);
 
   const lines: string[] = [];
   lines.push(`# 中概日报 | ${reportDateEt}（美东交易日）`);
   lines.push("");
   lines.push(`> 生成时间：${generatedAtCn}（北京时间）`);
-  lines.push(`> 样本范围：KWEB前10成分股（N=${stocks.length}）`);
+  lines.push(`> 样本范围：中概股（N=${stocks.length}）`);
   lines.push(`> 有效行情：${quotes.length} 只`);
   lines.push("");
   lines.push("## 一、AI总览");
-  lines.push(`> ${sanitizeTitle(marketOverview)}`);
+  lines.push(`股票市场：${aiOverview.stockParagraph}`);
+  lines.push("");
+  lines.push(`相关新闻：${aiOverview.newsParagraph}`);
   lines.push("");
   lines.push("## 二、股票数据");
-  lines.push("| 代码 | 名称 | 收盘价 | 涨跌幅 | 成交量 | 估算成交额 |\n|---|---|---:|---:|---:|---:|");
-  for (const stock of stocks) {
+  lines.push(
+    "| 排名 | 公司名称 | 股票代码 (美股/港股) | 业务类型 | 约重比例 | 收盘价 | 涨跌幅 |\n|---:|---|---|---|---:|---:|---:|"
+  );
+  for (const [index, stock] of stocks.entries()) {
     const quote = quoteBySymbol.get(stock.symbol);
     lines.push(
-      `| ${stock.symbol} | ${stock.name} | ${
+      `| ${index + 1} | ${stock.displayName} | ${stock.codes} | ${stock.businessType} | ${stock.approxWeight} | ${
         quote ? formatPrice(quote.close, quote.currency) : "-"
-      } | ${quote ? formatSignedPct(quote.changePct) : "-"} | ${
-        quote ? quote.volume.toLocaleString("en-US") : "-"
-      } | ${quote ? formatMoney(quote.turnoverEstimate, quote.currency) : "-"} |`
+      } | ${quote ? formatSignedPct(quote.changePct) : "-"} |`
     );
   }
 
@@ -910,7 +1025,7 @@ function buildMarkdown(params: {
   for (const stock of stocks) {
     const quote = quoteBySymbol.get(stock.symbol);
     const changeLabel = quote ? formatSignedPct(quote.changePct) : "行情暂无";
-    lines.push(`### ${stock.symbol}（${stock.name}） ${changeLabel}`);
+    lines.push(`### ${stock.symbol}（${stock.displayName}） ${changeLabel}`);
 
     const items = newsBySymbol.get(stock.symbol) ?? [];
     if (items.length === 0) {
@@ -939,6 +1054,13 @@ function sanitizeTitle(title: string): string {
   return title.replace(/\s+/g, " ").trim();
 }
 
+function sanitizeParagraph(input: string): string {
+  return input
+    .replace(/^[>\s]+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function truncateByChars(input: string, maxChars: number): string {
   const normalized = input.trim();
   const chars = Array.from(normalized);
@@ -946,6 +1068,52 @@ function truncateByChars(input: string, maxChars: number): string {
     return normalized;
   }
   return `${chars.slice(0, maxChars).join("")}...`;
+}
+
+function splitAiOverviewParagraphs(
+  marketOverview: string,
+  fallback?: { stockParagraph: string; newsParagraph: string }
+): { stockParagraph: string; newsParagraph: string } {
+  const normalized = marketOverview.replace(/\r\n/g, "\n").trim();
+  const defaultStock =
+    fallback?.stockParagraph ?? "当日股票行情已更新，市场表现请结合下方个股涨跌和成交数据综合判断。";
+  const defaultNews =
+    fallback?.newsParagraph ?? "相关新闻主要围绕样本股公司动态展开，详见下方“相关新闻”板块。";
+
+  if (!normalized) {
+    return { stockParagraph: defaultStock, newsParagraph: defaultNews };
+  }
+
+  const stockMatch = normalized.match(
+    /(?:^|\n)\s*(?:第一段|股票市场|市场概览|市场总览)\s*[：:]\s*([\s\S]*?)(?=\n\s*(?:第二段|相关新闻|新闻概览|新闻总览)\s*[：:]|$)/i
+  );
+  const newsMatch = normalized.match(/(?:^|\n)\s*(?:第二段|相关新闻|新闻概览|新闻总览)\s*[：:]\s*([\s\S]*?)$/i);
+
+  if (stockMatch || newsMatch) {
+    const stockParagraph = sanitizeParagraph(stockMatch?.[1] ?? defaultStock) || defaultStock;
+    const newsParagraph = sanitizeParagraph(newsMatch?.[1] ?? defaultNews) || defaultNews;
+    return {
+      stockParagraph,
+      newsParagraph: truncateByChars(newsParagraph, 400)
+    };
+  }
+
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((paragraph) => sanitizeParagraph(paragraph))
+    .filter((paragraph) => paragraph.length > 0);
+
+  if (paragraphs.length >= 2) {
+    return {
+      stockParagraph: paragraphs[0],
+      newsParagraph: truncateByChars(paragraphs.slice(1).join(" "), 400)
+    };
+  }
+
+  return {
+    stockParagraph: sanitizeParagraph(normalized) || defaultStock,
+    newsParagraph: defaultNews
+  };
 }
 
 function formatDate(date: Date, timeZone: string): string {
@@ -1212,7 +1380,7 @@ function createSyndicationFeed(params: { origin: string; items: RssFeedItem[] })
     id: channelLink,
     link: channelLink,
     title: "中概日报 RSS",
-    description: "中概日报每日更新，覆盖KWEB前10中概股行情与新闻摘要。",
+    description: "中概日报每日更新，覆盖中概股行情与新闻摘要。",
     language: "zh-CN",
     updated,
     feedLinks: {
@@ -1308,13 +1476,10 @@ async function buildAiSummary(
     .map((stock) => {
       const quote = quoteBySymbol.get(stock.symbol);
       return quote
-        ? `- ${stock.symbol} (${stock.name}): 收盘${formatPrice(quote.close, quote.currency)}, 涨跌幅${formatSignedPct(
+        ? `- ${stock.symbol} (${stock.displayName}): 收盘${formatPrice(quote.close, quote.currency)}, 涨跌幅${formatSignedPct(
             quote.changePct
-          )}, 成交量${quote.volume.toLocaleString("en-US")}, 估算成交额${formatMoney(
-            quote.turnoverEstimate,
-            quote.currency
           )}`
-        : `- ${stock.symbol} (${stock.name}): 行情数据缺失`;
+        : `- ${stock.symbol} (${stock.displayName}): 行情数据缺失`;
     })
     .join("\n");
 
@@ -1337,20 +1502,124 @@ async function buildAiSummary(
     )
     .join("\n");
 
+  const fallbackStockParagraph = buildFallbackStockOverview(stocks, quoteBySymbol, quotes);
+  const fallbackNewsParagraph = buildFallbackNewsOverview(allMarketNews);
+
   const marketPrompt = [
-    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多300字。",
-    "要求：只基于提供的信息总结；语言客观；不要分点；不要投资建议。",
+    "请基于以下中概股的股票数据和相关新闻，输出中文 AI 总览，分成两段。",
+    "要求：第一段只讲股票市场表现；第二段只讲相关新闻要点；第二段不超过400字；只基于给定信息；语言客观；不要投资建议；不要项目符号。",
+    "请严格使用如下格式：",
+    "股票市场：<第一段内容>",
+    "相关新闻：<第二段内容>",
     `股票数据:\n${quoteLines}`,
     allMarketNewsLines ? `相关新闻:\n${allMarketNewsLines}` : "相关新闻: 无"
   ].join("\n\n");
 
-  const marketOverview = (await callAiCompatible(
+  const aiOverviewRaw = await callAiCompatible(
     env,
-    "你是中概日报主编，请输出一段不超过300字的中文市场总览。",
+    "你是中概日报主编。请按指定格式输出两段中文总览：第一段讲股票市场，第二段讲相关新闻且不超过400字。",
     marketPrompt
-  )) ?? "";
+  );
+
+  const parsedOverview = splitAiOverviewParagraphs(aiOverviewRaw ?? "", {
+    stockParagraph: fallbackStockParagraph,
+    newsParagraph: fallbackNewsParagraph
+  });
+  const marketOverview = `股票市场：${parsedOverview.stockParagraph}\n\n相关新闻：${truncateByChars(
+    parsedOverview.newsParagraph,
+    400
+  )}`;
 
   return { stockSummaryBySymbol, marketOverview };
+}
+
+function buildFallbackStockOverview(
+  stocks: Stock[],
+  quoteBySymbol: Map<string, Quote>,
+  quotes: Quote[]
+): string {
+  if (quotes.length === 0) {
+    return "当日股票行情数据缺失，暂无可用的市场表现结论。";
+  }
+
+  const risingCount = quotes.filter((quote) => quote.changePct > 0).length;
+  const fallingCount = quotes.filter((quote) => quote.changePct < 0).length;
+  const flatCount = quotes.length - risingCount - fallingCount;
+  const averageChange = quotes.reduce((sum, quote) => sum + quote.changePct, 0) / quotes.length;
+
+  const sortedByChange = [...quotes].sort((a, b) => b.changePct - a.changePct);
+  const strongest = sortedByChange[0];
+  const weakest = sortedByChange[sortedByChange.length - 1];
+
+  return sanitizeParagraph(
+    `样本股中，上涨${risingCount}只、下跌${fallingCount}只、平盘${flatCount}只，整体平均涨跌幅约为${formatSignedPct(
+      averageChange
+    )}。表现相对较强的是${strongest.symbol}（${formatSignedPct(strongest.changePct)}），相对偏弱的是${
+      weakest.symbol
+    }（${formatSignedPct(weakest.changePct)}）。`
+  );
+}
+
+function buildFallbackNewsOverview(
+  allMarketNews: Array<{ symbol: string; title: string; source: string; publishedAt: Date }>
+): string {
+  if (allMarketNews.length === 0) {
+    return "当日未抓取到可用的相关新闻，信息面整体偏中性。";
+  }
+
+  const sourceCounter = new Map<string, number>();
+  const symbolOrder: string[] = [];
+  const symbolSeen = new Set<string>();
+  let positiveCount = 0;
+  let negativeCount = 0;
+
+  const positiveKeywords = ["beat", "upgrade", "outperform", "profit", "jump", "rise", "增长", "超预期", "盈利"];
+  const negativeKeywords = [
+    "drop",
+    "fall",
+    "downgrade",
+    "concern",
+    "risk",
+    "investigation",
+    "lawsuit",
+    "weak",
+    "下调",
+    "下跌",
+    "风险"
+  ];
+
+  for (const item of allMarketNews) {
+    sourceCounter.set(item.source, (sourceCounter.get(item.source) ?? 0) + 1);
+    if (!symbolSeen.has(item.symbol)) {
+      symbolSeen.add(item.symbol);
+      symbolOrder.push(item.symbol);
+    }
+
+    const lowerTitle = item.title.toLowerCase();
+    if (positiveKeywords.some((keyword) => lowerTitle.includes(keyword))) {
+      positiveCount += 1;
+    }
+    if (negativeKeywords.some((keyword) => lowerTitle.includes(keyword))) {
+      negativeCount += 1;
+    }
+  }
+
+  const topSources = [...sourceCounter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([source]) => source)
+    .join("、");
+  const coveredSymbols = symbolOrder.slice(0, 6).join("、");
+
+  const tone =
+    positiveCount > negativeCount ? "中性偏积极" : positiveCount < negativeCount ? "中性偏谨慎" : "中性";
+
+  return truncateByChars(
+    sanitizeParagraph(
+      `样本股共抓取${allMarketNews.length}条相关新闻，涉及${coveredSymbols}等公司，信息来源主要包括${topSources}。新闻主题集中在财报业绩、机构评级及监管动态等方向，从标题情绪看整体为${tone}。`
+    ),
+    400
+  );
 }
 
 async function callAiCompatible(env: Env, systemPrompt: string, userPrompt: string): Promise<string | null> {

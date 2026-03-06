@@ -116,6 +116,69 @@
   .date-form-error {
     @apply mt-2 text-xs font-medium text-primary;
   }
+
+  .report-layout {
+    @apply grid grid-cols-1 gap-6;
+  }
+
+  .report-left {
+    @apply order-2;
+  }
+
+  .report-main {
+    @apply order-1 min-w-0;
+  }
+
+  .report-right {
+    @apply order-3;
+  }
+
+  .report-sticky {
+    @apply lg:sticky lg:top-6;
+  }
+
+  .recent-date-list {
+    @apply grid gap-2;
+  }
+
+  .recent-date-list a {
+    @apply rounded-md border bg-background/70 px-3 py-2 text-sm transition hover:border-primary/50 hover:text-primary;
+  }
+
+  .meta-grid {
+    @apply grid gap-2;
+  }
+
+  .meta-grid span {
+    @apply text-xs uppercase tracking-wider text-muted-foreground;
+  }
+
+  .meta-grid p {
+    @apply text-sm;
+  }
+
+  .report-content {
+    @apply text-[0.96rem] leading-7;
+  }
+
+  @media (min-width: 1024px) {
+    .report-layout {
+      grid-template-columns: 17rem minmax(0, 1fr) 17rem;
+      align-items: start;
+    }
+
+    .report-left {
+      @apply order-1;
+    }
+
+    .report-main {
+      @apply order-2;
+    }
+
+    .report-right {
+      @apply order-3;
+    }
+  }
 }
 
 @layer utilities {

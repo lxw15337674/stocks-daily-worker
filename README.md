@@ -4,7 +4,7 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 
 ## What it does
 
-- Pulls daily price data from Yahoo Finance for KWEB-focused top-10 US symbols only (no HK tickers).
+- Pulls daily price data from Yahoo Finance for China ADR stocks.
 - Pulls related news from Google News RSS.
 - Generates markdown report with:
   - AI market overview (OpenAI-compatible API, e.g. maxx)
@@ -96,10 +96,10 @@ When `DB` is configured, each run stores:
 - quote snapshots (`report_quotes`)
 - news items with AI summary (`report_news`)
 
-### Custom stock metadata (KWEB top-10 only)
+### Custom stock metadata
 
-Set `STOCK_LIST_JSON` as a Wrangler secret or variable to override display name/aliases for KWEB top-10 symbols only.
-Symbols outside the KWEB top-10 set are ignored. Format:
+Set `STOCK_LIST_JSON` as a Wrangler secret or variable to override display name/aliases for stocks in the default list.
+Symbols outside the default stock set are ignored. Format:
 
 ```json
 [

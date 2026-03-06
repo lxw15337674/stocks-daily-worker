@@ -56,7 +56,7 @@ export default function ArchivePage() {
             <ul className="report-list">
               {reports.map((item) => (
                 <li key={`${item.reportDateEt}-${item.createdAt}`}>
-                  <Link href={`/report/${item.reportDateEt}`}>{item.reportDateEt}</Link>
+                  <Link href={`/?date=${item.reportDateEt}`}>{item.reportDateEt}</Link>
                   <span>{new Date(item.createdAt).toLocaleString("zh-CN")}</span>
                 </li>
               ))}
