@@ -53,18 +53,18 @@ type ReportListItem = {
   source: "d1" | "r2";
 };
 
-// KWEB top-10 holdings (KraneShares, data as of 2026-03-04).
+// KWEB-focused top-10 US tradable symbols (no HK tickers).
 const KWEB_TOP10_STOCKS: Stock[] = [
-  { symbol: "0700.HK", name: "Tencent Holdings", aliases: ["腾讯"] },
-  { symbol: "9988.HK", name: "Alibaba Group", aliases: ["阿里巴巴", "阿里"] },
+  { symbol: "TCEHY", name: "Tencent Holdings", aliases: ["腾讯"] },
+  { symbol: "BABA", name: "Alibaba Group", aliases: ["阿里巴巴", "阿里"] },
   { symbol: "PDD", name: "PDD Holdings", aliases: ["拼多多"] },
-  { symbol: "3690.HK", name: "Meituan", aliases: ["美团"] },
-  { symbol: "9999.HK", name: "NetEase", aliases: ["网易"] },
-  { symbol: "2423.HK", name: "KE Holdings", aliases: ["贝壳"] },
-  { symbol: "9888.HK", name: "Baidu", aliases: ["百度"] },
-  { symbol: "1024.HK", name: "Kuaishou", aliases: ["快手"] },
-  { symbol: "6618.HK", name: "JD Health", aliases: ["京东健康"] },
-  { symbol: "9618.HK", name: "JD.com", aliases: ["京东"] }
+  { symbol: "JD", name: "JD.com", aliases: ["京东"] },
+  { symbol: "BIDU", name: "Baidu", aliases: ["百度"] },
+  { symbol: "NTES", name: "NetEase", aliases: ["网易"] },
+  { symbol: "TCOM", name: "Trip.com", aliases: ["携程"] },
+  { symbol: "YMM", name: "Full Truck Alliance", aliases: ["满帮"] },
+  { symbol: "BILI", name: "Bilibili", aliases: ["哔哩哔哩", "B站"] },
+  { symbol: "BEKE", name: "KE Holdings", aliases: ["贝壳"] }
 ];
 
 const ET_TIMEZONE = "America/New_York";
@@ -987,7 +987,7 @@ async function buildAiSummary(
     .join("\n");
 
   const marketPrompt = [
-    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多400字。",
+    "请基于以下KWEB前10成分股的股票数据和相关新闻，输出中文市场总览，最多300字。",
     "要求：只基于提供的信息总结；语言客观；不要分点；不要投资建议。",
     `股票数据:\n${quoteLines}`,
     allMarketNewsLines ? `相关新闻:\n${allMarketNewsLines}` : "相关新闻: 无"
@@ -995,7 +995,7 @@ async function buildAiSummary(
 
   const marketOverview = (await callAiCompatible(
     env,
-    "你是中概日报主编，请输出一段不超过400字的中文市场总览。",
+    "你是中概日报主编，请输出一段不超过300字的中文市场总览。",
     marketPrompt
   )) ?? "";
 
@@ -1141,4 +1141,3 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
     await db.prepare(sql).run();
   }
 }
-

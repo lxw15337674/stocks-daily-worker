@@ -4,7 +4,7 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 
 ## What it does
 
-- Pulls daily price data from Yahoo Finance for KWEB top-10 holdings only.
+- Pulls daily price data from Yahoo Finance for KWEB-focused top-10 US symbols only (no HK tickers).
 - Pulls related news from Google News RSS.
 - Generates markdown report with:
   - AI market overview (OpenAI-compatible API, e.g. maxx)
@@ -90,7 +90,7 @@ Symbols outside the KWEB top-10 set are ignored. Format:
 
 ```json
 [
-  { "symbol": "9988.HK", "name": "Alibaba Group", "aliases": ["阿里巴巴", "阿里"] }
+  { "symbol": "BABA", "name": "Alibaba Group", "aliases": ["阿里巴巴", "阿里"] }
 ]
 ```
 
