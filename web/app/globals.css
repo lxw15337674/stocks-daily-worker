@@ -118,19 +118,40 @@
   }
 
   .report-layout {
-    @apply grid grid-cols-1 gap-6;
+    @apply grid gap-6;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "main"
+      "left"
+      "right";
+    align-items: start;
   }
 
   .report-left {
-    @apply order-2;
+    grid-area: left;
+    min-width: 0;
   }
 
   .report-main {
-    @apply order-1 min-w-0;
+    grid-area: main;
+    min-width: 0;
+  }
+
+  .report-right {
+    grid-area: right;
+    min-width: 0;
   }
 
   .report-sticky {
-    @apply lg:sticky lg:top-6;
+    @apply top-6;
+  }
+
+  .report-left .report-sticky {
+    @apply lg:sticky;
+  }
+
+  .report-right .report-sticky {
+    @apply xl:sticky;
   }
 
   .recent-date-list {
@@ -160,15 +181,9 @@
   @media (min-width: 1024px) {
     .report-layout {
       grid-template-columns: 19rem minmax(0, 1fr);
-      align-items: start;
-    }
-
-    .report-left {
-      @apply order-1;
-    }
-
-    .report-main {
-      @apply order-2;
+      grid-template-areas:
+        "left main"
+        "right main";
     }
   }
 }

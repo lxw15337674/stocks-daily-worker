@@ -6,7 +6,6 @@ import { useMemo, useState, type JSX } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type ReportStockRow = {
-  rank: number | null;
   company: string;
   code: string;
   xueqiuUrl: string | null;
@@ -16,11 +15,10 @@ export type ReportStockRow = {
   changeValue: number | null;
 };
 
-type SortKey = "rank" | "close" | "change";
+type SortKey = "close" | "change";
 type SortDirection = "asc" | "desc";
 
 const DEFAULT_DIRECTION: Record<SortKey, SortDirection> = {
-  rank: "asc",
   close: "desc",
   change: "desc"
 };
@@ -92,15 +90,12 @@ function SortableHead(props: {
 
 export function ReportStockTable(props: { rows: ReportStockRow[] }) {
   const { rows } = props;
-  const [sortKey, setSortKey] = useState<SortKey>("rank");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("close");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const sortedRows = useMemo(() => {
     const next = [...rows];
     next.sort((a, b) => {
-      if (sortKey === "rank") {
-        return compareNullableNumbers(a.rank, b.rank, sortDirection);
-      }
       if (sortKey === "close") {
         return compareNullableNumbers(a.closeValue, b.closeValue, sortDirection);
       }
@@ -122,20 +117,12 @@ export function ReportStockTable(props: { rows: ReportStockRow[] }) {
     <section className="mb-6 rounded-xl border bg-card/60 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-serif text-xl font-bold tracking-tight">二、股票数据</h2>
-        <p className="text-xs text-muted-foreground">点击“排名 / 收盘价 / 涨跌幅”列头可切换排序</p>
+        <p className="text-xs text-muted-foreground">点击“收盘价 / 涨跌幅”列头可切换排序</p>
       </div>
 
       <Table className="table-auto">
         <TableHeader>
           <TableRow>
-            <SortableHead
-              label="排名"
-              sortKey="rank"
-              activeKey={sortKey}
-              direction={sortDirection}
-              onClick={toggleSort}
-              align="right"
-            />
             <TableHead>公司名称</TableHead>
             <TableHead>股票代码 </TableHead>
             <SortableHead
@@ -159,7 +146,6 @@ export function ReportStockTable(props: { rows: ReportStockRow[] }) {
         <TableBody>
           {sortedRows.map((row, index) => (
             <TableRow key={`${row.company}-${row.code}-${index}`}>
-              <TableCell className="w-[1%] whitespace-nowrap text-right text-muted-foreground">{row.rank ?? "-"}</TableCell>
               <TableCell className="font-medium break-words">
                 {row.xueqiuUrl ? (
                   <a

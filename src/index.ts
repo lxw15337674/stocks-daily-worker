@@ -1981,20 +1981,21 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
 
 async function fetchGoogleNews(env: Env, stock: Stock): Promise<NewsItem[]> {
   try {
-    const q = `${stock.symbol} ${stock.name} stock`;
-    const endpoint = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}`;
+    const searchRequests = buildGoogleNewsSearchRequests(stock);
+    const rssResponses = await Promise.all(
+      searchRequests.map(async (request) => {
+        const response = await fetch(request.endpoint, {
+          headers: {
+            "user-agent": "Mozilla/5.0"
+          }
+        });
+        return response.ok ? response.text() : null;
+      })
+    );
 
-    const response = await fetch(endpoint, {
-      headers: {
-        "user-agent": "Mozilla/5.0"
-      }
-    });
-    if (!response.ok) {
-      return [];
-    }
-
-    const xml = await response.text();
-    const items = parseRss(xml)
+    const items = rssResponses
+      .flatMap((xml) => (xml ? parseRss(xml) : []))
+      .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
       .filter((item) => isRelevantNews(item.title, stock))
       .map((item) => ({ ...item, symbol: stock.symbol }));
     const deduped = dedupeNews(items).slice(0, 5);
@@ -2020,6 +2021,69 @@ async function fetchGoogleNews(env: Env, stock: Stock): Promise<NewsItem[]> {
   } catch {
     return [];
   }
+}
+
+function buildGoogleNewsSearchRequests(stock: Stock): Array<{ endpoint: string }> {
+  const requests: Array<{ endpoint: string }> = [];
+  const seenQueries = new Set<string>();
+  const englishQuery = `${stock.symbol} ${stock.name} stock`;
+
+  const chineseKeywords = extractChineseKeywords([stock.displayName, stock.name, stock.codes, ...stock.aliases]);
+  const chineseQuery = chineseKeywords[0] ? `${stock.symbol} ${chineseKeywords[0]} 股票` : "";
+
+  const candidates = [
+    { query: englishQuery, hl: "en-US", gl: "US", ceid: "US:en" },
+    { query: chineseQuery, hl: "zh-CN", gl: "CN", ceid: "CN:zh-Hans" }
+  ];
+
+  for (const candidate of candidates) {
+    const query = candidate.query.trim();
+    if (!query) {
+      continue;
+    }
+
+    const normalized = normalizeTitle(query);
+    if (!normalized || seenQueries.has(normalized)) {
+      continue;
+    }
+    seenQueries.add(normalized);
+
+    const endpoint =
+      `https://news.google.com/rss/search?q=${encodeURIComponent(query)}` +
+      `&hl=${encodeURIComponent(candidate.hl)}` +
+      `&gl=${encodeURIComponent(candidate.gl)}` +
+      `&ceid=${encodeURIComponent(candidate.ceid)}`;
+    requests.push({ endpoint });
+  }
+
+  if (requests.length === 0) {
+    const fallbackQuery = `${stock.symbol} stock`;
+    requests.push({
+      endpoint:
+        `https://news.google.com/rss/search?q=${encodeURIComponent(fallbackQuery)}` +
+        "&hl=en-US&gl=US&ceid=US:en"
+    });
+  }
+
+  return requests;
+}
+
+function extractChineseKeywords(entries: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const entry of entries) {
+    const matches = entry.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+    for (const match of matches) {
+      if (seen.has(match)) {
+        continue;
+      }
+      seen.add(match);
+      out.push(match);
+    }
+  }
+
+  return out;
 }
 
 function getNewsBodyFetchConfig(env: Env): {
@@ -2240,12 +2304,24 @@ function dedupeNews(items: NewsItem[]): NewsItem[] {
 
 function isRelevantNews(title: string, stock: Stock): boolean {
   const normalized = title.toLowerCase();
+  const compactTitle = normalizeTitle(title);
   const aliases = [stock.symbol, stock.name, stock.displayName, stock.codes, ...stock.aliases]
     .flatMap((entry) => entry.split("/"))
     .map((entry) => entry.trim().toLowerCase())
     .filter((entry) => entry.length > 0);
 
-  return aliases.some((alias) => alias.length > 1 && normalized.includes(alias));
+  return aliases.some((alias) => {
+    if (alias.length <= 1) {
+      return false;
+    }
+
+    if (normalized.includes(alias)) {
+      return true;
+    }
+
+    const compactAlias = normalizeTitle(alias);
+    return compactAlias.length > 1 && compactTitle.includes(compactAlias);
+  });
 }
 
 function extractTag(input: string, tag: string): string {
@@ -2299,7 +2375,7 @@ function buildMarkdown(params: {
   lines.push("");
   lines.push("## 二、股票数据");
   lines.push("| 公司名称 | 涨跌幅 | 收盘价 |\n|---|---:|---:|");
-  for (const [index, stock] of stocks.entries()) {
+  for (const stock of stocks) {
     const quote = quoteBySymbol.get(stock.symbol);
     lines.push(
       `| ${stock.displayName} | ${

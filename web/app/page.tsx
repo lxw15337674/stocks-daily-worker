@@ -41,6 +41,27 @@ function extractReportMeta(markdown: string): ReportMeta {
   return { generatedAt, sampleScope, validQuotes };
 }
 
+function stripReportMetaQuoteBlock(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^>\s*生成时间：/.test(line));
+  if (start === -1) {
+    return markdown;
+  }
+
+  const hasScope = /^>\s*样本范围：/.test(lines[start + 1] ?? "");
+  const hasValidQuotes = /^>\s*有效行情：/.test(lines[start + 2] ?? "");
+  if (!hasScope || !hasValidQuotes) {
+    return markdown;
+  }
+
+  let end = start + 3;
+  while (end < lines.length && lines[end].trim() === "") {
+    end += 1;
+  }
+
+  return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+}
+
 function pickRecentDates(items: ReportListItem[], currentDate: string): string[] {
   const seen = new Set<string>();
   const dates: string[] = [];
@@ -100,6 +121,7 @@ export default async function HomePage(props: HomePageProps) {
   const nextDate = addDaysToReportDate(date, 1);
   const recentDates = pickRecentDates(history, date);
   const reportMeta = extractReportMeta(markdown);
+  const displayMarkdown = stripReportMetaQuoteBlock(markdown);
 
   return (
     <main className="page-shell">
@@ -167,7 +189,7 @@ export default async function HomePage(props: HomePageProps) {
             </CardHeader>
             <CardContent>
               <article className="markdown-body report-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayMarkdown}</ReactMarkdown>
               </article>
             </CardContent>
           </Card>
