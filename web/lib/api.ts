@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 
-const DEFAULT_WEB_BASE_URL = "https://china-stocks-daily-web.404174262.workers.dev";
+const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 
 export type ReportListItem = {
   key: string;
@@ -32,11 +32,15 @@ async function resolveApiBaseUrl(): Promise<string> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
   if (!host) {
-    return DEFAULT_WEB_BASE_URL;
+    return DEFAULT_API_BASE_URL;
   }
 
   const proto = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  return stripTrailingSlashes(`${proto}://${host}`);
+  if (host.includes("localhost")) {
+    return stripTrailingSlashes(`${proto}://${host}`);
+  }
+
+  return DEFAULT_API_BASE_URL;
 }
 
 async function fetchText(path: string): Promise<{ status: number; text: string; headers: Headers }> {
