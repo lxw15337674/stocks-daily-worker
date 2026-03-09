@@ -24,28 +24,40 @@ type ReportListResponse = {
   items: ReportListItem[];
 };
 
+type ApiTarget = {
+  baseUrl: string;
+  pathPrefix: string;
+};
+
 function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-async function resolveApiBaseUrl(): Promise<string> {
+function joinApiUrl(target: ApiTarget, path: string): string {
+  return `${target.baseUrl}${target.pathPrefix}${path}`;
+}
+
+async function resolveApiTarget(): Promise<ApiTarget> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
   if (!host) {
-    return DEFAULT_API_BASE_URL;
+    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "" };
   }
 
   const proto = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   if (host.includes("localhost")) {
-    return stripTrailingSlashes(`${proto}://${host}`);
+    return {
+      baseUrl: stripTrailingSlashes(`${proto}://${host}`),
+      pathPrefix: "/api"
+    };
   }
 
-  return DEFAULT_API_BASE_URL;
+  return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "" };
 }
 
 async function fetchText(path: string): Promise<{ status: number; text: string; headers: Headers }> {
-  const base = await resolveApiBaseUrl();
-  const response = await fetch(`${base}${path}`, {
+  const target = await resolveApiTarget();
+  const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
     cache: "no-store",
     headers: { accept: "text/markdown, text/plain;q=0.8, */*;q=0.5" }
@@ -59,8 +71,8 @@ async function fetchText(path: string): Promise<{ status: number; text: string; 
 }
 
 async function fetchJson<T>(path: string): Promise<T | null> {
-  const base = await resolveApiBaseUrl();
-  const response = await fetch(`${base}${path}`, {
+  const target = await resolveApiTarget();
+  const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
     cache: "no-store",
     headers: { accept: "application/json" }
@@ -74,7 +86,7 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 }
 
 export async function fetchLatestMarkdown(): Promise<{ markdown: string; fileName?: string } | null> {
-  const response = await fetchText("/api/latest");
+  const response = await fetchText("/latest");
   if (response.status !== 200) {
     return null;
   }
@@ -87,7 +99,7 @@ export async function fetchLatestMarkdown(): Promise<{ markdown: string; fileNam
 
 export async function fetchReportByDate(date: string): Promise<ReportByDateResult> {
   try {
-    const response = await fetchText(`/api/report/${date}`);
+    const response = await fetchText(`/report/${date}`);
     if (response.status !== 200) {
       return { status: response.status, markdown: null };
     }
@@ -98,6 +110,6 @@ export async function fetchReportByDate(date: string): Promise<ReportByDateResul
 }
 
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {
-  const result = await fetchJson<ReportListResponse>(`/api/reports?limit=${Math.max(1, Math.min(limit, 200))}`);
+  const result = await fetchJson<ReportListResponse>(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`);
   return result?.items ?? [];
 }
