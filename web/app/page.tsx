@@ -76,7 +76,8 @@ export default async function HomePage(props: HomePageProps) {
     date = history[0]?.reportDateEt ?? getTodayEtDateString();
   }
 
-  const [markdown, history] = await Promise.all([fetchReportByDate(date), fetchReportList(120)]);
+  const [reportResult, history] = await Promise.all([fetchReportByDate(date), fetchReportList(120)]);
+  const markdown = reportResult.markdown;
   if (!markdown) {
     return (
       <main className="page-shell">
