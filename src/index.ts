@@ -1,9 +1,11 @@
 import { swaggerUI } from "@hono/swagger-ui";
+import { Readability } from "@mozilla/readability";
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Feed } from "feed";
 import { Hono } from "hono";
 import { describeRoute, openAPIRouteHandler } from "hono-openapi";
+import { parseHTML } from "linkedom";
 import { stocks as stocksTable } from "./db/schema";
 
 interface Env {
@@ -14,6 +16,10 @@ interface Env {
   OPENAI_BASE_URL?: string;
   OPENAI_API_KEY?: string;
   AI_MODEL?: string;
+  NEWS_BODY_FETCH_ENABLED?: string;
+  NEWS_BODY_PER_STOCK_LIMIT?: string;
+  NEWS_BODY_TIMEOUT_MS?: string;
+  NEWS_BODY_MAX_CHARS?: string;
   // Backward-compatible aliases.
   AI_GATEWAY_BASE_URL?: string;
   AI_API_KEY?: string;
@@ -45,6 +51,7 @@ type NewsItem = {
   link: string;
   source: string;
   publishedAt: Date;
+  bodySnippet?: string;
 };
 
 type ReportSummary = {
@@ -91,8 +98,24 @@ type StockMutationInput = {
   displayName?: string;
   codes?: string;
   businessType?: string;
+  aliases?: string[];
   sortOrder?: number;
   isActive?: boolean;
+};
+
+type StockPreviewInput = {
+  name: string;
+};
+
+type StockPreviewCandidate = {
+  symbol: string;
+  name: string;
+  displayName: string;
+  codes: string;
+  businessType: string;
+  aliases: string[];
+  warnings: string[];
+  rationale?: string;
 };
 
 type StockRecord = typeof stocksTable.$inferSelect;
@@ -201,8 +224,24 @@ const ET_TIMEZONE = "America/New_York";
 const CN_TIMEZONE = "Asia/Shanghai";
 const OPENAPI_VERSION = "3.1.0";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
+const NEWS_BODY_FETCH_ENABLED_DEFAULT = true;
+const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
+const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
+const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use("*", async (c, next) => {
+  const startedAt = Date.now();
+  const requestUrl = new URL(c.req.url);
+  const requestTarget = `${requestUrl.pathname}${requestUrl.search}`;
+
+  await next();
+
+  const durationMs = Date.now() - startedAt;
+  c.res.headers.set("x-response-time", `${durationMs}ms`);
+  console.log(`[HTTP] ${c.req.method} ${requestTarget} -> ${c.res.status} (${durationMs}ms)`);
+});
 
 app.get(
   "/health",
@@ -236,6 +275,15 @@ app.get(
     tags: ["Reports"],
     summary: "Generate report now",
     description: "Generate the daily report immediately and return markdown.",
+    parameters: [
+      {
+        name: "x-admin-token",
+        in: "header",
+        required: true,
+        schema: { type: "string" },
+        description: "Admin token"
+      }
+    ],
     responses: {
       "200": {
         description: "Generated markdown report",
@@ -250,10 +298,21 @@ app.get(
             schema: { type: "string" }
           }
         }
+      },
+      "401": {
+        description: "Missing or invalid admin token"
+      },
+      "500": {
+        description: "ADMIN_TOKEN is not configured on server"
       }
     }
   }),
   async (c) => {
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
     const result = await generateAndPersistReport(c.env);
     return new Response(result.markdown, {
       headers: {
@@ -523,15 +582,51 @@ app.get(
 );
 
 app.post(
+  "/stocks/preview",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Preview stock info by AI",
+    description:
+      "Generate multiple AI draft candidates for stock creation (including aliases) without writing to DB.",
+    responses: {
+      "200": { description: "Preview candidates generated" },
+      "400": { description: "Invalid payload" },
+      "401": { description: "Missing or invalid admin token" }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+    await ensureD1Schema(c.env.DB);
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const payload = await readJsonSafe(c.req.raw);
+    const parsed = parseStockPreviewInput(payload);
+    if (!parsed.ok) {
+      return c.text(parsed.error, 400);
+    }
+
+    const preview = await buildStockPreview(c.env, parsed.value);
+    return c.json(preview);
+  }
+);
+
+app.post(
   "/stocks",
   describeRoute({
     tags: ["Stocks"],
     summary: "Create stock",
-    description: "Create a stock row and auto-generate aliases with AI.",
+    description: "Create a stock row and auto-generate aliases with AI. symbol is optional when name is provided.",
     responses: {
       "201": { description: "Created stock row" },
       "400": { description: "Invalid payload" },
-      "401": { description: "Missing or invalid admin token" }
+      "401": { description: "Missing or invalid admin token" },
+      "409": { description: "Stock symbol already exists" }
     }
   }),
   async (c) => {
@@ -550,7 +645,7 @@ app.post(
       return c.text("Invalid JSON payload.", 400);
     }
 
-    const parsed = parseStockMutationInput(payload, { requireSymbol: true });
+    const parsed = parseStockMutationInput(payload, { requireSymbol: false });
     if (!parsed.ok) {
       return c.text(parsed.error, 400);
     }
@@ -574,6 +669,7 @@ app.put(
       "200": { description: "Updated stock row" },
       "400": { description: "Invalid payload" },
       "401": { description: "Missing or invalid admin token" },
+      "409": { description: "Stock symbol already exists" },
       "404": { description: "Stock not found" }
     }
   }),
@@ -706,7 +802,8 @@ app.get(
   describeRoute({
     tags: ["Reports"],
     summary: "Get report by date",
-    description: "Reads from D1 first, then R2. If missing and date is today (ET), generates on demand.",
+    description:
+      "Reads from D1 first, then R2. If missing and date is today (ET), generates on demand (requires admin token).",
     parameters: [
       {
         name: "date",
@@ -714,6 +811,13 @@ app.get(
         required: true,
         schema: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
         description: "Date in YYYY-MM-DD format"
+      },
+      {
+        name: "x-admin-token",
+        in: "header",
+        required: false,
+        schema: { type: "string" },
+        description: "Required only when triggering today's on-demand generation"
       }
     ],
     responses: {
@@ -740,6 +844,12 @@ app.get(
             schema: { type: "string" }
           }
         }
+      },
+      "401": {
+        description: "Missing or invalid admin token for today's on-demand generation"
+      },
+      "500": {
+        description: "ADMIN_TOKEN is not configured on server"
       }
     }
   }),
@@ -776,6 +886,11 @@ app.get(
 
     const todayEt = formatDate(new Date(), ET_TIMEZONE);
     if (date === todayEt) {
+      const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+      if (authError) {
+        return new Response(authError.message, { status: authError.status });
+      }
+
       const result = await generateAndPersistReport(c.env);
       return new Response(result.markdown, {
         headers: {
@@ -1017,7 +1132,7 @@ async function generateAndPersistReport(
   const newsBySymbol = new Map<string, NewsItem[]>();
   await Promise.all(
     stocks.map(async (stock) => {
-      const items = await fetchGoogleNews(stock);
+      const items = await fetchGoogleNews(env, stock);
       newsBySymbol.set(stock.symbol, items);
     })
   );
@@ -1159,6 +1274,29 @@ function normalizeSortOrder(value: unknown): number | undefined {
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
+function normalizeAliasesField(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value.filter((item): item is string => typeof item === "string");
+  const normalized = normalizeAliasList(raw);
+  return normalized.length > 0 ? normalized : [];
+}
+
+function parseStockPreviewInput(payload: unknown): ParseResult<StockPreviewInput> {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Payload must be an object." };
+  }
+
+  const body = payload as Record<string, unknown>;
+  const name = normalizeStringField(body.name);
+  if (!name) {
+    return { ok: false, error: "name is required." };
+  }
+
+  return { ok: true, value: { name } };
+}
+
 function parseStockMutationInput(
   payload: unknown,
   options: { requireSymbol: boolean }
@@ -1173,6 +1311,7 @@ function parseStockMutationInput(
   const displayName = normalizeStringField(body.displayName);
   const codes = normalizeStringField(body.codes);
   const businessType = normalizeStringField(body.businessType);
+  const aliases = normalizeAliasesField(body.aliases);
   const sortOrder = normalizeSortOrder(body.sortOrder);
   const isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
 
@@ -1186,6 +1325,7 @@ function parseStockMutationInput(
     displayName,
     codes,
     businessType,
+    aliases,
     sortOrder,
     isActive
   };
@@ -1197,6 +1337,7 @@ function parseStockMutationInput(
     displayName === undefined &&
     codes === undefined &&
     businessType === undefined &&
+    aliases === undefined &&
     sortOrder === undefined &&
     isActive === undefined
   ) {
@@ -1204,6 +1345,228 @@ function parseStockMutationInput(
   }
 
   return { ok: true, value: parsed };
+}
+
+function tryParseJsonValue(raw: string): unknown | undefined {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractJsonValue(raw: string): unknown | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const direct = tryParseJsonValue(trimmed);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  const objectStart = trimmed.indexOf("{");
+  const objectEnd = trimmed.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    const objectValue = tryParseJsonValue(trimmed.slice(objectStart, objectEnd + 1));
+    if (objectValue !== undefined) {
+      return objectValue;
+    }
+  }
+
+  const arrayStart = trimmed.indexOf("[");
+  const arrayEnd = trimmed.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    return tryParseJsonValue(trimmed.slice(arrayStart, arrayEnd + 1));
+  }
+
+  return undefined;
+}
+
+function parsePreviewCandidatesFromAi(raw: string): Array<Record<string, unknown>> {
+  const parsed = extractJsonValue(raw);
+  if (Array.isArray(parsed)) {
+    return parsed.filter((item): item is Record<string, unknown> => !!item && typeof item === "object");
+  }
+  if (parsed && typeof parsed === "object") {
+    const candidates = (parsed as Record<string, unknown>).candidates;
+    if (Array.isArray(candidates)) {
+      return candidates.filter((item): item is Record<string, unknown> => !!item && typeof item === "object");
+    }
+  }
+  return [];
+}
+
+function makePreviewSymbolWithIndex(seed: string, index: number): string {
+  const normalizedSeed = normalizeSymbol(seed) ?? `STK${Date.now().toString(36).toUpperCase()}`;
+  const suffix = index === 0 ? "" : String(index + 1);
+  const maxBaseLength = Math.max(1, 32 - suffix.length);
+  return `${normalizedSeed.slice(0, maxBaseLength)}${suffix}`;
+}
+
+function buildAliasOwnerMap(items: StockAdminItem[]): Map<string, string> {
+  const ownerByAlias = new Map<string, string>();
+  for (const item of items) {
+    if (!item.isActive) {
+      continue;
+    }
+    for (const alias of item.aliases) {
+      ownerByAlias.set(alias.toLowerCase(), item.symbol);
+    }
+  }
+  return ownerByAlias;
+}
+
+function filterAliasesByOwnerMap(aliases: string[], symbol: string, ownerByAlias: Map<string, string>): string[] {
+  return aliases.filter((alias) => {
+    const owner = ownerByAlias.get(alias.toLowerCase());
+    return !owner || owner === symbol;
+  });
+}
+
+function buildNameConflictWarnings(name: string, items: StockAdminItem[]): string[] {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) {
+    return [];
+  }
+
+  const exact = items.find((item) => item.name.trim().toLowerCase() === normalized);
+  if (exact) {
+    return [`名称与现有股票重复：${exact.name}（${exact.symbol}）`];
+  }
+
+  const similar = items
+    .filter((item) => {
+      const current = item.name.trim().toLowerCase();
+      return current.includes(normalized) || normalized.includes(current);
+    })
+    .slice(0, 2)
+    .map((item) => `${item.name}（${item.symbol}）`);
+  if (similar.length > 0) {
+    return [`名称与已有股票相近：${similar.join("、")}`];
+  }
+
+  return [];
+}
+
+async function buildStockPreview(
+  env: Env,
+  input: StockPreviewInput
+): Promise<{ inputName: string; candidates: StockPreviewCandidate[]; globalWarnings: string[] }> {
+  const existingItems = env.DB ? await listStocksFromD1(env.DB, { includeInactive: true }) : [];
+  const ownerByAlias = buildAliasOwnerMap(existingItems);
+  const existingSymbols = new Set(existingItems.map((item) => item.symbol.toLowerCase()));
+  const nameWarnings = buildNameConflictWarnings(input.name, existingItems);
+
+  const seed = buildSymbolSeedFromName(input.name);
+  const knownSymbols = existingItems
+    .map((item) => item.symbol)
+    .slice(0, 120)
+    .join(", ");
+  const aiPrompt = [
+    "请根据输入股票名称生成最多3个候选股票信息，用于中概股股票池新增预览。",
+    "必须输出 JSON，格式如下：",
+    '{"candidates":[{"symbol":"","name":"","displayName":"","codes":"","businessType":"","aliases":[""]}]}',
+    "要求：",
+    "1) 只输出 JSON，不要任何解释文本；",
+    "2) symbol 使用大写，港股可用 0700.HK；",
+    "3) aliases 提供中英文简称与代码写法。",
+    `输入名称: ${input.name}`,
+    `默认 symbol 种子: ${seed}`,
+    knownSymbols ? `已存在 symbol 列表(节选): ${knownSymbols}` : "已存在 symbol 列表: 无"
+  ].join("\n");
+
+  const aiRaw = await callAiCompatible(
+    env,
+    "你是中概股股票池维护助手。严格返回 JSON 对象，不允许额外文本。",
+    aiPrompt
+  );
+
+  const aiCandidates = aiRaw ? parsePreviewCandidatesFromAi(aiRaw).slice(0, 3) : [];
+  const globalWarnings: string[] = [];
+  if (!aiRaw) {
+    globalWarnings.push("AI 预览不可用，已返回规则生成候选。");
+  } else if (aiCandidates.length === 0) {
+    globalWarnings.push("AI 返回无法解析，已返回规则生成候选。");
+  }
+
+  const candidates: StockPreviewCandidate[] = [];
+  const usedSymbols = new Set<string>();
+  const maxCandidates = Math.max(3, aiCandidates.length || 0);
+
+  for (let index = 0; index < maxCandidates; index += 1) {
+    const rawCandidate = aiCandidates[index] ?? {};
+    const fallbackSymbol = makePreviewSymbolWithIndex(seed, index);
+    let symbol = normalizeSymbol(rawCandidate.symbol) ?? fallbackSymbol;
+    if (usedSymbols.has(symbol.toLowerCase())) {
+      let attempt = index + 1;
+      while (usedSymbols.has(symbol.toLowerCase())) {
+        symbol = makePreviewSymbolWithIndex(symbol, attempt);
+        attempt += 1;
+      }
+    }
+
+    const name = normalizeStringField(rawCandidate.name) ?? input.name;
+    const displayName =
+      normalizeStringField(rawCandidate.displayName) ??
+      (name === symbol ? symbol : `${name} (${symbol})`);
+    const codes = normalizeStringField(rawCandidate.codes) ?? symbol;
+    const businessType = normalizeStringField(rawCandidate.businessType) ?? "N/A";
+    const aiAliases = normalizeAliasesField(rawCandidate.aliases) ?? [];
+    const seedAliases = collectAliasCandidates({ symbol, name, displayName, codes });
+    const mergedAliases = normalizeAliasList([...seedAliases, ...aiAliases]);
+    const aliases = filterAliasesByOwnerMap(mergedAliases, symbol, ownerByAlias);
+
+    const warnings: string[] = [];
+    if (existingSymbols.has(symbol.toLowerCase())) {
+      warnings.push(`symbol 已存在：${symbol}`);
+    }
+    for (const warning of nameWarnings) {
+      if (!warnings.includes(warning)) {
+        warnings.push(warning);
+      }
+    }
+    const normalizedCandidate: StockPreviewCandidate = {
+      symbol,
+      name,
+      displayName,
+      codes,
+      businessType,
+      aliases,
+      warnings: warnings.slice(0, 6)
+    };
+
+    if (usedSymbols.has(normalizedCandidate.symbol.toLowerCase())) {
+      continue;
+    }
+    usedSymbols.add(normalizedCandidate.symbol.toLowerCase());
+    candidates.push(normalizedCandidate);
+
+    if (candidates.length >= 3) {
+      break;
+    }
+  }
+
+  if (candidates.length === 0) {
+    const symbol = makePreviewSymbolWithIndex(seed, 0);
+    const displayName = input.name === symbol ? symbol : `${input.name} (${symbol})`;
+    candidates.push({
+      symbol,
+      name: input.name,
+      displayName,
+      codes: symbol,
+      businessType: "N/A",
+      aliases: normalizeAliasList([symbol, input.name, displayName]),
+      warnings: nameWarnings
+    });
+  }
+
+  return {
+    inputName: input.name,
+    candidates,
+    globalWarnings
+  };
 }
 
 function parseAliasesJson(raw: string): string[] {
@@ -1265,6 +1628,35 @@ async function getStockRowBySymbol(dbBinding: D1Database, symbol: string): Promi
   return rows[0] ?? null;
 }
 
+function buildSymbolSeedFromName(name: string): string {
+  const normalized = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "");
+  if (normalized.length > 0) {
+    return normalized.slice(0, 24);
+  }
+  return `STK${Date.now().toString(36).toUpperCase()}`;
+}
+
+async function allocateUniqueStockSymbol(dbBinding: D1Database, seed: string): Promise<string> {
+  const normalizedSeed = normalizeSymbol(seed) ?? `STK${Date.now().toString(36).toUpperCase()}`;
+  const base = normalizedSeed.slice(0, 28);
+
+  for (let index = 0; index < 500; index += 1) {
+    const suffix = index === 0 ? "" : String(index + 1);
+    const maxBaseLength = Math.max(1, 32 - suffix.length);
+    const candidate = `${base.slice(0, maxBaseLength)}${suffix}`;
+    const existing = await getStockRowBySymbol(dbBinding, candidate);
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Failed to allocate unique stock symbol.");
+}
+
 async function getNextSortOrder(dbBinding: D1Database): Promise<number> {
   const db = drizzle(dbBinding);
   const rows = await db
@@ -1280,26 +1672,40 @@ type StockMutationResult =
   | { ok: false; status: number; error: string };
 
 async function createStock(env: Env, input: StockMutationInput): Promise<StockMutationResult> {
-  if (!env.DB || !input.symbol) {
-    return { ok: false, status: 400, error: "DB and symbol are required." };
+  if (!env.DB) {
+    return { ok: false, status: 400, error: "DB is required." };
   }
 
-  const existing = await getStockRowBySymbol(env.DB, input.symbol);
+  const normalizedName = input.name?.trim();
+  if (!input.symbol && !normalizedName) {
+    return { ok: false, status: 400, error: "name is required when symbol is omitted." };
+  }
+
+  let symbol = input.symbol;
+  if (!symbol) {
+    try {
+      symbol = await allocateUniqueStockSymbol(env.DB, buildSymbolSeedFromName(normalizedName ?? ""));
+    } catch {
+      return { ok: false, status: 500, error: "Failed to generate unique stock symbol." };
+    }
+  }
+
+  const existing = await getStockRowBySymbol(env.DB, symbol);
   if (existing) {
     return { ok: false, status: 409, error: "Stock symbol already exists." };
   }
 
-  const name = input.name ?? input.symbol;
-  const displayName = input.displayName ?? (name === input.symbol ? input.symbol : `${name} (${input.symbol})`);
+  const name = normalizedName ?? symbol;
+  const displayName = input.displayName ?? (name === symbol ? symbol : `${name} (${symbol})`);
   const db = drizzle(env.DB);
   const sortOrder = input.sortOrder ?? (await getNextSortOrder(env.DB));
   const nowDeletedAt = input.isActive === false ? sql`CURRENT_TIMESTAMP` : null;
 
   await db.insert(stocksTable).values({
-    symbol: input.symbol,
+    symbol,
     name,
     displayName,
-    codes: input.codes ?? input.symbol,
+    codes: input.codes ?? symbol,
     businessType: input.businessType ?? "N/A",
     aliasesJson: "[]",
     isActive: input.isActive ?? true,
@@ -1307,12 +1713,15 @@ async function createStock(env: Env, input: StockMutationInput): Promise<StockMu
     deletedAt: nowDeletedAt
   });
 
-  const created = await getStockRowBySymbol(env.DB, input.symbol);
+  const created = await getStockRowBySymbol(env.DB, symbol);
   if (!created) {
     return { ok: false, status: 500, error: "Failed to create stock." };
   }
 
-  const aliases = await buildAliasesForStock(env, stockRowToItem(created), created.id);
+  const aliases =
+    input.aliases !== undefined
+      ? await filterConflictingAliases(env.DB, normalizeAliasList(input.aliases), created.symbol, created.id)
+      : await buildAliasesForStock(env, stockRowToItem(created), created.id);
   await db
     .update(stocksTable)
     .set({ aliasesJson: JSON.stringify(aliases), updatedAt: sql`CURRENT_TIMESTAMP` })
@@ -1371,7 +1780,10 @@ async function updateStock(env: Env, stockId: number, input: StockMutationInput)
     return { ok: false, status: 500, error: "Failed to load updated stock." };
   }
 
-  const aliases = await buildAliasesForStock(env, stockRowToItem(updated), stockId);
+  const aliases =
+    input.aliases !== undefined
+      ? await filterConflictingAliases(env.DB, normalizeAliasList(input.aliases), updated.symbol, stockId)
+      : await buildAliasesForStock(env, stockRowToItem(updated), stockId);
   await db
     .update(stocksTable)
     .set({ aliasesJson: JSON.stringify(aliases), updatedAt: sql`CURRENT_TIMESTAMP` })
@@ -1385,8 +1797,12 @@ async function updateStock(env: Env, stockId: number, input: StockMutationInput)
 }
 
 function collectAliasCandidates(stock: Pick<StockAdminItem, "symbol" | "name" | "displayName" | "codes">): string[] {
-  return [stock.symbol, stock.name, stock.displayName, stock.codes]
-    .flatMap((value) => value.split("/"))
+  const codeParts = stock.codes
+    .split(/[\/,，]+/g)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return [stock.symbol, stock.name, stock.displayName, stock.codes, ...codeParts]
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
 }
@@ -1563,12 +1979,10 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
   }
 }
 
-async function fetchGoogleNews(stock: Stock): Promise<NewsItem[]> {
+async function fetchGoogleNews(env: Env, stock: Stock): Promise<NewsItem[]> {
   try {
     const q = `${stock.symbol} ${stock.name} stock`;
-    const endpoint = `https://news.google.com/rss/search?q=${encodeURIComponent(
-      q
-    )}&hl=en-US&gl=US&ceid=US:en`;
+    const endpoint = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}`;
 
     const response = await fetch(endpoint, {
       headers: {
@@ -1583,11 +1997,206 @@ async function fetchGoogleNews(stock: Stock): Promise<NewsItem[]> {
     const items = parseRss(xml)
       .filter((item) => isRelevantNews(item.title, stock))
       .map((item) => ({ ...item, symbol: stock.symbol }));
+    const deduped = dedupeNews(items).slice(0, 5);
 
-    return dedupeNews(items).slice(0, 5);
+    const config = getNewsBodyFetchConfig(env);
+    if (!config.enabled || config.perStockLimit <= 0 || deduped.length === 0) {
+      return deduped;
+    }
+
+    return Promise.all(
+      deduped.map(async (item, index) => {
+        if (index >= config.perStockLimit) {
+          return item;
+        }
+
+        const bodySnippet = await fetchNewsBodySnippet(item.link, {
+          timeoutMs: config.timeoutMs,
+          maxChars: config.maxChars
+        });
+        return bodySnippet ? { ...item, bodySnippet } : item;
+      })
+    );
   } catch {
     return [];
   }
+}
+
+function getNewsBodyFetchConfig(env: Env): {
+  enabled: boolean;
+  perStockLimit: number;
+  timeoutMs: number;
+  maxChars: number;
+} {
+  return {
+    enabled: parseBooleanEnv(env.NEWS_BODY_FETCH_ENABLED, NEWS_BODY_FETCH_ENABLED_DEFAULT),
+    perStockLimit: parseIntEnv(env.NEWS_BODY_PER_STOCK_LIMIT, NEWS_BODY_PER_STOCK_LIMIT_DEFAULT, 0, 5),
+    timeoutMs: parseIntEnv(env.NEWS_BODY_TIMEOUT_MS, NEWS_BODY_TIMEOUT_MS_DEFAULT, 1000, 15000),
+    maxChars: parseIntEnv(env.NEWS_BODY_MAX_CHARS, NEWS_BODY_MAX_CHARS_DEFAULT, 120, 3000)
+  };
+}
+
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+  return fallback;
+}
+
+function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+async function fetchNewsBodySnippet(
+  url: string,
+  options: { timeoutMs: number; maxChars: number }
+): Promise<string | null> {
+  let timeoutHandle: number | undefined;
+  const controller = new AbortController();
+
+  try {
+    timeoutHandle = setTimeout(() => controller.abort(), options.timeoutMs) as unknown as number;
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "Mozilla/5.0",
+        accept: "text/html,application/xhtml+xml"
+      }
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("text/html")) {
+      return null;
+    }
+
+    const html = await response.text();
+    return extractNewsBodySnippetFromHtml(html, options.maxChars, url);
+  } catch {
+    return null;
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+function extractNewsBodySnippetFromHtml(html: string, maxChars: number, sourceUrl: string): string | null {
+  const readabilityText = extractReadabilityText(html, sourceUrl);
+  if (readabilityText && !isLowValueSnippet(readabilityText)) {
+    return truncateByChars(readabilityText, maxChars);
+  }
+
+  const metaDescription = extractMetaDescription(html);
+  if (metaDescription && !isLowValueSnippet(metaDescription)) {
+    return truncateByChars(metaDescription, maxChars);
+  }
+
+  const articleText = extractArticleText(html);
+  if (articleText && !isLowValueSnippet(articleText)) {
+    return truncateByChars(articleText, maxChars);
+  }
+
+  const paragraphText = extractParagraphText(html);
+  if (paragraphText && !isLowValueSnippet(paragraphText)) {
+    return truncateByChars(paragraphText, maxChars);
+  }
+
+  return null;
+}
+
+function extractReadabilityText(html: string, _sourceUrl: string): string | null {
+  try {
+    const { document } = parseHTML(html);
+    const parsed = new Readability(document as never).parse();
+
+    const content = sanitizeParagraph(parsed?.textContent ?? "");
+    return content || null;
+  } catch {
+    return null;
+  }
+}
+
+function isLowValueSnippet(input: string): boolean {
+  const normalized = input.toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  if (normalized.length < 30) {
+    return true;
+  }
+  if (normalized.includes("comprehensive up-to-date news coverage") && normalized.includes("google news")) {
+    return true;
+  }
+  return false;
+}
+
+function extractMetaDescription(html: string): string | null {
+  const patterns = [
+    /<meta[^>]+(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["'][^>]+content\s*=\s*["']([\s\S]*?)["'][^>]*>/i,
+    /<meta[^>]+content\s*=\s*["']([\s\S]*?)["'][^>]+(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["'][^>]*>/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    const content = sanitizeParagraph(htmlDecode(stripHtmlTags(match?.[1] ?? "")));
+    if (content) {
+      return content;
+    }
+  }
+
+  return null;
+}
+
+function extractArticleText(html: string): string | null {
+  const match = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
+  if (!match) {
+    return null;
+  }
+  const content = sanitizeParagraph(htmlDecode(stripHtmlTags(match[1])));
+  return content || null;
+}
+
+function extractParagraphText(html: string): string | null {
+  const paragraphMatches = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)];
+  if (paragraphMatches.length === 0) {
+    return null;
+  }
+
+  const joined = paragraphMatches
+    .slice(0, 12)
+    .map((match) => sanitizeParagraph(htmlDecode(stripHtmlTags(match[1]))))
+    .filter((text) => text.length > 40)
+    .slice(0, 6)
+    .join(" ");
+
+  return joined || null;
+}
+
+function stripHtmlTags(input: string): string {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]+>/g, " ");
 }
 
 function parseRss(xml: string): Array<Omit<NewsItem, "symbol">> {
@@ -1648,10 +2257,14 @@ function extractTag(input: string, tag: string): string {
 function htmlDecode(input: string): string {
   return input
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#(\d+);/g, (_full, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_full, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
     .replace(/&#39;/g, "'")
     .trim();
 }
@@ -1770,7 +2383,7 @@ function splitAiOverviewParagraphs(
     const newsParagraph = sanitizeParagraph(newsMatch?.[1] ?? defaultNews) || defaultNews;
     return {
       stockParagraph,
-      newsParagraph: truncateByChars(newsParagraph, 400)
+      newsParagraph
     };
   }
 
@@ -1782,7 +2395,7 @@ function splitAiOverviewParagraphs(
   if (paragraphs.length >= 2) {
     return {
       stockParagraph: paragraphs[0],
-      newsParagraph: truncateByChars(paragraphs.slice(1).join(" "), 400)
+      newsParagraph: paragraphs.slice(1).join(" ")
     };
   }
 
@@ -1919,23 +2532,48 @@ async function getReportListFromR2(
     return { items: [], nextCursor: null };
   }
 
-  const listing = await env.REPORT_BUCKET.list({ prefix: "reports/", limit: 1000 });
-  const objects = [...listing.objects].sort((a, b) => b.key.localeCompare(a.key));
-
-  let startIndex = 0;
-  if (cursor) {
-    const cursorIndex = objects.findIndex((obj) => obj.key === cursor);
-    if (cursorIndex < 0) {
-      return null;
-    }
-    startIndex = cursorIndex + 1;
+  const initialYear = cursor ? extractYearFromReportKey(cursor) : getCurrentReportYearEt();
+  if (!initialYear) {
+    return null;
   }
 
-  const page = objects.slice(startIndex, startIndex + limit);
-  const nextCursor =
-    startIndex + limit < objects.length && page.length > 0 ? page[page.length - 1].key : null;
+  const pageSize = limit + 1;
+  const collected: Array<{ key: string; uploaded: Date }> = [];
+  let cursorResolved = !cursor;
 
-  const items = page.map((obj) => ({
+  outer: for (let year = initialYear; year >= 2000; year -= 1) {
+    const yearObjects = await listR2ReportObjectsByYear(env, year);
+    if (yearObjects.length === 0) {
+      continue;
+    }
+
+    let startIndex = 0;
+    if (cursor && !cursorResolved) {
+      const cursorIndex = yearObjects.findIndex((obj) => obj.key === cursor);
+      if (cursorIndex < 0) {
+        return null;
+      }
+      startIndex = cursorIndex + 1;
+      cursorResolved = true;
+    }
+
+    for (let index = startIndex; index < yearObjects.length; index += 1) {
+      collected.push(yearObjects[index]);
+      if (collected.length >= pageSize) {
+        break outer;
+      }
+    }
+  }
+
+  if (!cursorResolved) {
+    return null;
+  }
+
+  const hasMore = collected.length > limit;
+  const visible = hasMore ? collected.slice(0, limit) : collected;
+  const nextCursor = hasMore && visible.length > 0 ? visible[visible.length - 1].key : null;
+
+  const items = visible.map((obj) => ({
     key: obj.key,
     fileName: obj.key.replace(/^reports\//, ""),
     reportDateEt: extractDateFromReportKey(obj.key),
@@ -1944,6 +2582,32 @@ async function getReportListFromR2(
   }));
 
   return { items, nextCursor };
+}
+
+async function listR2ReportObjectsByYear(
+  env: Env,
+  year: number
+): Promise<Array<{ key: string; uploaded: Date }>> {
+  if (!env.REPORT_BUCKET) {
+    return [];
+  }
+
+  const prefix = `reports/china-stocks-daily-${year}-`;
+  const objects: Array<{ key: string; uploaded: Date }> = [];
+  let cursor: string | undefined;
+
+  do {
+    const listing = await env.REPORT_BUCKET.list({ prefix, limit: 1000, cursor });
+    for (const object of listing.objects) {
+      if (extractYearFromReportKey(object.key) === year) {
+        objects.push({ key: object.key, uploaded: object.uploaded });
+      }
+    }
+    cursor = listing.truncated ? listing.cursor : undefined;
+  } while (cursor);
+
+  objects.sort((a, b) => b.key.localeCompare(a.key));
+  return objects;
 }
 
 async function getRssFeedItemsFromD1(env: Env, limit: number): Promise<RssFeedItem[]> {
@@ -2029,6 +2693,27 @@ function parseLimit(rawLimit: string | undefined): number | null {
 function extractDateFromReportKey(key: string): string {
   const matched = key.match(/(\d{4}-\d{2}-\d{2})/);
   return matched?.[1] ?? "";
+}
+
+function extractYearFromReportKey(key: string): number | null {
+  const date = extractDateFromReportKey(key);
+  if (!date) {
+    return null;
+  }
+  const parsed = Number(date.slice(0, 4));
+  if (!Number.isInteger(parsed) || parsed < 2000) {
+    return null;
+  }
+  return parsed;
+}
+
+function getCurrentReportYearEt(): number {
+  const reportDateEt = formatDate(new Date(), ET_TIMEZONE);
+  const parsed = Number(reportDateEt.slice(0, 4));
+  if (Number.isInteger(parsed) && parsed >= 2000) {
+    return parsed;
+  }
+  return new Date().getUTCFullYear();
 }
 
 function buildRssXml(params: { origin: string; items: RssFeedItem[] }): string {
@@ -2166,16 +2851,17 @@ async function buildAiSummary(
         symbol: stock.symbol,
         title: sanitizeTitle(item.title),
         source: item.source,
-        publishedAt: item.publishedAt
+        publishedAt: item.publishedAt,
+        bodySnippet: item.bodySnippet
       }));
     })
     .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
 
   const allMarketNewsLines = allMarketNews
-    .map(
-      (item, index) =>
-        `${index + 1}. [${item.symbol}] ${item.title} (${item.source}, ${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET)`
-    )
+    .map((item, index) => {
+      const snippet = item.bodySnippet ? `；正文摘要：${sanitizeParagraph(item.bodySnippet)}` : "";
+      return `${index + 1}. [${item.symbol}] ${item.title} (${item.source}, ${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET)${snippet}`;
+    })
     .join("\n");
 
   const fallbackStockParagraph = await buildFallbackStockOverview(env, stocks, quoteBySymbol, quotes);
@@ -2183,7 +2869,7 @@ async function buildAiSummary(
 
   const marketPrompt = [
     "请基于以下中概股的股票数据和相关新闻，输出中文 AI 总览，分成两段。",
-    "要求：第一段只讲股票市场表现；第二段只讲相关新闻要点；第二段不超过400字；只基于给定信息；语言客观；不要投资建议；不要项目符号。",
+    "要求：第一段只讲股票市场表现且不超过50字；第二段只讲相关新闻要点且不超过400字；只基于给定信息；语言客观；不要投资建议；不要项目符号。",
     "请严格使用如下格式：",
     "股票市场：<第一段内容>",
     "相关新闻：<第二段内容>",
@@ -2193,7 +2879,7 @@ async function buildAiSummary(
 
   const aiOverviewRaw = await callAiCompatible(
     env,
-    "你是中概日报主编。请按指定格式输出两段中文总览：第一段讲股票市场，第二段讲相关新闻且不超过400字。",
+    "你是中概日报主编。请按指定格式输出两段中文总览：第一段讲股票市场且不超过50字，第二段讲相关新闻且不超过400字。",
     marketPrompt
   );
 
@@ -2201,10 +2887,22 @@ async function buildAiSummary(
     stockParagraph: fallbackStockParagraph,
     newsParagraph: fallbackNewsParagraph
   });
-  const marketOverview = `股票市场：${parsedOverview.stockParagraph}\n\n相关新闻：${truncateByChars(
-    parsedOverview.newsParagraph,
-    400
-  )}`;
+  const marketOverview = `股票市场：${parsedOverview.stockParagraph}\n\n相关新闻：${parsedOverview.newsParagraph}`;
+
+  const stockSummaryPairs = await Promise.all(
+    stocks.map(async (stock) => {
+      const summary = await buildStockNewsSummary(
+        env,
+        stock,
+        quoteBySymbol.get(stock.symbol),
+        newsBySymbol.get(stock.symbol) ?? []
+      );
+      return [stock.symbol, summary] as const;
+    })
+  );
+  for (const [symbol, summary] of stockSummaryPairs) {
+    stockSummaryBySymbol.set(symbol, summary);
+  }
 
   return { stockSummaryBySymbol, marketOverview };
 }
@@ -2232,7 +2930,7 @@ async function buildFallbackStockOverview(
 
   const prompt = [
     "请基于以下中概股行情，生成一段中文股票市场概览。",
-    "要求：只讲股票市场，不提新闻；语气客观；不要投资建议；不要项目符号；120字以内。",
+    "要求：只讲股票市场，不提新闻；语气客观；不要投资建议；不要项目符号；50字以内。",
     `行情数据:\n${quoteLines}`
   ].join("\n\n");
 
@@ -2247,6 +2945,73 @@ async function buildFallbackStockOverview(
   }
 
   return "当日股票市场概览生成失败，请参考下方个股行情数据。";
+}
+
+async function buildStockNewsSummary(
+  env: Env,
+  stock: Stock,
+  quote: Quote | undefined,
+  items: NewsItem[]
+): Promise<string> {
+  const fallback = buildFallbackStockNewsSummary(stock, quote, items);
+  if (items.length === 0) {
+    return fallback;
+  }
+
+  const quoteLine = quote
+    ? `${stock.symbol}（${stock.displayName}）收盘${formatPrice(quote.close, quote.currency)}，涨跌幅${formatSignedPct(quote.changePct)}。`
+    : `${stock.symbol}（${stock.displayName}）当日行情数据缺失。`;
+
+  const newsLines = items
+    .slice(0, 5)
+    .map((item, index) => {
+      const snippet = item.bodySnippet ? `；正文摘要：${sanitizeParagraph(item.bodySnippet)}` : "";
+      return `${index + 1}. ${sanitizeTitle(item.title)}（${item.source}）${snippet}`;
+    })
+    .join("\n");
+
+  const prompt = [
+    "请基于这只股票的行情与新闻，输出一段中文摘要。",
+    "要求：只输出摘要正文，不要标题；聚焦新闻事件要点；语气客观；不超过180字；不要投资建议。",
+    `行情：${quoteLine}`,
+    `新闻:\n${newsLines}`
+  ].join("\n\n");
+
+  let aiRaw: string | null = null;
+  try {
+    aiRaw = await callAiCompatible(
+      env,
+      "你是中概股个股新闻编辑。仅输出一段简洁中文摘要正文，不要附加标题或项目符号。",
+      prompt
+    );
+  } catch {
+    aiRaw = null;
+  }
+
+  const normalized = sanitizeParagraph((aiRaw ?? "").replace(/^\s*(?:要点|摘要|总结|新闻摘要)\s*[：:]\s*/i, ""));
+  if (normalized) {
+    return normalized;
+  }
+
+  return fallback;
+}
+
+function buildFallbackStockNewsSummary(stock: Stock, quote: Quote | undefined, items: NewsItem[]): string {
+  const quoteLead = quote
+    ? `${stock.symbol}当日${formatSignedPct(quote.changePct)}。`
+    : `${stock.symbol}当日行情数据缺失。`;
+
+  if (items.length === 0) {
+    return `${quoteLead} 当日暂无相关新闻。`;
+  }
+
+  const topSources = Array.from(new Set(items.map((item) => item.source))).slice(0, 2).join("、");
+  const topTitles = items
+    .slice(0, 2)
+    .map((item) => sanitizeTitle(item.title))
+    .join("；");
+
+  return sanitizeParagraph(`${quoteLead} 相关新闻主要来自${topSources}，焦点包括：${topTitles}。`);
 }
 
 function buildFallbackNewsOverview(
@@ -2303,11 +3068,8 @@ function buildFallbackNewsOverview(
   const tone =
     positiveCount > negativeCount ? "中性偏积极" : positiveCount < negativeCount ? "中性偏谨慎" : "中性";
 
-  return truncateByChars(
-    sanitizeParagraph(
-      `样本股共抓取${allMarketNews.length}条相关新闻，涉及${coveredSymbols}等公司，信息来源主要包括${topSources}。新闻主题集中在财报业绩、机构评级及监管动态等方向，从标题情绪看整体为${tone}。`
-    ),
-    400
+  return sanitizeParagraph(
+    `样本股共抓取${allMarketNews.length}条相关新闻，涉及${coveredSymbols}等公司，信息来源主要包括${topSources}。新闻主题集中在财报业绩、机构评级及监管动态等方向，从标题情绪看整体为${tone}。`
   );
 }
 

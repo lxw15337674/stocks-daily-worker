@@ -67,12 +67,11 @@ export default async function HomePage(props: HomePageProps) {
   const { date: queryDateRaw } = await props.searchParams;
   const queryDate = queryDateRaw?.trim() ?? "";
   
-  // 确定要显示的日期
+  // 确定要显示的日期：如果没有指定日期，默认获取最新日报
   let date: string;
   if (isValidReportDate(queryDate)) {
     date = queryDate;
   } else {
-    // 没有有效的查询日期，获取最新的日报日期
     const history = await fetchReportList(1);
     date = history[0]?.reportDateEt ?? getTodayEtDateString();
   }

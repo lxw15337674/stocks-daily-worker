@@ -6,5 +6,15 @@ OPENAI_BASE_URL=https://maxx.cloverstd.com
 OPENAI_API_KEY=
 AI_MODEL=gpt-5.2
 
+# Optional: fetch article body snippets and feed them to AI prompts.
+# true/false, default true
+NEWS_BODY_FETCH_ENABLED=true
+# Max number of news articles per stock to fetch body from (0-5), default 2
+NEWS_BODY_PER_STOCK_LIMIT=2
+# Fetch timeout for each article body request (ms), default 4500
+NEWS_BODY_TIMEOUT_MS=4500
+# Max chars retained for one body snippet (120-3000), default 900
+NEWS_BODY_MAX_CHARS=900
+
 # Required for stock admin APIs (/stocks CRUD)
 ADMIN_TOKEN=

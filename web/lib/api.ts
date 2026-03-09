@@ -11,6 +11,11 @@ export type ReportListItem = {
   source: "d1" | "r2";
 };
 
+export type ReportByDateResult = {
+  status: number;
+  markdown: string | null;
+};
+
 type ReportListResponse = {
   source: "d1" | "r2";
   limit: number;
@@ -76,12 +81,16 @@ export async function fetchLatestMarkdown(): Promise<{ markdown: string; fileNam
   };
 }
 
-export async function fetchReportByDate(date: string): Promise<string | null> {
-  const response = await fetchText(`/api/report/${date}`);
-  if (response.status !== 200) {
-    return null;
+export async function fetchReportByDate(date: string): Promise<ReportByDateResult> {
+  try {
+    const response = await fetchText(`/api/report/${date}`);
+    if (response.status !== 200) {
+      return { status: response.status, markdown: null };
+    }
+    return { status: 200, markdown: response.text };
+  } catch {
+    return { status: 0, markdown: null };
   }
-  return response.text;
 }
 
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {
