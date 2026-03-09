@@ -118,6 +118,35 @@ type StockPreviewCandidate = {
   rationale?: string;
 };
 
+type StockQuoteSnapshot = {
+  close: number;
+  previousClose: number;
+  changePct: number;
+  volume: number;
+  turnoverEstimate: number;
+  currency: string;
+};
+
+type StockHistoryPoint = StockQuoteSnapshot & {
+  reportDateEt: string;
+};
+
+type StockNewsSummaryItem = {
+  title: string;
+  link: string;
+  source: string;
+  publishedAt: string;
+};
+
+type StockDetailPayload = {
+  stock: StockAdminItem;
+  latestReportDateEt: string | null;
+  latestQuote: StockQuoteSnapshot | null;
+  latestAiSummary: string | null;
+  recentNews: StockNewsSummaryItem[];
+  history: StockHistoryPoint[];
+};
+
 type StockRecord = typeof stocksTable.$inferSelect;
 
 // Default stock list (mixed US/HK tradable symbols).
@@ -578,6 +607,125 @@ app.get(
 
     const items = await listStocksFromD1(c.env.DB, { includeInactive });
     return c.json({ items });
+  }
+);
+
+app.get(
+  "/stock/:symbol",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Get public stock detail",
+    description: "Returns stock profile, latest quote snapshot, AI summary, recent news, and recent quote history.",
+    responses: {
+      "200": {
+        description: "Stock detail payload",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                stock: {
+                  type: "object",
+                  properties: {
+                    id: { type: "integer" },
+                    symbol: { type: "string" },
+                    name: { type: "string" },
+                    displayName: { type: "string" },
+                    codes: { type: "string" },
+                    businessType: { type: "string" },
+                    aliases: { type: "array", items: { type: "string" } },
+                    isActive: { type: "boolean" },
+                    sortOrder: { type: "integer" },
+                    createdAt: { type: "string" },
+                    updatedAt: { type: "string" },
+                    deletedAt: { anyOf: [{ type: "string" }, { type: "null" }] }
+                  },
+                  required: [
+                    "id",
+                    "symbol",
+                    "name",
+                    "displayName",
+                    "codes",
+                    "businessType",
+                    "aliases",
+                    "isActive",
+                    "sortOrder",
+                    "createdAt",
+                    "updatedAt",
+                    "deletedAt"
+                  ]
+                },
+                latestReportDateEt: { anyOf: [{ type: "string" }, { type: "null" }] },
+                latestQuote: {
+                  anyOf: [
+                    {
+                      type: "object",
+                      properties: {
+                        close: { type: "number" },
+                        previousClose: { type: "number" },
+                        changePct: { type: "number" },
+                        volume: { type: "number" },
+                        turnoverEstimate: { type: "number" },
+                        currency: { type: "string" }
+                      },
+                      required: ["close", "previousClose", "changePct", "volume", "turnoverEstimate", "currency"]
+                    },
+                    { type: "null" }
+                  ]
+                },
+                latestAiSummary: { anyOf: [{ type: "string" }, { type: "null" }] },
+                recentNews: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      link: { type: "string" },
+                      source: { type: "string" },
+                      publishedAt: { type: "string" }
+                    },
+                    required: ["title", "link", "source", "publishedAt"]
+                  }
+                },
+                history: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      reportDateEt: { type: "string" },
+                      close: { type: "number" },
+                      previousClose: { type: "number" },
+                      changePct: { type: "number" },
+                      volume: { type: "number" },
+                      turnoverEstimate: { type: "number" },
+                      currency: { type: "string" }
+                    },
+                    required: ["reportDateEt", "close", "previousClose", "changePct", "volume", "turnoverEstimate", "currency"]
+                  }
+                }
+              },
+              required: ["stock", "latestReportDateEt", "latestQuote", "latestAiSummary", "recentNews", "history"]
+            }
+          }
+        }
+      },
+      "404": {
+        description: "Stock not found"
+      }
+    }
+  }),
+  async (c) => {
+    const inputSymbol = normalizeSymbol(c.req.param("symbol"));
+    if (!inputSymbol) {
+      return c.text("Invalid stock symbol.", 400);
+    }
+
+    const detail = await getPublicStockDetail(c.env, inputSymbol);
+    if (!detail) {
+      return c.text("Stock not found.", 404);
+    }
+
+    return c.json(detail);
   }
 );
 
@@ -1601,6 +1749,49 @@ function stockRowToItem(row: StockRecord): StockAdminItem {
   };
 }
 
+function defaultStockToAdminItem(stock: Stock, index: number): StockAdminItem {
+  return {
+    id: index + 1,
+    symbol: stock.symbol,
+    name: stock.name,
+    displayName: stock.displayName,
+    codes: stock.codes,
+    businessType: stock.businessType,
+    aliases: stock.aliases,
+    isActive: true,
+    sortOrder: (index + 1) * 10,
+    createdAt: "",
+    updatedAt: "",
+    deletedAt: null
+  };
+}
+
+function getDefaultStockItem(symbol: string): StockAdminItem | null {
+  const index = DEFAULT_STOCKS.findIndex((item) => normalizeSymbol(item.symbol) === symbol);
+  if (index === -1) {
+    return null;
+  }
+  return defaultStockToAdminItem(DEFAULT_STOCKS[index], index);
+}
+
+function toQuoteSnapshot(row: {
+  close: number;
+  previousClose: number;
+  changePct: number;
+  volume: number;
+  turnoverEstimate: number;
+  currency: string;
+}): StockQuoteSnapshot {
+  return {
+    close: row.close,
+    previousClose: row.previousClose,
+    changePct: row.changePct,
+    volume: row.volume,
+    turnoverEstimate: row.turnoverEstimate,
+    currency: row.currency
+  };
+}
+
 async function listStocksFromD1(
   dbBinding: D1Database,
   options: { includeInactive: boolean }
@@ -1626,6 +1817,113 @@ async function getStockRowBySymbol(dbBinding: D1Database, symbol: string): Promi
   const db = drizzle(dbBinding);
   const rows = await db.select().from(stocksTable).where(eq(stocksTable.symbol, symbol)).limit(1);
   return rows[0] ?? null;
+}
+
+async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDetailPayload | null> {
+  if (!env.DB) {
+    const stock = getDefaultStockItem(symbol);
+    if (!stock) {
+      return null;
+    }
+
+    return {
+      stock,
+      latestReportDateEt: null,
+      latestQuote: null,
+      latestAiSummary: null,
+      recentNews: [],
+      history: []
+    };
+  }
+
+  await ensureD1Schema(env.DB);
+
+  const stockRow = await getStockRowBySymbol(env.DB, symbol);
+  if (stockRow && !stockRow.isActive) {
+    return null;
+  }
+  const stock = stockRow ? stockRowToItem(stockRow) : getDefaultStockItem(symbol);
+  if (!stock) {
+    return null;
+  }
+
+  const historyResult = await env.DB
+    .prepare(
+      `SELECT
+        r.report_date_et AS reportDateEt,
+        q.close AS close,
+        q.previous_close AS previousClose,
+        q.change_pct AS changePct,
+        q.volume AS volume,
+        q.turnover_estimate AS turnoverEstimate,
+        q.currency AS currency
+      FROM report_quotes q
+      INNER JOIN report_runs r ON r.id = q.run_id
+      WHERE q.symbol = ?
+      ORDER BY r.report_date_et DESC, q.id DESC
+      LIMIT 30`
+    )
+    .bind(symbol)
+    .all<{
+      reportDateEt: string;
+      close: number;
+      previousClose: number;
+      changePct: number;
+      volume: number;
+      turnoverEstimate: number;
+      currency: string;
+    }>();
+
+  const history = (historyResult.results ?? []).map((row) => ({
+    reportDateEt: row.reportDateEt,
+    close: row.close,
+    previousClose: row.previousClose,
+    changePct: row.changePct,
+    volume: row.volume,
+    turnoverEstimate: row.turnoverEstimate,
+    currency: row.currency
+  }));
+
+  const latestQuote = history[0] ? toQuoteSnapshot(history[0]) : null;
+  const latestReportDateEt = history[0]?.reportDateEt ?? null;
+
+  const recentNewsResult = await env.DB
+    .prepare(
+      `SELECT
+        n.title AS title,
+        n.link AS link,
+        n.source AS source,
+        n.published_at AS publishedAt
+      FROM report_news n
+      INNER JOIN report_runs r ON r.id = n.run_id
+      WHERE n.symbol = ?
+      ORDER BY r.report_date_et DESC, n.published_at DESC, n.id DESC
+      LIMIT 8`
+    )
+    .bind(symbol)
+    .all<StockNewsSummaryItem>();
+
+  const latestSummaryRow = await env.DB
+    .prepare(
+      `SELECT
+        n.ai_summary AS aiSummary
+      FROM report_news n
+      INNER JOIN report_runs r ON r.id = n.run_id
+      WHERE n.symbol = ? AND n.ai_summary IS NOT NULL AND TRIM(n.ai_summary) <> ''
+      ORDER BY r.report_date_et DESC, n.id DESC
+      LIMIT 1`
+    )
+    .bind(symbol)
+    .first<{ aiSummary: string | null }>();
+
+  return {
+    stock,
+    latestReportDateEt,
+    latestQuote,
+    latestAiSummary: latestSummaryRow?.aiSummary?.trim() || null,
+    recentNews: recentNewsResult.results ?? [],
+    history
+  };
 }
 
 function buildSymbolSeedFromName(name: string): string {

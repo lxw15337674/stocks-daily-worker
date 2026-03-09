@@ -183,6 +183,6 @@ If `OPENAI_BASE_URL` is configured, the worker will:
 
 Current cron in `wrangler.toml`:
 
-- `0 0 * * *` (UTC daily, equals 08:00 Asia/Shanghai)
+- `0 23 * * 1-5` (UTC Monday-Friday, equals 07:00 Asia/Shanghai Tuesday-Saturday, covering Monday-Friday ET trading days)
 
 The scheduled task requires D1 binding and will fail fast if `DB` is not configured.

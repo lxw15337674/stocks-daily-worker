@@ -16,12 +16,60 @@ export type ReportByDateResult = {
   markdown: string | null;
 };
 
+export type StockListItem = {
+  id: number;
+  symbol: string;
+  name: string;
+  displayName: string;
+  codes: string;
+  businessType: string;
+  aliases: string[];
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type StockQuoteSnapshot = {
+  close: number;
+  previousClose: number;
+  changePct: number;
+  volume: number;
+  turnoverEstimate: number;
+  currency: string;
+};
+
+export type StockNewsItem = {
+  title: string;
+  link: string;
+  source: string;
+  publishedAt: string;
+};
+
+export type StockHistoryPoint = StockQuoteSnapshot & {
+  reportDateEt: string;
+};
+
+export type StockDetailResult = {
+  stock: StockListItem;
+  latestReportDateEt: string | null;
+  latestQuote: StockQuoteSnapshot | null;
+  latestAiSummary: string | null;
+  recentNews: StockNewsItem[];
+  history: StockHistoryPoint[];
+};
+
 type ReportListResponse = {
   source: "d1" | "r2";
   limit: number;
   cursor?: string | null;
   nextCursor?: string | null;
   items: ReportListItem[];
+};
+
+type StockListResponse = {
+  items: StockListItem[];
 };
 
 type ApiTarget = {
@@ -112,4 +160,17 @@ export async function fetchReportByDate(date: string): Promise<ReportByDateResul
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {
   const result = await fetchJson<ReportListResponse>(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`);
   return result?.items ?? [];
+}
+
+export async function fetchStockList(): Promise<StockListItem[]> {
+  const result = await fetchJson<StockListResponse>("/stocks");
+  return result?.items ?? [];
+}
+
+export async function fetchStockDetail(symbol: string): Promise<StockDetailResult | null> {
+  const normalized = symbol.trim();
+  if (!normalized) {
+    return null;
+  }
+  return fetchJson<StockDetailResult>(`/stock/${encodeURIComponent(normalized)}`);
 }

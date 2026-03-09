@@ -3,16 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2026-03-05"
 
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["0 23 * * 1-5"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "china-stocks-daily"
-database_id = "8db1c9cb-c3a9-4093-aa0e-36142c0a773b"
+database_id = ""
 
 # Optional vars for OpenAI-compatible providers.
 [vars]
-OPENAI_BASE_URL = "https://maxx.cloverstd.com"
+OPENAI_BASE_URL = ""
 AI_MODEL = "gpt-5.2"
 ADMIN_TOKEN= ""
 OPENAI_API_KEY=""
