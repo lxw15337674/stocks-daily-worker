@@ -1685,13 +1685,13 @@ function buildMarkdown(params: {
   lines.push(`相关新闻：${aiOverview.newsParagraph}`);
   lines.push("");
   lines.push("## 二、股票数据");
-  lines.push("| 排名 | 公司名称 | 股票代码 (美股/港股) | 业务类型 | 收盘价 | 涨跌幅 |\n|---:|---|---|---|---:|---:|");
+  lines.push("| 公司名称 | 涨跌幅 | 收盘价 |\n|---|---:|---:|");
   for (const [index, stock] of stocks.entries()) {
     const quote = quoteBySymbol.get(stock.symbol);
     lines.push(
-      `| ${index + 1} | ${stock.displayName} | ${stock.codes} | ${stock.businessType} | ${
-        quote ? formatPrice(quote.close, quote.currency) : "-"
-      } | ${quote ? formatSignedPct(quote.changePct) : "-"} |`
+      `| ${stock.displayName} | ${
+        quote ? formatSignedPct(quote.changePct) : "-"
+      } | ${quote ? formatPrice(quote.close, quote.currency) : "-"} |`
     );
   }
 

@@ -66,7 +66,16 @@ function toDateHref(targetDate: string | null): string {
 export default async function HomePage(props: HomePageProps) {
   const { date: queryDateRaw } = await props.searchParams;
   const queryDate = queryDateRaw?.trim() ?? "";
-  const date = isValidReportDate(queryDate) ? queryDate : getTodayEtDateString();
+  
+  // 确定要显示的日期
+  let date: string;
+  if (isValidReportDate(queryDate)) {
+    date = queryDate;
+  } else {
+    // 没有有效的查询日期，获取最新的日报日期
+    const history = await fetchReportList(1);
+    date = history[0]?.reportDateEt ?? getTodayEtDateString();
+  }
 
   const [markdown, history] = await Promise.all([fetchReportByDate(date), fetchReportList(120)]);
   if (!markdown) {
