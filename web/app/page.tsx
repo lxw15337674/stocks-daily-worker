@@ -126,7 +126,7 @@ export default async function HomePage(props: HomePageProps) {
   return (
     <main className="page-shell">
       <div className="report-layout">
-        <aside className="report-left">
+        <aside className="report-sidebar">
           <Card className="report-sticky">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">日期导航</CardTitle>
@@ -174,29 +174,8 @@ export default async function HomePage(props: HomePageProps) {
               </div>
             </CardContent>
           </Card>
-        </aside>
 
-        <section className="report-main">
           <Card>
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-2xl">{date}</CardTitle>
-                  <p className="meta mt-1">美东交易日：{toReadableDate(date)}</p>
-                </div>
-                <Badge variant="outline">完整日报</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <article className="markdown-body report-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayMarkdown}</ReactMarkdown>
-              </article>
-            </CardContent>
-          </Card>
-        </section>
-
-        <aside className="report-right">
-          <Card className="report-sticky">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">信息面板</CardTitle>
             </CardHeader>
@@ -255,6 +234,25 @@ export default async function HomePage(props: HomePageProps) {
             </CardContent>
           </Card>
         </aside>
+
+        <section className="report-main">
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-2xl">{date}</CardTitle>
+                  <p className="meta mt-1">美东交易日：{toReadableDate(date)}</p>
+                </div>
+                <Badge variant="outline">完整日报</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <article className="markdown-body report-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayMarkdown}</ReactMarkdown>
+              </article>
+            </CardContent>
+          </Card>
+        </section>
       </div>
     </main>
   );

@@ -121,15 +121,9 @@
     @apply grid gap-6;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "main"
-      "left"
-      "right";
+      "sidebar"
+      "main";
     align-items: start;
-  }
-
-  .report-left {
-    grid-area: left;
-    min-width: 0;
   }
 
   .report-main {
@@ -137,8 +131,9 @@
     min-width: 0;
   }
 
-  .report-right {
-    grid-area: right;
+  .report-sidebar {
+    @apply grid gap-6;
+    grid-area: sidebar;
     min-width: 0;
   }
 
@@ -146,12 +141,8 @@
     @apply top-6;
   }
 
-  .report-left .report-sticky {
+  .report-sidebar .report-sticky {
     @apply lg:sticky;
-  }
-
-  .report-right .report-sticky {
-    @apply xl:sticky;
   }
 
   .recent-date-list {
@@ -181,9 +172,7 @@
   @media (min-width: 1024px) {
     .report-layout {
       grid-template-columns: 19rem minmax(0, 1fr);
-      grid-template-areas:
-        "left main"
-        "right main";
+      grid-template-areas: "sidebar main";
     }
   }
 }
