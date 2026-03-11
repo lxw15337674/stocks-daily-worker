@@ -1,18 +1,25 @@
 {
-  "name": "china-stocks-daily-web",
+  "name": "crypto-daily-web",
   "main": "worker/index.ts",
   "assets": {
     "directory": "dist/client"
   },
   "compatibility_date": "2026-03-01",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "crypto.bhwa233.com",
+      "custom_domain": true,
+      "zone_name": "bhwa233.com"
+    }
+  ],
   "services": [
     {
-      "binding": "STOCKS_API",
-      "service": "china-stocks-daily-worker"
+      "binding": "CRYPTO_API",
+      "service": "crypto-daily-worker"
     }
   ],
   "vars": {
-    "STOCKS_API_BASE_URL": "https://china-stocks-daily-worker.404174262.workers.dev"
+    "CRYPTO_API_BASE_URL": "https://crypto-api.bhwa233.com"
   }
 }

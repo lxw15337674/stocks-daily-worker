@@ -1,18 +1,21 @@
-name = "china-stocks-daily-worker"
+name = "crypto-daily-worker"
 main = "src/index.ts"
 compatibility_date = "2026-03-05"
 
+[[routes]]
+pattern = "crypto-api.bhwa233.com"
+custom_domain = true
+zone_name = "bhwa233.com"
+
 [triggers]
-crons = ["0 23 * * 1-5"]
+crons = ["5 0 * * *"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "china-stocks-daily"
-database_id = ""
+database_name = "crypto-daily"
+database_id = "21a1a3a0-bd0b-44a7-88e1-272430fe8ca0"
 
-# Optional vars for OpenAI-compatible providers.
+[ai]
+binding = "AI"
+
 [vars]
-OPENAI_BASE_URL = ""
-AI_MODEL = "gpt-5.2"
-ADMIN_TOKEN= ""
-OPENAI_API_KEY=""

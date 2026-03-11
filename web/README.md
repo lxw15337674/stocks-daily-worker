@@ -1,16 +1,14 @@
-# China Stocks Daily Web (vinext + shadcn/ui)
+# Crypto Daily Web
 
-This folder contains the website frontend built with `vinext` (Next.js API on Vite) and `shadcn/ui`.
-
-<!-- trigger: cloudflare web auto build -->
+Vinext web frontend for the bilingual crypto daily report product.
 
 ## Features
 
-- Home dashboard with latest summary and feed links
-- Date lookup (`YYYY-MM-DD`) and report detail page
-- Archive page listing historical reports
-- Stock admin page (`/stocks`) for CRUD and AI alias regeneration (requires `ADMIN_TOKEN`)
-- Markdown rendering for full report content
+- `/zh` and `/en` bilingual routing
+- structured daily report homepage
+- historical report archive
+- coin detail pages backed by saved daily snapshots
+- JSON API proxy to the backend worker
 
 ## Commands
 
@@ -24,11 +22,10 @@ pnpm deploy
 
 ## API Base URL
 
-Set `STOCKS_API_BASE_URL` in `wrangler.jsonc` if the API worker uses a different domain.
+Set `CRYPTO_API_BASE_URL` in `wrangler.jsonc` if the API worker uses a different domain.
 
-Default:
+Default placeholder:
 
 ```json
-"STOCKS_API_BASE_URL": "https://china-stocks-daily-worker.404174262.workers.dev"
+"CRYPTO_API_BASE_URL": "https://crypto-daily-worker.<your-subdomain>.workers.dev"
 ```
-
