@@ -1,13 +1,34 @@
 import Link from "next/link";
-import { ArrowLeftRight, CalendarDays, ChevronLeft, LineChart, Newspaper, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  ArrowLeftRight,
+  CalendarDays,
+  ChevronLeft,
+  LineChart,
+  Newspaper,
+  ScanSearch,
+  TrendingDown,
+  TrendingUp
+} from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchStockDetail, fetchStockList, type StockHistoryPoint } from "@/lib/api";
+import {
+  fetchReportByDate,
+  fetchStockDetail,
+  fetchStockDetails,
+  fetchStockList,
+  type StockDetailResult,
+  type StockHistoryPoint
+} from "@/lib/api";
 import { toReadableDate } from "@/lib/date";
+import {
+  parseCompanyNewsSections,
+  parseReportStockTable,
+  type ParsedReportStockRow
+} from "@/lib/report-parser";
 
 type StockDetailPageProps = {
   params: Promise<{ symbol: string }>;
@@ -19,6 +40,24 @@ type ComparisonRow = {
   primary: StockHistoryPoint;
   secondary: StockHistoryPoint;
   spreadPct: number;
+};
+
+type RankedPoolRow = ParsedReportStockRow & {
+  newsCount: number;
+  streak: {
+    direction: "up" | "down" | "flat";
+    count: number;
+  };
+  recentFiveDayReturn: number | null;
+};
+
+type RelativeMetric = {
+  label: string;
+  rank: number | null;
+  total: number;
+  value: string;
+  hint: string;
+  tone: "positive" | "negative" | "neutral";
 };
 
 function formatPrice(value: number, currency: string): string {
@@ -105,6 +144,125 @@ function summarizeWindow(points: StockHistoryPoint[]): { days: number; returnPct
   };
 }
 
+function calculateLatestStreak(changeValues: Array<number | null | undefined>): {
+  direction: "up" | "down" | "flat";
+  count: number;
+} {
+  const firstValid = changeValues.find((value) => value !== null && value !== undefined) ?? null;
+  if (firstValid === null) {
+    return { direction: "flat", count: 0 };
+  }
+  if (firstValid === 0) {
+    return { direction: "flat", count: 1 };
+  }
+
+  const direction = firstValid > 0 ? "up" : "down";
+  let count = 0;
+  for (const value of changeValues) {
+    if (value === null || value === undefined) {
+      break;
+    }
+    if (direction === "up" && value > 0) {
+      count += 1;
+      continue;
+    }
+    if (direction === "down" && value < 0) {
+      count += 1;
+      continue;
+    }
+    break;
+  }
+
+  return { direction, count };
+}
+
+function calculateRecentReturn(closeValues: Array<number | null | undefined>, windowSize: number): number | null {
+  const ordered = closeValues.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (ordered.length < 2) {
+    return null;
+  }
+
+  const window = ordered.slice(0, windowSize);
+  if (window.length < 2) {
+    return null;
+  }
+
+  const latest = window[0];
+  const oldest = window[window.length - 1];
+  if (!oldest) {
+    return null;
+  }
+
+  return ((latest - oldest) / oldest) * 100;
+}
+
+function buildRelativeMetric(options: {
+  label: string;
+  rows: RankedPoolRow[];
+  targetSymbol: string;
+  valueText: string;
+  hint: string;
+  getValue: (row: RankedPoolRow) => number | null;
+  tone: "positive" | "negative" | "neutral";
+}): RelativeMetric {
+  const scored = options.rows
+    .map((row) => ({
+      symbol: row.symbol,
+      value: row.symbol ? options.getValue(row) : null
+    }))
+    .filter(
+      (item): item is { symbol: string | null; value: number } =>
+        typeof item.value === "number" && Number.isFinite(item.value)
+    )
+    .sort((a, b) => b.value - a.value || String(a.symbol).localeCompare(String(b.symbol)));
+
+  const index = scored.findIndex((item) => item.symbol === options.targetSymbol);
+
+  return {
+    label: options.label,
+    rank: index >= 0 ? index + 1 : null,
+    total: scored.length,
+    value: options.valueText,
+    hint: options.hint,
+    tone: options.tone
+  };
+}
+
+function describeStreak(streak: RankedPoolRow["streak"]): string {
+  if (streak.direction === "up" && streak.count > 0) {
+    return `连涨 ${streak.count} 天`;
+  }
+  if (streak.direction === "down" && streak.count > 0) {
+    return `连跌 ${streak.count} 天`;
+  }
+  if (streak.direction === "flat" && streak.count > 0) {
+    return "平收";
+  }
+  return "暂无连续信号";
+}
+
+function buildPoolRows(
+  detailBySymbol: Map<string, StockDetailResult>,
+  tableRows: ParsedReportStockRow[],
+  newsCountBySymbol: Map<string, number>
+): RankedPoolRow[] {
+  return tableRows
+    .map((row) => {
+      if (!row.symbol) {
+        return null;
+      }
+
+      const stockDetail = detailBySymbol.get(row.symbol);
+      return {
+        ...row,
+        newsCount: newsCountBySymbol.get(row.symbol) ?? 0,
+        streak: calculateLatestStreak(stockDetail?.history.map((item) => item.changePct) ?? []),
+        recentFiveDayReturn: calculateRecentReturn(stockDetail?.history.map((item) => item.close) ?? [], 5)
+      };
+    })
+    .filter((row): row is RankedPoolRow => row !== null);
+}
+
 export default async function StockDetailPage(props: StockDetailPageProps) {
   const { symbol: rawSymbol } = await props.params;
   const { compare: rawCompare } = await props.searchParams;
@@ -122,6 +280,65 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
     notFound();
   }
 
+  let poolRows: RankedPoolRow[] = [];
+  if (detail.latestReportDateEt) {
+    const latestReport = await fetchReportByDate(detail.latestReportDateEt);
+    if (latestReport.markdown) {
+      const parsedTable = parseReportStockTable(latestReport.markdown, stockItems);
+      const newsSections = parseCompanyNewsSections(latestReport.markdown);
+      const newsCountBySymbol = new Map(newsSections.map((item) => [item.symbol, item.newsCount]));
+      const tableSymbols = Array.from(
+        new Set(
+          (parsedTable?.rows ?? [])
+            .map((row) => row.symbol)
+            .filter((item): item is string => typeof item === "string" && item.length > 0)
+        )
+      );
+      const poolDetails = await fetchStockDetails(tableSymbols);
+      const detailBySymbol = new Map(poolDetails.map((item) => [item.stock.symbol, item]));
+      poolRows = buildPoolRows(detailBySymbol, parsedTable?.rows ?? [], newsCountBySymbol);
+    }
+  }
+
+  const currentPoolRow = poolRows.find((row) => row.symbol === detail.stock.symbol) ?? null;
+  const relativeMetrics = currentPoolRow
+    ? [
+        buildRelativeMetric({
+          label: "当日涨跌幅",
+          rows: poolRows,
+          targetSymbol: detail.stock.symbol,
+          valueText: currentPoolRow.changeText || "-",
+          hint: "按当日日表现排序",
+          getValue: (row) => row.changeValue ?? null,
+          tone: (currentPoolRow.changeValue ?? 0) > 0 ? "positive" : (currentPoolRow.changeValue ?? 0) < 0 ? "negative" : "neutral"
+        }),
+        buildRelativeMetric({
+          label: "新闻热度",
+          rows: poolRows,
+          targetSymbol: detail.stock.symbol,
+          valueText: `${currentPoolRow.newsCount} 条`,
+          hint: "按日报中的公司新闻条数排序",
+          getValue: (row) => row.newsCount,
+          tone: currentPoolRow.newsCount > 0 ? "positive" : "neutral"
+        }),
+        buildRelativeMetric({
+          label: "5日强弱",
+          rows: poolRows,
+          targetSymbol: detail.stock.symbol,
+          valueText:
+            currentPoolRow.recentFiveDayReturn === null ? "-" : formatSignedPct(currentPoolRow.recentFiveDayReturn),
+          hint: "按近 5 个交易日累计收益排序",
+          getValue: (row) => row.recentFiveDayReturn,
+          tone:
+            (currentPoolRow.recentFiveDayReturn ?? 0) > 0
+              ? "positive"
+              : (currentPoolRow.recentFiveDayReturn ?? 0) < 0
+                ? "negative"
+                : "neutral"
+        })
+      ]
+    : [];
+
   const comparisonRows = compareTarget ? buildComparisonRows(detail.history, compareTarget.history) : [];
   const primaryWindow = summarizeWindow(detail.history);
   const comparisonWindow = compareTarget ? summarizeWindow(comparisonRows.map((item) => item.primary)) : null;
@@ -134,7 +351,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
       <div className="space-y-6">
         <Card>
           <CardHeader className="pb-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-3">
                 <Button asChild variant="ghost" size="sm" className="px-0">
                   <Link href="/">
@@ -142,6 +359,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                     返回日报首页
                   </Link>
                 </Button>
+
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle className="text-3xl">{detail.stock.displayName}</CardTitle>
@@ -150,14 +368,17 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                   </div>
                   <p className="meta">代码映射：{detail.stock.codes}</p>
                   <p className="meta">
-                    最近日报：{detail.latestReportDateEt ? `${detail.latestReportDateEt} (${toReadableDate(detail.latestReportDateEt)})` : "暂无"}
+                    最近日报：
+                    {detail.latestReportDateEt
+                      ? `${detail.latestReportDateEt} (${toReadableDate(detail.latestReportDateEt)})`
+                      : "暂无"}
                   </p>
                 </div>
               </div>
 
               <form method="get" className="w-full max-w-md space-y-2 rounded-xl border bg-background/40 p-4">
                 <label htmlFor="compare-symbol" className="text-sm font-medium">
-                  历史趋势对比
+                  个股对比
                 </label>
                 <select
                   id="compare-symbol"
@@ -199,7 +420,9 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
               <p className="text-2xl font-semibold">
                 {detail.latestQuote ? formatPrice(detail.latestQuote.close, detail.latestQuote.currency) : "暂无"}
               </p>
-              <p className={`mt-2 text-sm font-medium ${detail.latestQuote ? changeTextClass(detail.latestQuote.changePct) : "text-muted-foreground"}`}>
+              <p
+                className={`mt-2 text-sm font-medium ${detail.latestQuote ? changeTextClass(detail.latestQuote.changePct) : "text-muted-foreground"}`}
+              >
                 {detail.latestQuote ? formatSignedPct(detail.latestQuote.changePct) : "无涨跌幅数据"}
               </p>
             </CardContent>
@@ -207,22 +430,30 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">成交量</CardTitle>
+              <CardTitle className="text-base">固定池定位</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold">{detail.latestQuote ? formatCompactNumber(detail.latestQuote.volume) : "暂无"}</p>
-              <p className="meta mt-2">估算成交额 {detail.latestQuote ? formatCompactNumber(detail.latestQuote.turnoverEstimate) : "--"}</p>
+              <p className="text-2xl font-semibold">
+                {currentPoolRow && relativeMetrics[0]?.rank
+                  ? `第 ${relativeMetrics[0].rank}/${relativeMetrics[0].total}`
+                  : "暂无"}
+              </p>
+              <p className="meta mt-2">
+                {currentPoolRow ? `当日 ${currentPoolRow.changeText || "-"}，${describeStreak(currentPoolRow.streak)}` : "最近日报未匹配到该股票"}
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">观察窗口</CardTitle>
+              <CardTitle className="text-base">最近日报记录</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold">{detail.history.length} 天</p>
-              <p className={`mt-2 text-sm font-medium ${primaryWindow ? changeTextClass(primaryWindow.returnPct) : "text-muted-foreground"}`}>
-                {primaryWindow ? `区间收益 ${formatSignedPct(primaryWindow.returnPct)}` : "样本不足"}
+              <p className="text-2xl font-semibold">{detail.reportRecords.length} 次</p>
+              <p className="meta mt-2">
+                {detail.reportRecords[0]
+                  ? `最近一次 ${detail.reportRecords[0].newsCount} 条新闻`
+                  : "当前还没有日报留痕"}
               </p>
             </CardContent>
           </Card>
@@ -238,7 +469,53 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
           </Card>
         </section>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        {currentPoolRow ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ScanSearch className="h-4 w-4" />
+                  固定池相对位置
+                </CardTitle>
+                <Badge variant="outline">{poolRows.length} 只样本</Badge>
+              </div>
+              <p className="meta">
+                {detail.stock.symbol} 在最近一期日报里属于 {currentPoolRow.company}，{describeStreak(currentPoolRow.streak)}。
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                {relativeMetrics.map((item) => (
+                  <div key={item.label} className="rounded-xl border bg-background/40 p-4">
+                    <p className="text-sm text-muted-foreground">{item.label}</p>
+                    <p
+                      className={`mt-2 text-2xl font-semibold ${
+                        item.tone === "positive"
+                          ? "text-red-400"
+                          : item.tone === "negative"
+                            ? "text-emerald-400"
+                            : "text-foreground"
+                      }`}
+                    >
+                      {item.value}
+                    </p>
+                    <p className="mt-2 text-sm text-foreground/90">
+                      {item.rank ? `固定池第 ${item.rank}/${item.total}` : "暂无可比较样本"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.hint}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border bg-background/40 p-4 text-sm leading-6 text-foreground/90">
+                当日收盘 {currentPoolRow.closeText}，涨跌幅 {currentPoolRow.changeText || "-"}，新闻 {currentPoolRow.newsCount} 条，
+                近 5 日 {currentPoolRow.recentFiveDayReturn === null ? "暂无累计收益数据" : `累计 ${formatSignedPct(currentPoolRow.recentFiveDayReturn)}`}。
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.95fr)]">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -247,37 +524,86 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="leading-7 text-foreground/90">{detail.latestAiSummary ?? "当前还没有可展示的 AI 个股摘要。"}</p>
+              <p className="leading-7 text-foreground/90">
+                {detail.latestAiSummary ?? "当前还没有可展示的 AI 个股摘要。"}
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Newspaper className="h-4 w-4" />
-                最近新闻
-              </CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <CalendarDays className="h-4 w-4" />
+                  最近几次日报记录
+                </CardTitle>
+                <Badge variant="outline">{detail.reportRecords.length} 次</Badge>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {detail.recentNews.length === 0 ? (
-                <p className="empty">暂无可展示的相关新闻。</p>
+              {detail.reportRecords.length === 0 ? (
+                <p className="empty">暂无日报记录。</p>
               ) : (
-                detail.recentNews.map((item) => (
-                  <article key={`${item.link}-${item.publishedAt}`} className="rounded-xl border bg-background/40 p-3">
-                    <a href={item.link} target="_blank" rel="noreferrer" className="font-medium leading-6 hover:text-primary">
-                      {item.title}
-                    </a>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>{item.source}</span>
-                      <span>·</span>
-                      <span>{formatPublishedAt(item.publishedAt)}</span>
+                detail.reportRecords.map((item) => (
+                  <article key={`${item.reportDateEt}-${item.close}`} className="rounded-xl border bg-background/40 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <Link href={`/?date=${item.reportDateEt}`} className="font-medium hover:text-primary">
+                          {item.reportDateEt}
+                        </Link>
+                        <p className="mt-1 text-xs text-muted-foreground">{toReadableDate(item.reportDateEt)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-medium">
+                          {detail.latestQuote ? formatPrice(item.close, detail.latestQuote.currency) : item.close.toFixed(2)}
+                        </p>
+                        <p className={`mt-1 text-xs font-medium ${changeTextClass(item.changePct)}`}>
+                          {formatSignedPct(item.changePct)}
+                        </p>
+                      </div>
                     </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full border border-border/70 px-2.5 py-1">新闻 {item.newsCount} 条</span>
+                      <span className="rounded-full border border-border/70 px-2.5 py-1">日报复盘节点</span>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-foreground/90">
+                      {item.aiSummary ?? "该次日报暂无 AI 个股摘要，建议结合当天正文和新闻列表继续查看。"}
+                    </p>
                   </article>
                 ))
               )}
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Newspaper className="h-4 w-4" />
+              最近新闻
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {detail.recentNews.length === 0 ? (
+              <p className="empty">暂无可展示的相关新闻。</p>
+            ) : (
+              detail.recentNews.map((item) => (
+                <article key={`${item.link}-${item.publishedAt}`} className="rounded-xl border bg-background/40 p-3">
+                  <a href={item.link} target="_blank" rel="noreferrer" className="font-medium leading-6 hover:text-primary">
+                    {item.title}
+                  </a>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{item.source}</span>
+                    <span>·</span>
+                    <span>{formatPublishedAt(item.publishedAt)}</span>
+                  </div>
+                </article>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
         {compareTarget ? (
           <Card>
@@ -293,19 +619,25 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-xl border bg-background/40 p-4">
                   <p className="text-sm text-muted-foreground">{detail.stock.symbol} 区间收益</p>
-                  <p className={`mt-2 text-2xl font-semibold ${comparisonWindow ? changeTextClass(comparisonWindow.returnPct) : "text-muted-foreground"}`}>
+                  <p
+                    className={`mt-2 text-2xl font-semibold ${comparisonWindow ? changeTextClass(comparisonWindow.returnPct) : "text-muted-foreground"}`}
+                  >
                     {comparisonWindow ? formatSignedPct(comparisonWindow.returnPct) : "暂无"}
                   </p>
                 </div>
                 <div className="rounded-xl border bg-background/40 p-4">
                   <p className="text-sm text-muted-foreground">{compareTarget.stock.symbol} 区间收益</p>
-                  <p className={`mt-2 text-2xl font-semibold ${secondaryWindow ? changeTextClass(secondaryWindow.returnPct) : "text-muted-foreground"}`}>
+                  <p
+                    className={`mt-2 text-2xl font-semibold ${secondaryWindow ? changeTextClass(secondaryWindow.returnPct) : "text-muted-foreground"}`}
+                  >
                     {secondaryWindow ? formatSignedPct(secondaryWindow.returnPct) : "暂无"}
                   </p>
                 </div>
                 <div className="rounded-xl border bg-background/40 p-4">
                   <p className="text-sm text-muted-foreground">相对超额</p>
-                  <p className={`mt-2 text-2xl font-semibold ${relativeSpread !== null ? changeTextClass(relativeSpread) : "text-muted-foreground"}`}>
+                  <p
+                    className={`mt-2 text-2xl font-semibold ${relativeSpread !== null ? changeTextClass(relativeSpread) : "text-muted-foreground"}`}
+                  >
                     {relativeSpread !== null ? formatSignedPct(relativeSpread) : "暂无"}
                   </p>
                 </div>
@@ -330,13 +662,19 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                           <TableCell>{item.reportDateEt}</TableCell>
                           <TableCell>
                             <div className="whitespace-nowrap">{formatPrice(item.primary.close, item.primary.currency)}</div>
-                            <div className={`text-xs ${changeTextClass(item.primary.changePct)}`}>{formatSignedPct(item.primary.changePct)}</div>
+                            <div className={`text-xs ${changeTextClass(item.primary.changePct)}`}>
+                              {formatSignedPct(item.primary.changePct)}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="whitespace-nowrap">{formatPrice(item.secondary.close, item.secondary.currency)}</div>
-                            <div className={`text-xs ${changeTextClass(item.secondary.changePct)}`}>{formatSignedPct(item.secondary.changePct)}</div>
+                            <div className={`text-xs ${changeTextClass(item.secondary.changePct)}`}>
+                              {formatSignedPct(item.secondary.changePct)}
+                            </div>
                           </TableCell>
-                          <TableCell className={changeTextClass(item.spreadPct)}>{formatSignedPct(item.spreadPct)}</TableCell>
+                          <TableCell className={changeTextClass(item.spreadPct)}>
+                            {formatSignedPct(item.spreadPct)}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -380,14 +718,24 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                           <div>{item.reportDateEt}</div>
                           <div className="text-xs text-muted-foreground">{toReadableDate(item.reportDateEt)}</div>
                         </TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{formatPrice(item.close, item.currency)}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{formatPrice(item.previousClose, item.currency)}</TableCell>
-                        <TableCell className={`text-right whitespace-nowrap font-medium ${changeTextClass(item.changePct)}`}>
-                          {item.changePct > 0 ? <TrendingUp className="mr-1 inline h-3.5 w-3.5" /> : item.changePct < 0 ? <TrendingDown className="mr-1 inline h-3.5 w-3.5" /> : null}
+                        <TableCell className="whitespace-nowrap text-right">
+                          {formatPrice(item.close, item.currency)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right">
+                          {formatPrice(item.previousClose, item.currency)}
+                        </TableCell>
+                        <TableCell className={`whitespace-nowrap text-right font-medium ${changeTextClass(item.changePct)}`}>
+                          {item.changePct > 0 ? (
+                            <TrendingUp className="mr-1 inline h-3.5 w-3.5" />
+                          ) : item.changePct < 0 ? (
+                            <TrendingDown className="mr-1 inline h-3.5 w-3.5" />
+                          ) : null}
                           {formatSignedPct(item.changePct)}
                         </TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{formatCompactNumber(item.volume)}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{formatCompactNumber(item.turnoverEstimate)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{formatCompactNumber(item.volume)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">
+                          {formatCompactNumber(item.turnoverEstimate)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

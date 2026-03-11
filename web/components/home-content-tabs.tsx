@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Rss } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
 
 type HomeContentTab = "report" | "movers";
+type FeatureTone = "positive" | "negative" | "neutral";
 
 type HomeContentTabsProps = {
   date: string;
@@ -30,10 +31,81 @@ type HomeContentTabsProps = {
   };
 };
 
+type FeaturedStock = {
+  row: ParsedReportStockRow;
+  label: string;
+  summary: string;
+  score: number;
+  tone: FeatureTone;
+};
+
 const TAB_ITEMS: Array<{ value: HomeContentTab; label: string }> = [
   { value: "report", label: "日报正文" },
   { value: "movers", label: "异动榜" }
 ];
+
+function formatSignedPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function toneClass(tone: FeatureTone): string {
+  if (tone === "positive") {
+    return "border-red-500/30 bg-red-500/10 text-red-300";
+  }
+  if (tone === "negative") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  }
+  return "border-border/70 bg-background/50 text-muted-foreground";
+}
+
+function pickFeaturedStocks(rows: ParsedReportStockRow[]): FeaturedStock[] {
+  return rows
+    .filter((row) => row.symbol && row.detailUrl)
+    .map((row) => {
+      const change = row.changeValue ?? 0;
+      const absChange = Math.abs(change);
+      const newsCount = row.newsCount ?? 0;
+      const streakCount = row.streak?.count ?? 0;
+      const fiveDayReturn = row.recentFiveDayReturn ?? 0;
+      const score = absChange * 4 + newsCount * 1.8 + Math.max(streakCount - 1, 0) * 1.5 + Math.abs(fiveDayReturn) * 0.65;
+
+      let label = "今日值得看";
+      let summary = `${row.company} 今日录得 ${row.changeText || "-"}，适合从盘中强弱和新闻反馈继续跟踪。`;
+      let tone: FeatureTone = change > 0 ? "positive" : change < 0 ? "negative" : "neutral";
+
+      if (newsCount >= 3 || (row.recentFiveDayNewsCount ?? 0) >= 5) {
+        label = "消息驱动";
+        summary = `${row.company} 当日相关新闻达到 ${newsCount} 条，价格表现为 ${row.changeText || "-"}，适合优先确认消息催化是否还在发酵。`;
+      } else if (row.streak?.direction === "up" && streakCount >= 3) {
+        label = "连续走强";
+        summary = `${row.company} 已连涨 ${streakCount} 天，今日继续收在 ${row.changeText || "-"}，更像是趋势延续而非单日脉冲。`;
+        tone = "positive";
+      } else if (row.streak?.direction === "down" && streakCount >= 3) {
+        label = "连续承压";
+        summary = `${row.company} 已连跌 ${streakCount} 天，今日表现 ${row.changeText || "-"}，需要判断是阶段回撤还是热度退潮。`;
+        tone = "negative";
+      } else if (Math.abs(fiveDayReturn) >= 8) {
+        label = fiveDayReturn > 0 ? "区间走强" : "区间回撤";
+        summary = `${row.company} 近 5 日累计 ${formatSignedPercent(row.recentFiveDayReturn)}，今天为 ${row.changeText || "-"}，适合结合短周期强弱继续观察。`;
+        tone = fiveDayReturn > 0 ? "positive" : "negative";
+      } else if (absChange >= 3) {
+        label = "单日异动";
+        summary = `${row.company} 当日波动达到 ${row.changeText || "-"}，已经进入固定股票池里值得复盘的显著变动区间。`;
+      }
+
+      return { row, label, summary, score, tone };
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Math.abs(b.row.changeValue ?? 0) - Math.abs(a.row.changeValue ?? 0) ||
+        (b.row.newsCount ?? 0) - (a.row.newsCount ?? 0)
+    )
+    .slice(0, 4);
+}
 
 function DateNavButton(props: {
   href: string | null;
@@ -66,6 +138,7 @@ function DateNavButton(props: {
 export function HomeContentTabs(props: HomeContentTabsProps) {
   const { date, readableDate, markdown, rows, previousDate, nextDate, reportMeta } = props;
   const [activeTab, setActiveTab] = useState<HomeContentTab>("report");
+  const featuredStocks = useMemo(() => pickFeaturedStocks(rows), [rows]);
 
   function toDateHref(targetDate: string | null): string | null {
     return targetDate ? `/?date=${targetDate}` : null;
@@ -107,7 +180,70 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
         </div>
       </div>
 
-      <TabsContent value="report" className="mt-0">
+      <TabsContent value="report" className="mt-0 space-y-4">
+        <section className="rounded-2xl border border-border/80 bg-card/90 p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Daily Focus</p>
+              <h2 className="mt-1 text-lg font-semibold text-foreground">今日重点股票</h2>
+              <p className="mt-1 text-sm text-muted-foreground">从固定股票池里挑出今天最值得先看的几只，先看它们，再决定深入哪一页。</p>
+            </div>
+            <Badge variant="outline">{featuredStocks.length} 只重点跟踪</Badge>
+          </div>
+
+          {featuredStocks.length === 0 ? (
+            <p className="empty mt-4">当前样本不足，暂时无法生成重点股票。</p>
+          ) : (
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {featuredStocks.map((item) => (
+                <article key={item.row.symbol ?? item.row.company} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClass(item.tone)}`}>
+                          {item.label}
+                        </span>
+                        {item.row.businessType ? (
+                          <span className="text-[11px] text-muted-foreground">{item.row.businessType}</span>
+                        ) : null}
+                      </div>
+                      <Link href={item.row.detailUrl ?? "#"} className="mt-3 block text-base font-medium text-foreground hover:text-primary">
+                        {item.row.company}
+                      </Link>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.row.symbol ?? item.row.code}</p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className={`text-lg font-semibold ${item.row.changeValue && item.row.changeValue > 0 ? "text-red-400" : item.row.changeValue && item.row.changeValue < 0 ? "text-emerald-400" : "text-foreground"}`}>
+                        {item.row.changeText || "-"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.row.closeText}</p>
+                    </div>
+                  </div>
+
+                  <p className="mt-3 text-sm leading-6 text-foreground/90">{item.summary}</p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1 text-xs text-muted-foreground">
+                      5 日: {formatSignedPercent(item.row.recentFiveDayReturn)}
+                    </span>
+                    <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1 text-xs text-muted-foreground">
+                      新闻: {item.row.newsCount ?? 0} 条
+                    </span>
+                    <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1 text-xs text-muted-foreground">
+                      {item.row.streak?.direction === "up"
+                        ? `连涨 ${item.row.streak.count} 天`
+                        : item.row.streak?.direction === "down"
+                          ? `连跌 ${item.row.streak.count} 天`
+                          : "暂无连续信号"}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
         <Card>
           <CardHeader className="pb-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

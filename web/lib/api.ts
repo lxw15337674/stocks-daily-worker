@@ -47,6 +47,14 @@ export type StockNewsItem = {
   publishedAt: string;
 };
 
+export type StockReportRecord = {
+  reportDateEt: string;
+  close: number;
+  changePct: number;
+  newsCount: number;
+  aiSummary: string | null;
+};
+
 export type StockHistoryPoint = StockQuoteSnapshot & {
   reportDateEt: string;
 };
@@ -58,6 +66,7 @@ export type StockDetailResult = {
   latestAiSummary: string | null;
   recentNews: StockNewsItem[];
   history: StockHistoryPoint[];
+  reportRecords: StockReportRecord[];
 };
 
 type ReportListResponse = {

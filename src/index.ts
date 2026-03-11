@@ -138,6 +138,14 @@ type StockNewsSummaryItem = {
   publishedAt: string;
 };
 
+type StockReportRecord = {
+  reportDateEt: string;
+  close: number;
+  changePct: number;
+  newsCount: number;
+  aiSummary: string | null;
+};
+
 type StockDetailPayload = {
   stock: StockAdminItem;
   latestReportDateEt: string | null;
@@ -145,6 +153,7 @@ type StockDetailPayload = {
   latestAiSummary: string | null;
   recentNews: StockNewsSummaryItem[];
   history: StockHistoryPoint[];
+  reportRecords: StockReportRecord[];
 };
 
 type StockDetailBatchPayload = {
@@ -752,9 +761,23 @@ app.get(
                     },
                     required: ["reportDateEt", "close", "previousClose", "changePct", "volume", "turnoverEstimate", "currency"]
                   }
+                },
+                reportRecords: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      reportDateEt: { type: "string" },
+                      close: { type: "number" },
+                      changePct: { type: "number" },
+                      newsCount: { type: "integer" },
+                      aiSummary: { anyOf: [{ type: "string" }, { type: "null" }] }
+                    },
+                    required: ["reportDateEt", "close", "changePct", "newsCount", "aiSummary"]
+                  }
                 }
               },
-              required: ["stock", "latestReportDateEt", "latestQuote", "latestAiSummary", "recentNews", "history"]
+              required: ["stock", "latestReportDateEt", "latestQuote", "latestAiSummary", "recentNews", "history", "reportRecords"]
             }
           }
         }
@@ -1882,7 +1905,8 @@ async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDeta
       latestQuote: null,
       latestAiSummary: null,
       recentNews: [],
-      history: []
+      history: [],
+      reportRecords: []
     };
   }
 
@@ -1966,13 +1990,39 @@ async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDeta
     .bind(symbol)
     .first<{ aiSummary: string | null }>();
 
+  const reportRecordsResult = await env.DB
+    .prepare(
+      `SELECT
+        r.report_date_et AS reportDateEt,
+        q.close AS close,
+        q.change_pct AS changePct,
+        COUNT(n.id) AS newsCount,
+        MAX(CASE WHEN n.ai_summary IS NOT NULL AND TRIM(n.ai_summary) <> '' THEN n.ai_summary END) AS aiSummary
+      FROM report_quotes q
+      INNER JOIN report_runs r ON r.id = q.run_id
+      LEFT JOIN report_news n ON n.run_id = q.run_id AND n.symbol = q.symbol
+      WHERE q.symbol = ?
+      GROUP BY q.id, r.report_date_et, q.close, q.change_pct
+      ORDER BY r.report_date_et DESC, q.id DESC
+      LIMIT 8`
+    )
+    .bind(symbol)
+    .all<StockReportRecord>();
+
   return {
     stock,
     latestReportDateEt,
     latestQuote,
     latestAiSummary: latestSummaryRow?.aiSummary?.trim() || null,
     recentNews: recentNewsResult.results ?? [],
-    history
+    history,
+    reportRecords: (reportRecordsResult.results ?? []).map((row) => ({
+      reportDateEt: row.reportDateEt,
+      close: row.close,
+      changePct: row.changePct,
+      newsCount: Number(row.newsCount ?? 0),
+      aiSummary: row.aiSummary?.trim() || null
+    }))
   };
 }
 
@@ -3643,7 +3693,9 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
     "CREATE TABLE IF NOT EXISTS report_news (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, title TEXT NOT NULL, link TEXT NOT NULL, source TEXT NOT NULL, published_at TEXT NOT NULL, ai_summary TEXT, FOREIGN KEY(run_id) REFERENCES report_runs(id))",
     "CREATE TABLE IF NOT EXISTS stocks (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT NOT NULL, codes TEXT NOT NULL, business_type TEXT NOT NULL, aliases_json TEXT NOT NULL DEFAULT '[]', is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), deleted_at TEXT)",
     "CREATE INDEX IF NOT EXISTS idx_report_runs_date ON report_runs(report_date_et)",
+    "CREATE INDEX IF NOT EXISTS idx_report_quotes_symbol_run ON report_quotes(symbol, run_id)",
     "CREATE INDEX IF NOT EXISTS idx_report_news_run_symbol ON report_news(run_id, symbol)",
+    "CREATE INDEX IF NOT EXISTS idx_report_news_symbol_run ON report_news(symbol, run_id)",
     "CREATE INDEX IF NOT EXISTS idx_stocks_active_sort ON stocks(is_active, sort_order, id)"
   ];
 
