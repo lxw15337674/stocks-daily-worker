@@ -72,8 +72,6 @@ const EMPTY_FORM: StockFormState = {
   isActive: true
 };
 
-const ADMIN_TOKEN_STORAGE_KEY = "stocks-admin-token";
-
 function parseAliasesInput(raw: string): string[] {
   const seen = new Set<string>();
   return raw
@@ -230,37 +228,50 @@ export default function StocksPage() {
     setSuccessMessage("");
     setAuthError(nextAuthError);
     resetCreatePreviewState();
-    globalThis.localStorage?.removeItem(ADMIN_TOKEN_STORAGE_KEY);
   }
 
-  async function verifyAdminToken(candidateToken: string): Promise<void> {
-    const response = await fetch("/api/stocks?includeInactive=true", {
-      headers: { "x-admin-token": candidateToken }
+  async function createAdminSession(candidateToken: string): Promise<void> {
+    const response = await fetch("/api/admin/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: candidateToken })
     });
     if (!response.ok) {
       const message = await response.text();
-      throw new Error(message || `Token validation failed (${response.status})`);
+      throw new Error(message || `Session login failed (${response.status})`);
     }
   }
 
-  async function loadStocks(nextIncludeInactive?: boolean, tokenOverride?: string): Promise<void> {
-    const trimmedToken = (tokenOverride ?? token).trim();
-    if (!trimmedToken) {
-      revokeAuthorization("管理员令牌缺失，请重新输入。");
-      return;
+  async function checkAdminSession(): Promise<boolean> {
+    const response = await fetch("/api/admin/session", {
+      cache: "no-store"
+    });
+    if (response.status === 401) {
+      return false;
     }
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `Session check failed (${response.status})`);
+    }
+    return true;
+  }
 
+  async function destroyAdminSession(): Promise<void> {
+    await fetch("/api/admin/session", {
+      method: "DELETE"
+    });
+  }
+
+  async function loadStocks(nextIncludeInactive?: boolean): Promise<void> {
     setLoading(true);
     setError("");
     try {
       const useIncludeInactive = nextIncludeInactive ?? includeInactive;
       const query = useIncludeInactive ? "?includeInactive=true" : "";
-      const response = await fetch(`/api/stocks${query}`, {
-        headers: { "x-admin-token": trimmedToken }
-      });
+      const response = await fetch(`/api/stocks${query}`);
       if (!response.ok) {
         if (response.status === 401) {
-          revokeAuthorization("管理员令牌无效，请重新输入。");
+          revokeAuthorization("登录已失效，请重新输入管理员令牌。");
           return;
         }
         const message = await response.text();
@@ -276,30 +287,31 @@ export default function StocksPage() {
   }
 
   useEffect(() => {
-    const savedToken = globalThis.localStorage?.getItem(ADMIN_TOKEN_STORAGE_KEY)?.trim();
-    if (!savedToken) {
-      return;
-    }
-
     let cancelled = false;
     setAuthChecking(true);
     setAuthError("");
-    setToken(savedToken);
 
     void (async () => {
       try {
-        await verifyAdminToken(savedToken);
+        const authenticated = await checkAdminSession();
+        if (!authenticated) {
+          if (!cancelled) {
+            setIsAuthorized(false);
+            setItems([]);
+          }
+          return;
+        }
         if (cancelled) {
           return;
         }
         setIsAuthorized(true);
         setSuccessMessage("");
-        await loadStocks(includeInactive, savedToken);
-      } catch {
+        await loadStocks(includeInactive);
+      } catch (err) {
         if (cancelled) {
           return;
         }
-        revokeAuthorization("登录已失效，请重新输入管理员令牌。");
+        revokeAuthorization(err instanceof Error ? err.message : "管理员会话校验失败。");
       } finally {
         if (!cancelled) {
           setAuthChecking(false);
@@ -324,18 +336,26 @@ export default function StocksPage() {
     setAuthChecking(true);
     setAuthError("");
     try {
-      await verifyAdminToken(trimmedToken);
-      setToken(trimmedToken);
-      globalThis.localStorage?.setItem(ADMIN_TOKEN_STORAGE_KEY, trimmedToken);
+      await createAdminSession(trimmedToken);
+      setToken("");
       setIsAuthorized(true);
       setSuccessMessage("");
-      await loadStocks(includeInactive, trimmedToken);
+      await loadStocks(includeInactive);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "管理员令牌校验失败。");
     } finally {
       setAuthChecking(false);
     }
   }
+
+  async function logout(): Promise<void> {
+    try {
+      await destroyAdminSession();
+    } finally {
+      revokeAuthorization();
+    }
+  }
+
 
   function openCreateDialog(): void {
     setEditingId(null);
@@ -373,12 +393,7 @@ export default function StocksPage() {
   }
 
   async function generatePreviewCandidates(): Promise<void> {
-    const trimmedToken = token.trim();
     const normalizedName = form.name.trim();
-    if (!trimmedToken) {
-      setError("请先输入管理员令牌。");
-      return;
-    }
     if (!normalizedName) {
       setError("请先填写股票名称，再生成 AI 预览。");
       return;
@@ -391,15 +406,14 @@ export default function StocksPage() {
       const response = await fetch("/api/stocks/preview", {
         method: "POST",
         headers: {
-          "content-type": "application/json",
-          "x-admin-token": trimmedToken
+          "content-type": "application/json"
         },
         body: JSON.stringify({ name: normalizedName })
       });
 
       if (!response.ok) {
         if (response.status === 401) {
-          revokeAuthorization("管理员令牌无效，请重新输入。");
+          revokeAuthorization("登录已失效，请重新输入管理员令牌。");
           return;
         }
         const message = await response.text();
@@ -430,11 +444,6 @@ export default function StocksPage() {
 
   async function submitForm(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const trimmedToken = token.trim();
-    if (!trimmedToken) {
-      setError("请先输入管理员令牌。");
-      return;
-    }
     if (isCreateMode && !form.name.trim()) {
       setError("新增时股票名称必填。");
       return;
@@ -454,15 +463,14 @@ export default function StocksPage() {
       const response = await fetch(url, {
         method,
         headers: {
-          "content-type": "application/json",
-          "x-admin-token": trimmedToken
+          "content-type": "application/json"
         },
         body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
         if (response.status === 401) {
-          revokeAuthorization("管理员令牌无效，请重新输入。");
+          revokeAuthorization("登录已失效，请重新输入管理员令牌。");
           return;
         }
         const message = await response.text();
@@ -486,23 +494,17 @@ export default function StocksPage() {
   }
 
   async function softDelete(item: StockItem): Promise<void> {
-    const trimmedToken = token.trim();
-    if (!trimmedToken) {
-      setError("请先输入管理员令牌。");
-      return;
-    }
 
     setRowAction({ id: item.id, type: "delete" });
     setError("");
     setSuccessMessage("");
     try {
       const response = await fetch(`/api/stocks/${item.id}`, {
-        method: "DELETE",
-        headers: { "x-admin-token": trimmedToken }
+        method: "DELETE"
       });
       if (!response.ok) {
         if (response.status === 401) {
-          revokeAuthorization("管理员令牌无效，请重新输入。");
+          revokeAuthorization("登录已失效，请重新输入管理员令牌。");
           return;
         }
         const message = await response.text();
@@ -519,23 +521,17 @@ export default function StocksPage() {
   }
 
   async function regenerateAliases(item: StockItem): Promise<void> {
-    const trimmedToken = token.trim();
-    if (!trimmedToken) {
-      setError("请先输入管理员令牌。");
-      return;
-    }
 
     setRowAction({ id: item.id, type: "regenerate" });
     setError("");
     setSuccessMessage("");
     try {
       const response = await fetch(`/api/stocks/${item.id}/aliases/regenerate`, {
-        method: "POST",
-        headers: { "x-admin-token": trimmedToken }
+        method: "POST"
       });
       if (!response.ok) {
         if (response.status === 401) {
-          revokeAuthorization("管理员令牌无效，请重新输入。");
+          revokeAuthorization("登录已失效，请重新输入管理员令牌。");
           return;
         }
         const message = await response.text();
@@ -561,7 +557,7 @@ export default function StocksPage() {
           <CardContent className="space-y-4">
             {authChecking ? (
               <Alert>
-                <AlertDescription>正在校验管理员令牌...</AlertDescription>
+                <AlertDescription>正在校验管理会话...</AlertDescription>
               </Alert>
             ) : null}
             <form className="space-y-3" onSubmit={submitAuth}>
@@ -594,12 +590,12 @@ export default function StocksPage() {
   return (
     <main className="page-shell">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="meta">已验证管理员令牌，可进行股票管理。</p>
+        <p className="meta">已建立安全管理会话，可进行股票管理。</p>
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" onClick={openCreateDialog} disabled={isBusy}>
             新增股票
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => revokeAuthorization()}>
+          <Button type="button" size="sm" variant="outline" onClick={() => void logout()}>
             退出管理
           </Button>
         </div>
@@ -999,3 +995,4 @@ export default function StocksPage() {
     </main>
   );
 }
+

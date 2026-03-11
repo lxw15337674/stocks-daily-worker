@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FavoriteStockButton } from "@/components/favorite-stock-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchStockDetail, fetchStockList, type StockDetailResult, type StockHistoryPoint } from "@/lib/api";
+import { fetchStockDetail, fetchStockList, type StockHistoryPoint } from "@/lib/api";
 import { toReadableDate } from "@/lib/date";
 
 type StockDetailPageProps = {
@@ -111,16 +111,17 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
   const { compare: rawCompare } = await props.searchParams;
   const symbol = rawSymbol.trim();
   const compareSymbol = rawCompare?.trim() || "";
+  const normalizedCompareSymbol =
+    compareSymbol && compareSymbol.toUpperCase() !== symbol.toUpperCase() ? compareSymbol : "";
 
-  const [detail, stockItems] = await Promise.all([fetchStockDetail(symbol), fetchStockList()]);
+  const [detail, stockItems, compareTarget] = await Promise.all([
+    fetchStockDetail(symbol),
+    fetchStockList(),
+    normalizedCompareSymbol ? fetchStockDetail(normalizedCompareSymbol) : Promise.resolve(null)
+  ]);
   if (!detail) {
     notFound();
   }
-
-  const compareTarget =
-    compareSymbol && compareSymbol.toUpperCase() !== detail.stock.symbol.toUpperCase()
-      ? await fetchStockDetail(compareSymbol)
-      : null;
 
   const comparisonRows = compareTarget ? buildComparisonRows(detail.history, compareTarget.history) : [];
   const primaryWindow = summarizeWindow(detail.history);

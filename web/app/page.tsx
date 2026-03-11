@@ -1,24 +1,16 @@
 import Link from "next/link";
-import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Newspaper, Rss, Settings2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FavoriteStocksPanel } from "@/components/favorite-stocks-panel";
-import { HomeMoversPanel } from "@/components/home-movers-panel";
-import { ReportStockTable } from "@/components/report-stock-table";
-import { Input } from "@/components/ui/input";
+import { HomeContentTabs } from "@/components/home-content-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchReportByDate, fetchReportList, fetchStockDetail, fetchStockList, type ReportListItem } from "@/lib/api";
+import { fetchReportByDate, fetchReportList, fetchStockDetails, fetchStockList } from "@/lib/api";
 import { addDaysToReportDate, isValidReportDate, toReadableDate } from "@/lib/date";
 import {
   extractReportMeta,
   parseCompanyNewsSections,
   parseReportStockTable,
-  stripReportMetaQuoteBlock,
   type ParsedReportStockRow
 } from "@/lib/report-parser";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 type HomePageProps = {
   searchParams: Promise<{ date?: string }>;
@@ -38,7 +30,7 @@ function getTodayEtDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-function pickRecentDates(items: ReportListItem[], currentDate: string): string[] {
+function pickRecentDates(items: { reportDateEt: string }[], currentDate: string): string[] {
   const seen = new Set<string>();
   const dates: string[] = [];
   for (const item of items) {
@@ -54,10 +46,6 @@ function pickRecentDates(items: ReportListItem[], currentDate: string): string[]
     }
   }
   return dates;
-}
-
-function toDateHref(targetDate: string | null): string {
-  return targetDate ? `/?date=${targetDate}` : "/";
 }
 
 function calculateLatestStreak(changeValues: Array<number | null>): { direction: "up" | "down" | "flat"; count: number } {
@@ -140,17 +128,14 @@ function countRecentNewsByDays(publishedAtValues: string[], reportDate: string, 
 export default async function HomePage(props: HomePageProps) {
   const { date: queryDateRaw } = await props.searchParams;
   const queryDate = queryDateRaw?.trim() ?? "";
-  
-  // 确定要显示的日期：如果没有指定日期，默认获取最新日报
-  let date: string;
-  if (isValidReportDate(queryDate)) {
-    date = queryDate;
-  } else {
-    const history = await fetchReportList(1);
-    date = history[0]?.reportDateEt ?? getTodayEtDateString();
-  }
 
-  const [reportResult, history, stockItems] = await Promise.all([fetchReportByDate(date), fetchReportList(120), fetchStockList()]);
+  const historyPromise = fetchReportList(120);
+  const stockItemsPromise = fetchStockList();
+  const history = await historyPromise;
+
+  const date = isValidReportDate(queryDate) ? queryDate : history[0]?.reportDateEt ?? getTodayEtDateString();
+
+  const [reportResult, stockItems] = await Promise.all([fetchReportByDate(date), stockItemsPromise]);
   const markdown = reportResult.markdown;
   if (!markdown) {
     return (
@@ -174,9 +159,8 @@ export default async function HomePage(props: HomePageProps) {
   const nextDate = addDaysToReportDate(date, 1);
   const recentDates = pickRecentDates(history, date);
   const reportMeta = extractReportMeta(markdown);
-  const displayMarkdown = stripReportMetaQuoteBlock(markdown);
-  const parsedStockTable = parseReportStockTable(displayMarkdown, stockItems);
-  const newsSections = parseCompanyNewsSections(displayMarkdown);
+  const parsedStockTable = parseReportStockTable(markdown, stockItems);
+  const newsSections = parseCompanyNewsSections(markdown);
   const newsCountBySymbol = new Map(newsSections.map((item) => [item.symbol, item.newsCount]));
   const stockItemBySymbol = new Map(stockItems.map((item) => [item.symbol, item]));
 
@@ -187,40 +171,24 @@ export default async function HomePage(props: HomePageProps) {
         .filter((symbol): symbol is string => typeof symbol === "string" && symbol.length > 0)
     )
   );
-  const stockDetails = await Promise.all(
-    tableSymbols.map(async (symbol) => ({
-      symbol,
-      detail: await fetchStockDetail(symbol)
-    }))
-  );
+  const stockDetails = await fetchStockDetails(tableSymbols);
+  const detailBySymbol = new Map(stockDetails.map((detail) => [detail.stock.symbol, detail]));
   const streakBySymbol = new Map(
-    stockDetails.map(({ symbol, detail }) => [
-      symbol,
-      calculateLatestStreak((detail?.history ?? []).map((item) => item.changePct))
-    ])
+    tableSymbols.map((symbol) => [symbol, calculateLatestStreak((detailBySymbol.get(symbol)?.history ?? []).map((item) => item.changePct))])
   );
   const recentFiveDayReturnBySymbol = new Map(
-    stockDetails.map(({ symbol, detail }) => [
-      symbol,
-      calculateRecentReturn((detail?.history ?? []).map((item) => item.close), 5)
-    ])
+    tableSymbols.map((symbol) => [symbol, calculateRecentReturn((detailBySymbol.get(symbol)?.history ?? []).map((item) => item.close), 5)])
   );
   const recentPositiveDaysBySymbol = new Map(
-    stockDetails.map(({ symbol, detail }) => [
-      symbol,
-      countDirectionalDays((detail?.history ?? []).map((item) => item.changePct), 5, "up")
-    ])
+    tableSymbols.map((symbol) => [symbol, countDirectionalDays((detailBySymbol.get(symbol)?.history ?? []).map((item) => item.changePct), 5, "up")])
   );
   const recentNegativeDaysBySymbol = new Map(
-    stockDetails.map(({ symbol, detail }) => [
-      symbol,
-      countDirectionalDays((detail?.history ?? []).map((item) => item.changePct), 5, "down")
-    ])
+    tableSymbols.map((symbol) => [symbol, countDirectionalDays((detailBySymbol.get(symbol)?.history ?? []).map((item) => item.changePct), 5, "down")])
   );
   const recentFiveDayNewsCountBySymbol = new Map(
-    stockDetails.map(({ symbol, detail }) => [
+    tableSymbols.map((symbol) => [
       symbol,
-      countRecentNewsByDays((detail?.recentNews ?? []).map((item) => item.publishedAt), date, 5)
+      countRecentNewsByDays((detailBySymbol.get(symbol)?.recentNews ?? []).map((item) => item.publishedAt), date, 5)
     ])
   );
 
@@ -235,186 +203,20 @@ export default async function HomePage(props: HomePageProps) {
       recentPositiveDays: row.symbol ? (recentPositiveDaysBySymbol.get(row.symbol) ?? 0) : 0,
       recentNegativeDays: row.symbol ? (recentNegativeDaysBySymbol.get(row.symbol) ?? 0) : 0
     })) ?? [];
-  const compareDate = recentDates[0] ?? previousDate;
-  const compareHref = compareDate ? `/compare?date=${encodeURIComponent(date)}&compareDate=${encodeURIComponent(compareDate)}` : "/compare";
 
   return (
     <main className="page-shell">
-      <div className="report-layout">
-        <aside className="report-sidebar">
-          <Card className="report-sticky">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">日期导航</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <form className="space-y-2" action="/" method="get">
-                <label htmlFor="detail-report-date" className="text-sm text-muted-foreground">
-                  跳转到指定交易日
-                </label>
-                <Input id="detail-report-date" name="date" type="date" defaultValue={date} required />
-                <Button type="submit" variant="secondary" size="sm" className="w-full gap-1.5">
-                  <CalendarDays className="h-4 w-4" />
-                  跳转日期
-                </Button>
-              </form>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Button asChild variant="outline" size="sm" disabled={!previousDate}>
-                  <Link href={toDateHref(previousDate)}>
-                    <ChevronLeft className="h-4 w-4" />
-                    前一天
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" size="sm" disabled={!nextDate}>
-                  <Link href={toDateHref(nextDate)}>
-                    后一天
-                    <ChevronRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">最近日期</p>
-                {recentDates.length === 0 ? (
-                  <p className="empty">暂无更多历史日期。</p>
-                ) : (
-                  <div className="recent-date-list">
-                    {recentDates.map((itemDate) => (
-                      <Link key={itemDate} href={`/?date=${itemDate}`}>
-                        {itemDate}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-2xl">{date}</CardTitle>
-                  <p className="meta mt-1">美东交易日：{toReadableDate(date)}</p>
-                </div>
-                <Badge variant="outline">完整日报</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {parsedStockTable ? (
-                <>
-                  {parsedStockTable.beforeMarkdown ? (
-                    <article className="markdown-body report-content">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsedStockTable.beforeMarkdown}</ReactMarkdown>
-                    </article>
-                  ) : null}
-                  <ReportStockTable rows={enhancedRows} variant="embedded" title={null} description={null} />
-                  {parsedStockTable.afterMarkdown ? (
-                    <article className="markdown-body report-content">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsedStockTable.afterMarkdown}</ReactMarkdown>
-                    </article>
-                  ) : null}
-                </>
-              ) : (
-                <article className="markdown-body report-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayMarkdown}</ReactMarkdown>
-                </article>
-              )}
-            </CardContent>
-          </Card>
-        </aside>
-
-        <aside className="report-right">
-          <div className="space-y-6">
-            <Card className="report-sticky">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">信息面板</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="meta-grid">
-                  <div>
-                    <span>报告日期</span>
-                    <p>{date}</p>
-                  </div>
-                  {reportMeta.generatedAt ? (
-                    <div>
-                      <span>生成时间</span>
-                      <p>{reportMeta.generatedAt}</p>
-                    </div>
-                  ) : null}
-                  {reportMeta.sampleScope ? (
-                    <div>
-                      <span>样本范围</span>
-                      <p>{reportMeta.sampleScope}</p>
-                    </div>
-                  ) : null}
-                  {reportMeta.validQuotes ? (
-                    <div>
-                      <span>有效行情</span>
-                      <p>{reportMeta.validQuotes}</p>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="feed-list">
-                  <a href="/rss.xml">
-                    <Rss className="mr-2 inline h-3.5 w-3.5" />
-                    RSS 2.0
-                  </a>
-                  <a href="/atom.xml">Atom 1.0</a>
-                  <a href="/feed.json">JSON Feed</a>
-                </div>
-
-                <div className="space-y-2">
-                  <Button asChild variant="outline" size="sm" className="w-full">
-                    <Link href={compareHref}>
-                      <ArrowLeftRight className="h-4 w-4" />
-                      日报对比
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="w-full">
-                    <Link href="/archive">
-                      <Newspaper className="h-4 w-4" />
-                      历史日报
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="w-full">
-                    <Link href="/stocks">
-                      <Settings2 className="h-4 w-4" />
-                      股票管理
-                    </Link>
-                  </Button>
-                  <Button asChild size="sm" className="w-full">
-                    <Link href="/">回到今天</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <FavoriteStocksPanel rows={enhancedRows} stockItems={stockItems} />
-            {enhancedRows.length > 0 ? <HomeMoversPanel rows={enhancedRows} /> : null}
-          </div>
-        </aside>
-
-        <section className="report-main">
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-2xl">{date}</CardTitle>
-                  <p className="meta mt-1">美东交易日：{toReadableDate(date)}</p>
-                </div>
-                <Badge variant="outline">完整日报</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <article className="markdown-body report-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayMarkdown}</ReactMarkdown>
-              </article>
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+      <HomeContentTabs
+        date={date}
+        readableDate={toReadableDate(date)}
+        markdown={markdown}
+        rows={enhancedRows}
+        stockItems={stockItems}
+        previousDate={previousDate}
+        nextDate={nextDate}
+        recentDates={recentDates}
+        reportMeta={reportMeta}
+      />
     </main>
   );
 }

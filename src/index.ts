@@ -147,6 +147,10 @@ type StockDetailPayload = {
   history: StockHistoryPoint[];
 };
 
+type StockDetailBatchPayload = {
+  items: StockDetailPayload[];
+};
+
 type StockRecord = typeof stocksTable.$inferSelect;
 
 // Default stock list (mixed US/HK tradable symbols).
@@ -607,6 +611,52 @@ app.get(
 
     const items = await listStocksFromD1(c.env.DB, { includeInactive });
     return c.json({ items });
+  }
+);
+
+app.get(
+  "/stocks/details",
+  describeRoute({
+    tags: ["Stocks"],
+    summary: "Get public stock details in batch",
+    description: "Returns public stock detail payloads for a comma-separated symbol list.",
+    responses: {
+      "200": {
+        description: "Batch stock detail payload",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid symbols parameter"
+      }
+    }
+  }),
+  async (c) => {
+    const rawSymbols = c.req.query("symbols") ?? "";
+    const symbols = Array.from(
+      new Set(
+        rawSymbols
+          .split(",")
+          .map((value) => normalizeSymbol(value))
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+      )
+    );
+
+    if (symbols.length > 60) {
+      return c.text("Too many symbols. Maximum 60 per request.", 400);
+    }
+
+    const items = (
+      await Promise.all(symbols.map((symbol) => getPublicStockDetail(c.env, symbol)))
+    ).filter((item): item is StockDetailPayload => item !== null);
+
+    return c.json<StockDetailBatchPayload>({ items });
   }
 );
 

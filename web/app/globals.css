@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -20,10 +20,26 @@
     --input: 226 18% 26%;
     --ring: 16 88% 58%;
     --radius: 0.85rem;
+    --popover: 229 24% 12%;
+    --popover-foreground: 210 40% 96%;
+    --destructive: 0 84% 60%;
+    --chart-1: 200 72% 44%;
+    --chart-2: 16 88% 58%;
+    --chart-3: 44 90% 56%;
+    --chart-4: 150 65% 42%;
+    --chart-5: 270 58% 60%;
+    --sidebar: 229 24% 12%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 16 88% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 226 20% 20%;
+    --sidebar-accent-foreground: 210 35% 94%;
+    --sidebar-border: 226 18% 26%;
+    --sidebar-ring: 16 88% 58%;
   }
 
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
 
   html,
@@ -32,7 +48,7 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply antialiased bg-background text-foreground;
     font-family: var(--font-sans), "Segoe UI", sans-serif;
     background-image: radial-gradient(circle at 15% 0%, rgba(255, 122, 70, 0.25), transparent 45%),
       radial-gradient(circle at 80% 100%, rgba(33, 169, 203, 0.22), transparent 40%);
@@ -45,11 +61,116 @@
   h4 {
     font-family: var(--font-serif), Georgia, serif;
   }
+  .dark {
+    --background: 228 24% 8%;
+    --foreground: 210 40% 96%;
+    --card: 229 24% 12%;
+    --card-foreground: 210 40% 96%;
+    --popover: 229 24% 12%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 16 88% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226 20% 20%;
+    --secondary-foreground: 210 35% 94%;
+    --muted: 226 16% 18%;
+    --muted-foreground: 215 18% 72%;
+    --accent: 193 72% 36%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --border: 226 18% 26%;
+    --input: 226 18% 26%;
+    --ring: 16 88% 58%;
+    --chart-1: 200 72% 44%;
+    --chart-2: 16 88% 58%;
+    --chart-3: 44 90% 56%;
+    --chart-4: 150 65% 42%;
+    --chart-5: 270 58% 60%;
+    --sidebar: 229 24% 12%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 16 88% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 226 20% 20%;
+    --sidebar-accent-foreground: 210 35% 94%;
+    --sidebar-border: 226 18% 26%;
+    --sidebar-ring: 16 88% 58%;
+  }
+  .theme {
+    --font-sans: var(--font-sans);
+  }
+  html {
+    @apply font-sans;
+  }
 }
 
 @layer components {
   .page-shell {
-    @apply container py-8 md:py-12;
+    @apply container pb-8 pt-28 md:pb-12 md:pt-24;
+  }
+
+  .site-header-shell {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 50;
+    border-bottom: 1px solid hsl(var(--border) / 0.9);
+    backdrop-filter: blur(18px);
+    background: rgba(6, 10, 24, 0.88);
+    color: hsl(var(--foreground));
+  }
+
+  .site-header-inner {
+    @apply container;
+  }
+
+  .site-header {
+    @apply py-2.5;
+  }
+
+  .site-header-head {
+    @apply block min-w-0;
+  }
+
+  .site-header-brandline {
+    @apply flex min-w-0 flex-wrap items-center gap-2;
+  }
+
+  .site-header-mark {
+    @apply inline-block h-2 w-2 rounded-full bg-primary/90;
+  }
+
+  .site-header-title {
+    @apply font-sans text-sm font-semibold tracking-[0.01em] text-foreground;
+  }
+
+  .site-header-separator {
+    @apply text-xs text-muted-foreground/70;
+  }
+
+  .site-header-controls {
+    @apply mt-2;
+  }
+
+  .site-header-actions-menu {
+    @apply max-w-none shrink-0;
+  }
+
+  .site-header-actions {
+    @apply flex flex-wrap items-center gap-1.5;
+  }
+
+  .site-nav-link {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition hover:bg-muted/55 hover:text-foreground;
+  }
+
+  .site-nav-link.is-active {
+    @apply bg-background text-foreground;
+  }
+
+  .site-nav-cta {
+    @apply inline-flex h-9 items-center rounded-md bg-primary px-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90;
+  }
+
+  .home-tabs-bar {
+    @apply flex items-center;
   }
 
   .hero-card {
@@ -117,34 +238,6 @@
     @apply mt-2 text-xs font-medium text-primary;
   }
 
-  .report-layout {
-    @apply grid gap-6;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "sidebar"
-      "main";
-    align-items: start;
-  }
-
-  .report-main {
-    grid-area: main;
-    min-width: 0;
-  }
-
-  .report-sidebar {
-    @apply grid gap-6;
-    grid-area: sidebar;
-    min-width: 0;
-  }
-
-  .report-sticky {
-    @apply top-6;
-  }
-
-  .report-sidebar .report-sticky {
-    @apply lg:sticky;
-  }
-
   .recent-date-list {
     @apply grid gap-2;
   }
@@ -169,12 +262,53 @@
     @apply text-[0.96rem] leading-7;
   }
 
-  @media (min-width: 1024px) {
-    .report-layout {
-      grid-template-columns: 19rem minmax(0, 1fr);
-      grid-template-areas: "sidebar main";
+  .home-content-stack {
+    @apply space-y-5;
+  }
+
+  .home-tabs-list {
+    @apply h-9 shrink-0 rounded-lg border border-border/80 bg-background/35 p-1;
+  }
+
+  .home-tabs-trigger {
+    @apply rounded-md px-3 text-sm font-medium text-muted-foreground;
+  }
+
+  .home-tabs-trigger[data-state="active"] {
+    @apply bg-background text-foreground;
+  }
+
+  .report-nav-grid {
+    @apply grid gap-4;
+  }
+
+  @media (min-width: 768px) {
+    .site-header {
+      @apply flex items-center justify-between gap-4 py-2.5;
+    }
+
+    .site-header-head {
+      @apply shrink-0;
+    }
+
+    .site-header-brandline {
+      @apply flex-nowrap gap-2.5;
+    }
+
+    .site-header-controls {
+      @apply mt-0 flex flex-1 items-center justify-end;
+    }
+
+    .site-header-actions {
+      @apply flex-nowrap justify-end;
+    }
+
+    .report-nav-grid {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      align-items: start;
     }
   }
+
 }
 
 @layer utilities {
@@ -192,3 +326,13 @@
     @apply block w-full overflow-x-auto;
   }
 }
+
+
+
+
+
+
+
+
+
+

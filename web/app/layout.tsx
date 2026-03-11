@@ -1,13 +1,11 @@
-import type { Metadata } from "next";
-import { Merriweather, Space_Grotesk } from "next/font/google";
+﻿import type { Metadata } from "next";
+import { Merriweather, Space_Grotesk, Geist } from "next/font/google";
 
 import "./globals.css";
+import { SiteHeader } from "@/components/site-header";
+import { cn } from "@/lib/utils";
 
-const sans = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  weight: ["400", "500", "700"]
-});
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 const serif = Merriweather({
   subsets: ["latin"],
@@ -22,8 +20,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout(props: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className="dark">
-      <body className={`${sans.variable} ${serif.variable}`}>{props.children}</body>
+    <html lang="zh-CN" className={cn("dark", "font-sans", geist.variable)}>
+      <body className={`${geist.variable} ${serif.variable}`}>
+        <SiteHeader />
+        {props.children}
+      </body>
     </html>
   );
 }

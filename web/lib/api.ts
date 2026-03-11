@@ -72,9 +72,14 @@ type StockListResponse = {
   items: StockListItem[];
 };
 
+type StockDetailListResponse = {
+  items: StockDetailResult[];
+};
+
 type ApiTarget = {
   baseUrl: string;
   pathPrefix: string;
+  cookieHeader: string | null;
 };
 
 function stripTrailingSlashes(url: string): string {
@@ -88,19 +93,26 @@ function joinApiUrl(target: ApiTarget, path: string): string {
 async function resolveApiTarget(): Promise<ApiTarget> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const cookieHeader = requestHeaders.get("cookie");
   if (!host) {
-    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "" };
+    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "", cookieHeader };
   }
 
-  const proto = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  if (host.includes("localhost")) {
-    return {
-      baseUrl: stripTrailingSlashes(`${proto}://${host}`),
-      pathPrefix: "/api"
-    };
-  }
+  const forwardedProto = requestHeaders.get("x-forwarded-proto");
+  const protocol = forwardedProto?.split(",")[0]?.trim() || (host.includes("localhost") ? "http" : "https");
+  return {
+    baseUrl: stripTrailingSlashes(`${protocol}://${host}`),
+    pathPrefix: "/api",
+    cookieHeader
+  };
+}
 
-  return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "" };
+function buildApiRequestHeaders(target: ApiTarget, accept: string): Headers {
+  const requestHeaders = new Headers({ accept });
+  if (target.cookieHeader) {
+    requestHeaders.set("cookie", target.cookieHeader);
+  }
+  return requestHeaders;
 }
 
 async function fetchText(path: string): Promise<{ status: number; text: string; headers: Headers }> {
@@ -108,7 +120,7 @@ async function fetchText(path: string): Promise<{ status: number; text: string; 
   const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
     cache: "no-store",
-    headers: { accept: "text/markdown, text/plain;q=0.8, */*;q=0.5" }
+    headers: buildApiRequestHeaders(target, "text/markdown, text/plain;q=0.8, */*;q=0.5")
   });
 
   return {
@@ -123,7 +135,7 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
     cache: "no-store",
-    headers: { accept: "application/json" }
+    headers: buildApiRequestHeaders(target, "application/json")
   });
 
   if (!response.ok) {
@@ -173,4 +185,17 @@ export async function fetchStockDetail(symbol: string): Promise<StockDetailResul
     return null;
   }
   return fetchJson<StockDetailResult>(`/stock/${encodeURIComponent(normalized)}`);
+}
+
+export async function fetchStockDetails(symbols: string[]): Promise<StockDetailResult[]> {
+  const normalized = Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter((symbol) => symbol.length > 0)));
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const query = new URLSearchParams({
+    symbols: normalized.join(",")
+  });
+  const result = await fetchJson<StockDetailListResponse>(`/stocks/details?${query.toString()}`);
+  return result?.items ?? [];
 }

@@ -34,14 +34,30 @@ interface Env {
 
 const REPORT_DATE_PATH = /^\/report\/\d{4}-\d{2}-\d{2}$/;
 const API_STATIC_PATHS = new Set(["/health", "/latest", "/reports", "/rss.xml", "/atom.xml", "/feed.json"]);
-const STOCKS_API_PATH = /^\/stocks(?:\/preview|\/\d+(?:\/aliases\/regenerate)?)?$/;
+const STOCKS_API_PATH = /^\/stocks(?:\/preview|\/details|\/\d+(?:\/aliases\/regenerate)?)?$/;
 const STOCK_DETAIL_API_PATH = /^\/stock\/[^/]+$/;
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
+const ADMIN_SESSION_API_PATH = "/api/admin/session";
+const ADMIN_SESSION_COOKIE = "stocks-admin-session";
+const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 const API_UPSTREAM_HEADER = "x-api-upstream";
 const API_UPSTREAM_RAY_HEADER = "x-api-upstream-cf-ray";
 const API_UPSTREAM_NOTE_HEADER = "x-api-upstream-note";
 
 type ApiUpstreamSource = "service-binding" | "fallback-public-api";
+type ApiProxyErrorSource = "service-binding-error" | "fallback-public-api-error";
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade"
+]);
 
 function isLocalDevHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
@@ -64,9 +80,66 @@ function resolveApiPath(pathname: string): string | null {
   return null;
 }
 
+function parseCookieHeader(cookieHeader: string | null): Map<string, string> {
+  const values = new Map<string, string>();
+  if (!cookieHeader) {
+    return values;
+  }
+
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = part.split("=");
+    const name = rawName?.trim();
+    if (!name) {
+      continue;
+    }
+    const rawValue = rawValueParts.join("=").trim();
+    try {
+      values.set(name, decodeURIComponent(rawValue));
+    } catch {
+      values.set(name, rawValue);
+    }
+  }
+
+  return values;
+}
+
+function getAdminSessionToken(request: Request): string | null {
+  const token = parseCookieHeader(request.headers.get("cookie")).get(ADMIN_SESSION_COOKIE)?.trim();
+  return token ? token : null;
+}
+
+function buildAdminSessionCookie(requestUrl: URL, token: string | null): string {
+  const parts = [`${ADMIN_SESSION_COOKIE}=${token ? encodeURIComponent(token) : ""}`, "Path=/", "HttpOnly", "SameSite=Strict"];
+
+  if (!isLocalDevHost(requestUrl.hostname)) {
+    parts.push("Secure");
+  }
+
+  if (token) {
+    parts.push(`Max-Age=${ADMIN_SESSION_MAX_AGE_SECONDS}`);
+  } else {
+    parts.push("Expires=Thu, 01 Jan 1970 00:00:00 GMT", "Max-Age=0");
+  }
+
+  return parts.join("; ");
+}
+
 function resolveFallbackApiBaseUrl(env: Env): string {
   const configured = env.STOCKS_API_BASE_URL?.trim();
   return (configured && configured.length > 0 ? configured : DEFAULT_API_BASE_URL).replace(/\/+$/, "");
+}
+
+function shouldUseServiceBinding(requestUrl: URL, env: Env): boolean {
+  if (!env.STOCKS_API) {
+    return false;
+  }
+
+  if (!isLocalDevHost(requestUrl.hostname)) {
+    return true;
+  }
+
+  const fallbackApiUrl = new URL(resolveFallbackApiBaseUrl(env));
+  return isLocalDevHost(fallbackApiUrl.hostname);
 }
 
 async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
@@ -78,7 +151,7 @@ async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
   return body.includes("local dev session");
 }
 
-function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note?: string): Response {
+function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note?: string, sessionCookie?: string): Response {
   const headers = new Headers(response.headers);
   headers.set(API_UPSTREAM_HEADER, source);
 
@@ -91,6 +164,10 @@ function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note
     headers.set(API_UPSTREAM_NOTE_HEADER, note);
   }
 
+  if (sessionCookie) {
+    headers.append("set-cookie", sessionCookie);
+  }
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -98,32 +175,242 @@ function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note
   });
 }
 
+function createProxyHeaders(request: Request, injectedAdminToken?: string): Headers {
+  const headers = new Headers();
+
+  for (const [key, value] of request.headers.entries()) {
+    const lowerKey = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === "cookie") {
+      continue;
+    }
+    headers.set(key, value);
+  }
+
+  if (injectedAdminToken && !headers.has("x-admin-token")) {
+    headers.set("x-admin-token", injectedAdminToken);
+  }
+
+  return headers;
+}
+
+function createProxyRequest(targetUrl: string, request: Request, injectedAdminToken?: string): Request {
+  const init: RequestInit = {
+    method: request.method,
+    headers: createProxyHeaders(request, injectedAdminToken),
+    redirect: request.redirect
+  };
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = request.body;
+  }
+
+  return new Request(targetUrl, init);
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function createApiProxyErrorResponse(source: ApiProxyErrorSource, message: string, note?: string): Response {
+  const headers = new Headers({
+    "content-type": "text/plain; charset=utf-8",
+    [API_UPSTREAM_HEADER]: source
+  });
+
+  if (note) {
+    headers.set(API_UPSTREAM_NOTE_HEADER, note);
+  }
+
+  return new Response(message, {
+    status: 502,
+    statusText: "Bad Gateway",
+    headers
+  });
+}
+
+async function proxyApiRequest(
+  request: Request,
+  requestUrl: URL,
+  env: Env,
+  apiPath: string,
+  options?: { overrideAdminToken?: string | null }
+): Promise<Response> {
+  const serviceBinding = env.STOCKS_API;
+  const upstreamUrl = new URL(`https://stocks-api.internal${apiPath}${requestUrl.search}`);
+  const useServiceBinding = shouldUseServiceBinding(requestUrl, env);
+  const explicitAdminToken = request.headers.get("x-admin-token");
+  const sessionAdminToken = getAdminSessionToken(request);
+  const injectedAdminToken = explicitAdminToken ?? options?.overrideAdminToken ?? sessionAdminToken ?? undefined;
+  const shouldClearSessionOnUnauthorized = !explicitAdminToken && !!sessionAdminToken;
+  const sessionCookieToClear = shouldClearSessionOnUnauthorized ? buildAdminSessionCookie(requestUrl, null) : undefined;
+  const requestForServiceBinding = useServiceBinding && serviceBinding ? request.clone() : null;
+  const requestForFallback = requestForServiceBinding ? request.clone() : request;
+
+  if (useServiceBinding && serviceBinding && requestForServiceBinding) {
+    try {
+      const proxied = await serviceBinding.fetch(
+        createProxyRequest(upstreamUrl.toString(), requestForServiceBinding, injectedAdminToken)
+      );
+      if (!(await shouldFallbackToPublicApi(proxied))) {
+        const tagged = withApiProxyHeaders(
+          proxied,
+          "service-binding",
+          undefined,
+          proxied.status === 401 ? sessionCookieToClear : undefined
+        );
+        console.log(`[API_PROXY] ${apiPath} -> service-binding (${tagged.status})`);
+        return tagged;
+      }
+    } catch (error) {
+      console.error(`[API_PROXY] ${apiPath} service-binding error: ${toErrorMessage(error)}`);
+    }
+  }
+
+  const fallbackApiUrl = new URL(`${resolveFallbackApiBaseUrl(env)}${apiPath}${requestUrl.search}`);
+  if (fallbackApiUrl.origin === requestUrl.origin) {
+    return new Response("STOCKS_API_BASE_URL cannot point to the same web worker origin.", { status: 500 });
+  }
+  const note = useServiceBinding
+    ? isLocalDevHost(fallbackApiUrl.hostname)
+      ? "binding-fallback-local-api"
+      : "binding-fallback"
+    : isLocalDevHost(requestUrl.hostname)
+      ? "local-dev-remote-api"
+      : "no-binding";
+  try {
+    const fallbackResponse = await fetch(createProxyRequest(fallbackApiUrl.toString(), requestForFallback, injectedAdminToken));
+    const tagged = withApiProxyHeaders(
+      fallbackResponse,
+      "fallback-public-api",
+      note,
+      fallbackResponse.status === 401 ? sessionCookieToClear : undefined
+    );
+    console.log(`[API_PROXY] ${apiPath} -> fallback-public-api (${tagged.status}, ${note})`);
+    return tagged;
+  } catch (error) {
+    const message = `API proxy request failed for ${apiPath}: ${toErrorMessage(error)}`;
+    console.error(`[API_PROXY] ${apiPath} fallback-public-api error (${note}): ${toErrorMessage(error)}`);
+    return createApiProxyErrorResponse("fallback-public-api-error", message, note);
+  }
+}
+
+async function validateAdminToken(request: Request, requestUrl: URL, env: Env, token: string): Promise<Response> {
+  const validationUrl = new URL(requestUrl.toString());
+  validationUrl.pathname = "/api/stocks";
+  validationUrl.search = "?includeInactive=true";
+  const validationRequest = new Request(validationUrl.toString(), {
+    method: "GET",
+    headers: new Headers({
+      accept: "application/json",
+      "x-admin-token": token
+    })
+  });
+
+  return proxyApiRequest(validationRequest, validationUrl, env, "/stocks");
+}
+
+async function handleAdminSessionRequest(request: Request, requestUrl: URL, env: Env): Promise<Response> {
+  if (request.method === "GET") {
+    const sessionToken = getAdminSessionToken(request);
+    if (!sessionToken) {
+      return Response.json(
+        { authenticated: false },
+        {
+          status: 401,
+          headers: { "cache-control": "no-store" }
+        }
+      );
+    }
+
+    const validationResponse = await validateAdminToken(request, requestUrl, env, sessionToken);
+    if (!validationResponse.ok) {
+      return Response.json(
+        { authenticated: false },
+        {
+          status: validationResponse.status === 401 ? 401 : validationResponse.status,
+          headers: {
+            "cache-control": "no-store",
+            "set-cookie": buildAdminSessionCookie(requestUrl, null)
+          }
+        }
+      );
+    }
+
+    return Response.json(
+      { authenticated: true },
+      {
+        headers: { "cache-control": "no-store" }
+      }
+    );
+  }
+
+  if (request.method === "POST") {
+    let payload: unknown = null;
+    try {
+      payload = await request.json();
+    } catch {
+      payload = null;
+    }
+
+    const token =
+      payload && typeof payload === "object" && "token" in payload && typeof payload.token === "string"
+        ? payload.token.trim()
+        : "";
+
+    if (!token) {
+      return new Response("管理员令牌不能为空。", { status: 400 });
+    }
+
+    const validationResponse = await validateAdminToken(request, requestUrl, env, token);
+    if (!validationResponse.ok) {
+      const message = await validationResponse.text();
+      return new Response(message || "Unauthorized.", {
+        status: validationResponse.status
+      });
+    }
+
+    return Response.json(
+      { authenticated: true },
+      {
+        headers: {
+          "cache-control": "no-store",
+          "set-cookie": buildAdminSessionCookie(requestUrl, token)
+        }
+      }
+    );
+  }
+
+  if (request.method === "DELETE") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "cache-control": "no-store",
+        "set-cookie": buildAdminSessionCookie(requestUrl, null)
+      }
+    });
+  }
+
+  return new Response("Method Not Allowed", {
+    status: 405,
+    headers: { allow: "GET, POST, DELETE" }
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === ADMIN_SESSION_API_PATH) {
+      return handleAdminSessionRequest(request, url, env);
+    }
+
     const apiPath = resolveApiPath(url.pathname);
     if (apiPath) {
-      const shouldSkipServiceBinding = isLocalDevHost(url.hostname);
-      const upstreamUrl = new URL(`https://stocks-api.internal${apiPath}${url.search}`);
-      if (!shouldSkipServiceBinding && env.STOCKS_API) {
-        const proxied = await env.STOCKS_API.fetch(new Request(upstreamUrl.toString(), request));
-        if (!(await shouldFallbackToPublicApi(proxied))) {
-          const tagged = withApiProxyHeaders(proxied, "service-binding");
-          console.log(`[API_PROXY] ${apiPath} -> service-binding (${tagged.status})`);
-          return tagged;
-        }
-      }
-
-      const fallbackApiUrl = new URL(`${resolveFallbackApiBaseUrl(env)}${apiPath}${url.search}`);
-      if (fallbackApiUrl.origin === url.origin) {
-        return new Response("STOCKS_API_BASE_URL cannot point to the same web worker origin.", { status: 500 });
-      }
-      const fallbackResponse = await fetch(new Request(fallbackApiUrl.toString(), request));
-      const note = shouldSkipServiceBinding ? "local-dev-host" : env.STOCKS_API ? "binding-fallback" : "no-binding";
-      const tagged = withApiProxyHeaders(fallbackResponse, "fallback-public-api", note);
-      console.log(`[API_PROXY] ${apiPath} -> fallback-public-api (${tagged.status}, ${note})`);
-      return tagged;
+      return proxyApiRequest(request, url, env, apiPath);
     }
 
     // Image optimization via Cloudflare Images binding.

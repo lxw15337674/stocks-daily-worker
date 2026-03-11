@@ -1,40 +1,14 @@
-"use client";
-
 import Link from "next/link";
 import { CalendarSearch } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchReportList, type ReportListItem } from "@/lib/public-api";
+import { fetchReportList } from "@/lib/api";
 
-export default function ArchivePage() {
-  const [reports, setReports] = useState<ReportListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      let items: ReportListItem[] = [];
-      try {
-        items = await fetchReportList(200);
-      } catch {
-        items = [];
-      }
-
-      if (!cancelled) {
-        setReports(items);
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+export default async function ArchivePage() {
+  const reports = await fetchReportList(200);
 
   return (
     <main className="page-shell">
@@ -50,11 +24,7 @@ export default function ArchivePage() {
           <Button asChild variant="outline" size="sm">
             <Link href="/">返回首页</Link>
           </Button>
-          {loading ? (
-            <Alert>
-              <AlertDescription>正在加载历史数据...</AlertDescription>
-            </Alert>
-          ) : reports.length === 0 ? (
+          {reports.length === 0 ? (
             <Alert>
               <AlertDescription>暂无历史数据。</AlertDescription>
             </Alert>
