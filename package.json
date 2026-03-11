@@ -1,29 +1,18 @@
 {
-  "name": "china-stocks-daily-worker",
-  "version": "0.1.0",
+  "name": "china-stocks-daily-monorepo",
   "private": true,
-  "type": "module",
+  "packageManager": "pnpm@10.5.2",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "check": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "@hono/standard-validator": "^0.2.2",
-    "@hono/swagger-ui": "^0.6.0",
-    "@mozilla/readability": "^0.6.0",
-    "drizzle-orm": "^0.44.7",
-    "feed": "^5.2.0",
-    "hono": "^4.12.5",
-    "hono-openapi": "^1.3.0",
-    "linkedom": "^0.18.12"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260307.1",
-    "drizzle-kit": "^0.31.9",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.71.0"
+    "dev": "pnpm -r --parallel --filter @china-stocks/api --filter @china-stocks/web dev",
+    "dev:api": "pnpm --filter @china-stocks/api dev",
+    "dev:web": "pnpm --filter @china-stocks/web dev",
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm -r --if-present check",
+    "check:api": "pnpm --filter @china-stocks/api check",
+    "check:web": "pnpm --filter @china-stocks/web check",
+    "deploy:api": "pnpm --filter @china-stocks/api deploy",
+    "deploy:web": "pnpm --filter @china-stocks/web deploy",
+    "db:generate": "pnpm --filter @china-stocks/api db:generate",
+    "db:studio": "pnpm --filter @china-stocks/api db:studio"
   }
 }

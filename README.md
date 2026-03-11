@@ -1,36 +1,29 @@
-# China Stocks Daily Worker
+# Market Daily Monorepo
 
-Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
+Monorepo for a unified multi-asset daily report platform on Cloudflare.
+
+## Workspace Layout
+
+- `apps/api`: unified Hono + Cloudflare Worker backend exposing `/api/v1/stocks/*` and `/api/v1/crypto/*`
+- `apps/web`: unified vinext + shadcn/ui frontend with localized routes under `/{lang}`
+- `packages/contracts`: shared stock contracts used across the workspace
+
+The repository uses `pnpm workspace` only. There is no `turbo` layer.
 
 ## What it does
 
-- Pulls daily price data from Yahoo Finance for China ADR stocks.
-- Pulls related news from Google News RSS.
-- Generates markdown report with:
-  - AI market overview (OpenAI-compatible API, e.g. maxx)
-  - full stock data table
-  - per-company news links
-- Runs on cron trigger and can also be called manually via HTTP.
-- OpenAPI schema is generated from route annotations via `hono-openapi`.
+- Serves one platform shell for stocks and crypto today, with room for gold and bonds later.
+- Keeps stocks and crypto as internal modules while deploying one backend worker and one frontend worker.
+- Generates stock daily reports with archive/admin flows and crypto daily reports with archive/detail flows.
+- Uses path-based i18n on the frontend (`/{lang}/...`) and a shared platform header with asset switching.
 
-## Endpoints
+## API Surface
 
-- `GET /health`: health check
-- `GET /run`: generate report immediately and return markdown (requires `x-admin-token`)
-- `GET /latest`: return latest report (D1 first, fallback to R2)
-- `GET /reports?limit=30&cursor=<cursor>`: list report history with pagination (D1 first, fallback to R2)
-- `GET /stocks`: list stock pool (`?includeInactive=true` requires `x-admin-token`)
-- `POST /stocks`: create stock (requires `x-admin-token`, auto-generate aliases by AI)
-- `PUT /stocks/:id`: update stock (requires `x-admin-token`, auto-regenerate aliases)
-- `DELETE /stocks/:id`: soft-delete stock (requires `x-admin-token`)
-- `POST /stocks/:id/aliases/regenerate`: regenerate aliases for one stock (requires `x-admin-token`)
-- `GET /report/:date`: read report by date from D1 first, then R2; if date is today (ET) and missing, it auto-generates on demand (requires `x-admin-token`)
-- `GET /rss.xml?limit=30`: RSS 2.0 feed for latest reports with full markdown content in each item (D1 first, fallback to R2)
-- `GET /atom.xml?limit=30`: Atom 1.0 feed for latest reports (D1 first, fallback to R2)
-- `GET /feed.json?limit=30`: JSON Feed for latest reports (D1 first, fallback to R2)
-- `GET /openapi.json`: OpenAPI 3.1 JSON schema for all endpoints
-- `GET /`: interactive API docs (Swagger UI)
-- `GET /docs`: interactive API docs alias (backward compatible)
+- `GET /api/v1/health`: unified health check
+- `GET /api/v1/assets`: enabled/disabled asset registry
+- `GET /api/v1/stocks/*`: legacy stock API mounted under the stocks namespace
+- `GET /api/v1/crypto/*`: crypto API mounted under the crypto namespace
+- The web worker also preserves legacy stock-style `/api/*` paths and proxies `/api/crypto/*` to the unified backend
 
 ## Setup
 
@@ -40,37 +33,46 @@ Cloudflare Worker (Hono.js) that generates a daily China ADR markdown report.
 npx wrangler login
 ```
 
-2. Install dependencies:
+2. Install dependencies from the workspace root:
 
 ```bash
-npm install
+pnpm install
 ```
 
-3. Create D1 database (first time):
+3. Create D1 databases (first time):
 
 ```bash
 npx wrangler d1 create china-stocks-daily
+npx wrangler d1 create crypto-daily
 ```
 
-Then update `wrangler.toml` with returned `database_id`.
+Then update `apps/api/wrangler.toml` with the returned `database_id` values.
 
-4. Local dev:
+4. Local API dev:
 
 ```bash
-npm run dev
+pnpm dev:api
 ```
 
-5. Deploy:
+5. Local web dev:
 
 ```bash
-npm run deploy
+pnpm dev:web
 ```
 
-6. Verify:
+6. Deploy:
 
 ```bash
-curl https://<your-worker>.workers.dev/health
-curl https://<your-worker>.workers.dev/
+pnpm deploy:api
+pnpm deploy:web
+```
+
+7. Verify:
+
+```bash
+curl https://<your-api-worker>.workers.dev/api/v1/health
+curl https://<your-api-worker>.workers.dev/api/v1/assets
+curl https://<your-web-worker>.workers.dev/zh
 ```
 
 ## Cloudflare Git Auto Deploy
@@ -81,13 +83,13 @@ Recommended setup for this monorepo:
 
 - Backend Worker project
   - Root Directory: `/`
-  - Build Command: `npm ci`
-  - Deploy Command: `npx wrangler deploy --config wrangler.toml`
+  - Build Command: `pnpm install --frozen-lockfile`
+  - Deploy Command: `pnpm --filter @china-stocks/api deploy`
   - Production Branch: `main`
 - Frontend Worker project
-  - Root Directory: `/web`
-  - Build Command: `corepack enable && pnpm install --frozen-lockfile`
-  - Deploy Command: `pnpm deploy`
+  - Root Directory: `/`
+  - Build Command: `pnpm install --frozen-lockfile`
+  - Deploy Command: `pnpm --filter @china-stocks/web deploy`
   - Production Branch: `main`
 
 When configured, commits pushed to `main` will trigger Cloudflare auto deploy directly.
@@ -96,83 +98,85 @@ When configured, commits pushed to `main` will trigger Cloudflare auto deploy di
 
 ### Website frontend (vinext + shadcn/ui)
 
-The web UI project is under `web/` and supports date lookup pages.
+The web UI project is under `apps/web` and supports date lookup pages.
 
 ```bash
-cd web
-pnpm install
-pnpm dev
+pnpm dev:web
 ```
 
-### Persist reports to D1
+### Stocks D1 + Crypto D1
 
-Bind D1 in `wrangler.toml` (replace with your values):
+Bind D1 in `apps/api/wrangler.toml` (replace with your values):
 
 ```toml
 [[d1_databases]]
-binding = "DB"
+binding = "STOCKS_DB"
 database_name = "china-stocks-daily"
-database_id = "<your-d1-database-id>"
+database_id = "<stocks-d1-database-id>"
+
+[[d1_databases]]
+binding = "CRYPTO_DB"
+database_name = "crypto-daily"
+database_id = "<crypto-d1-database-id>"
 ```
 
-When `DB` is configured, each run stores:
-- report markdown and market overview (`report_runs`)
+When the stock DB is configured, each stock run stores:
+- structured market overview metadata (`report_runs`)
 - quote snapshots (`report_quotes`)
-- news items with AI summary (`report_news`)
+- news items with bilingual AI summary (`report_news`)
 
 ### Stock Pool Management (D1 + Admin Token)
 
 Stock pool is now stored in D1 table `stocks`.
 On first startup, default stocks are automatically seeded if the table is empty.
 
-Set `ADMIN_TOKEN` (Wrangler secret or variable) for protected APIs:
+Set `STOCKS_ADMIN_TOKEN` for stock admin APIs and `CRYPTO_ADMIN_TOKEN` for crypto admin/manual run APIs.
+This Worker uses Cloudflare Worker Versions, so use versioned secret commands:
 
 ```bash
-npx wrangler secret put ADMIN_TOKEN
+cd apps/api
+pnpm wrangler versions secret put STOCKS_ADMIN_TOKEN
+pnpm wrangler versions secret put CRYPTO_ADMIN_TOKEN
+pnpm wrangler versions deploy <new-version-id>@100 --yes
 ```
 
 Admin endpoints require header:
 
 ```http
-x-admin-token: <ADMIN_TOKEN>
+x-admin-token: <STOCKS_ADMIN_TOKEN or CRYPTO_ADMIN_TOKEN>
 ```
 
-Web frontend provides `/stocks` page for CRUD and alias regeneration.
+For local development, prefer a non-committed `apps/api/.dev.vars` file or `wrangler dev --var CRYPTO_ADMIN_TOKEN:...`.
 
-### Archive markdown to R2
-
-Add this block to `wrangler.toml`:
-
-```toml
-[[r2_buckets]]
-binding = "REPORT_BUCKET"
-bucket_name = "china-stocks-daily"
-```
+Web frontend provides the stock admin UI at `/{lang}/stocks/admin`.
 
 ### Push result to webhook
 
-Set `WEBHOOK_URL` secret. The worker posts JSON payload:
+Set `STOCKS_WEBHOOK_URL` if you want stock report push delivery. The worker posts JSON payload:
 
 ```json
 {
-  "fileName": "china-stocks-daily-2026-03-05.md",
-  "markdown": "# 中概日报 ..."
+  "reportDateEt": "2026-03-05",
+  "createdAt": "2026-03-06T03:00:00.000Z",
+  "sampleSize": 12,
+  "validQuoteCount": 12
 }
 ```
 
 ### AI summary via OpenAI-compatible API
 
-Set these vars/secrets:
+Set the stock-prefixed vars/secrets:
 
-- `OPENAI_BASE_URL` example:
+- `STOCKS_OPENAI_BASE_URL` example:
   - `https://maxx.cloverstd.com`
   - If you pass only host/base path, worker auto-completes to `/v1/chat/completions`
-- `OPENAI_API_KEY`: API key for the provider
-- `AI_MODEL`: optional, default `gpt-5.2`
-- `NEWS_BODY_FETCH_ENABLED`: optional, default `true`; when enabled, worker fetches article body snippets and feeds them to AI prompts
-- `NEWS_BODY_PER_STOCK_LIMIT`: optional, default `2`; max number of article bodies fetched per stock (0-5)
-- `NEWS_BODY_TIMEOUT_MS`: optional, default `4500`; timeout per body fetch request in milliseconds
-- `NEWS_BODY_MAX_CHARS`: optional, default `900`; retained chars per body snippet (120-3000)
+- `STOCKS_OPENAI_API_KEY`: API key for the provider
+- `STOCKS_AI_MODEL`: optional, default `gpt-5.2`
+- `STOCKS_NEWS_BODY_FETCH_ENABLED`: optional, default `true`
+- `STOCKS_NEWS_BODY_PER_STOCK_LIMIT`: optional, default `2`
+- `STOCKS_NEWS_BODY_TIMEOUT_MS`: optional, default `4500`
+- `STOCKS_NEWS_BODY_MAX_CHARS`: optional, default `900`
+- `CRYPTO_AI`: Workers AI binding used by the crypto module
 
 If `OPENAI_BASE_URL` is configured, the worker will:
 - generate one market overview summary (max 200 Chinese chars)
@@ -181,7 +185,7 @@ If `OPENAI_BASE_URL` is configured, the worker will:
 
 ## Cron
 
-Current cron in `wrangler.toml`:
+Current cron in `apps/api/wrangler.toml`:
 
 - `0 23 * * 1-5` (UTC Monday-Friday, equals 07:00 Asia/Shanghai Tuesday-Saturday, covering Monday-Friday ET trading days)
 
