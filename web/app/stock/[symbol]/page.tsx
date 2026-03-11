@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FavoriteStockButton } from "@/components/favorite-stock-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchStockDetail, fetchStockList, type StockHistoryPoint } from "@/lib/api";
 import { toReadableDate } from "@/lib/date";
@@ -148,7 +147,6 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                     <CardTitle className="text-3xl">{detail.stock.displayName}</CardTitle>
                     <Badge variant="outline">{detail.stock.symbol}</Badge>
                     <Badge variant="secondary">{detail.stock.businessType}</Badge>
-                    <FavoriteStockButton symbol={detail.stock.symbol} showLabel variant="outline" />
                   </div>
                   <p className="meta">代码映射：{detail.stock.codes}</p>
                   <p className="meta">

@@ -170,7 +170,19 @@
   }
 
   .home-tabs-bar {
-    @apply flex items-center;
+    @apply flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/80 p-3;
+  }
+
+  .home-tabs-toolbar {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .home-date-form {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .home-date-input {
+    @apply h-7 w-[10.5rem] bg-background/70 text-sm;
   }
 
   .hero-card {
@@ -238,24 +250,8 @@
     @apply mt-2 text-xs font-medium text-primary;
   }
 
-  .recent-date-list {
-    @apply grid gap-2;
-  }
-
-  .recent-date-list a {
-    @apply rounded-md border bg-background/70 px-3 py-2 text-sm transition hover:border-primary/50 hover:text-primary;
-  }
-
-  .meta-grid {
-    @apply grid gap-2;
-  }
-
-  .meta-grid span {
-    @apply text-xs uppercase tracking-wider text-muted-foreground;
-  }
-
-  .meta-grid p {
-    @apply text-sm;
+  .report-content {
+    @apply text-[0.96rem] leading-7;
   }
 
   .report-content {
@@ -278,8 +274,20 @@
     @apply bg-background text-foreground;
   }
 
-  .report-nav-grid {
-    @apply grid gap-4;
+  .report-meta-row {
+    @apply flex flex-wrap items-center gap-2 text-xs text-muted-foreground;
+  }
+
+  .report-meta-pill {
+    @apply rounded-full border border-border/70 bg-background/50 px-2.5 py-1;
+  }
+
+  .report-feed-links {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .report-feed-links a {
+    @apply inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/50 px-2.5 py-1 transition hover:border-primary/50 hover:text-primary;
   }
 
   @media (min-width: 768px) {
@@ -303,9 +311,12 @@
       @apply flex-nowrap justify-end;
     }
 
-    .report-nav-grid {
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-      align-items: start;
+    .home-tabs-bar {
+      @apply flex-row items-center justify-between;
+    }
+
+    .home-tabs-toolbar {
+      @apply justify-end;
     }
   }
 

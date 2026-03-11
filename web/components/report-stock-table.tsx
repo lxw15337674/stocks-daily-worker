@@ -4,7 +4,6 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type JSX } from "react";
 
-import { FavoriteStockButton } from "@/components/favorite-stock-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type ReportStockRow = {
@@ -171,27 +170,22 @@ export function ReportStockTable(props: ReportStockTableProps) {
           {sortedRows.map((row, index) => (
             <TableRow key={`${row.company}-${row.code}-${index}`}>
               <TableCell className="font-medium break-words">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    {row.detailUrl ? (
-                      <Link href={row.detailUrl} className="underline-offset-4 transition-colors hover:text-primary hover:underline">
-                        {row.company}
-                      </Link>
-                    ) : row.xueqiuUrl ? (
-                      <a
-                        href={row.xueqiuUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline-offset-4 transition-colors hover:text-primary hover:underline"
-                      >
-                        {row.company}
-                      </a>
-                    ) : (
-                      row.company
-                    )}
-                  </div>
-                  {row.symbol ? <FavoriteStockButton symbol={row.symbol} className="h-7 px-2" /> : null}
-                </div>
+                {row.detailUrl ? (
+                  <Link href={row.detailUrl} className="underline-offset-4 transition-colors hover:text-primary hover:underline">
+                    {row.company}
+                  </Link>
+                ) : row.xueqiuUrl ? (
+                  <a
+                    href={row.xueqiuUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline-offset-4 transition-colors hover:text-primary hover:underline"
+                  >
+                    {row.company}
+                  </a>
+                ) : (
+                  row.company
+                )}
               </TableCell>
               {hasCodeColumn ? <TableCell className="break-words">{row.code || "-"}</TableCell> : null}
               <TableCell className="w-[1%] whitespace-nowrap text-right">{row.closeText}</TableCell>

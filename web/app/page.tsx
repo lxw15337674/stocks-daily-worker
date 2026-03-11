@@ -30,24 +30,6 @@ function getTodayEtDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-function pickRecentDates(items: { reportDateEt: string }[], currentDate: string): string[] {
-  const seen = new Set<string>();
-  const dates: string[] = [];
-  for (const item of items) {
-    if (seen.has(item.reportDateEt)) {
-      continue;
-    }
-    seen.add(item.reportDateEt);
-    if (item.reportDateEt !== currentDate) {
-      dates.push(item.reportDateEt);
-    }
-    if (dates.length >= 14) {
-      break;
-    }
-  }
-  return dates;
-}
-
 function calculateLatestStreak(changeValues: Array<number | null>): { direction: "up" | "down" | "flat"; count: number } {
   const firstValid = changeValues.find((value) => value !== null) ?? null;
   if (firstValid === null) {
@@ -157,7 +139,6 @@ export default async function HomePage(props: HomePageProps) {
 
   const previousDate = addDaysToReportDate(date, -1);
   const nextDate = addDaysToReportDate(date, 1);
-  const recentDates = pickRecentDates(history, date);
   const reportMeta = extractReportMeta(markdown);
   const parsedStockTable = parseReportStockTable(markdown, stockItems);
   const newsSections = parseCompanyNewsSections(markdown);
@@ -211,10 +192,8 @@ export default async function HomePage(props: HomePageProps) {
         readableDate={toReadableDate(date)}
         markdown={markdown}
         rows={enhancedRows}
-        stockItems={stockItems}
         previousDate={previousDate}
         nextDate={nextDate}
-        recentDates={recentDates}
         reportMeta={reportMeta}
       />
     </main>
