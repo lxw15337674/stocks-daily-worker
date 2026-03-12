@@ -17,6 +17,10 @@ export function stocksComparePath(lang: Language): string {
   return `${assetHomePath(lang, "stocks")}/compare`;
 }
 
+export function stocksMarketPath(lang: Language): string {
+  return `${assetHomePath(lang, "stocks")}/market`;
+}
+
 export function stocksAdminPath(lang: Language): string {
   return `${assetHomePath(lang, "stocks")}/admin`;
 }
@@ -31,6 +35,10 @@ export function assetReportPath(lang: Language, asset: Extract<AssetKey, "stocks
 
 export function assetInstrumentPath(lang: Language, asset: Extract<AssetKey, "stocks" | "crypto">, id: string): string {
   return `${assetHomePath(lang, asset)}/instrument/${encodeURIComponent(id)}`;
+}
+
+export function assetEventPath(lang: Language, clusterId: number): string {
+  return `${assetHomePath(lang, "crypto")}/event/${encodeURIComponent(String(clusterId))}`;
 }
 
 export function switchLanguagePath(pathname: string, current: Language, target: Language): string {

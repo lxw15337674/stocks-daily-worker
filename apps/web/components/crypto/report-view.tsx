@@ -9,15 +9,16 @@ import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { CoinItem, CoinNewsItem, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
+import type { CoinItem, CoinNewsItem, CryptoMacroSnapshot, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
 import type { Language } from "@/lib/i18n";
-import { assetInstrumentPath } from "@/lib/platform-routes";
+import { assetEventPath, assetInstrumentPath } from "@/lib/platform-routes";
 
 type ReportViewProps = {
   lang: Language;
   report: DailyReport;
   coins: CoinItem[];
+  macro: CryptoMacroSnapshot | null;
   marketNews: MarketNewsItem[];
   clusters: NewsClusterItem[];
   coinNewsByCode: Record<string, CoinNewsItem[]>;
@@ -30,8 +31,47 @@ function getCoinName(coin: CoinItem | undefined, lang: Language): string {
   return lang === "zh" ? coin.nameZh : coin.nameEn;
 }
 
+function formatMacroValue(snapshot: CryptoMacroSnapshot["fearGreed"] | CryptoMacroSnapshot["btcDominance"], lang: Language): string {
+  if (snapshot.value === null) {
+    return "-";
+  }
+  if (snapshot.unit === "percent") {
+    return `${snapshot.value.toFixed(1)}%`;
+  }
+  return new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en-US", {
+    maximumFractionDigits: 0
+  }).format(snapshot.value);
+}
+
+function formatMacroChange(snapshot: CryptoMacroSnapshot["fearGreed"] | CryptoMacroSnapshot["btcDominance"]): string {
+  if (snapshot.change === null) {
+    return "0.00";
+  }
+  return snapshot.change > 0 ? `+${snapshot.change.toFixed(2)}` : snapshot.change.toFixed(2);
+}
+
+function renderMacroStatus(snapshot: CryptoMacroSnapshot["fearGreed"], t: (key: string) => string): string {
+  if (snapshot.status === "stale") {
+    return t("crypto.macroStale");
+  }
+  if (snapshot.status === "unavailable") {
+    return t("crypto.macroUnavailable");
+  }
+  return t("crypto.macroLive");
+}
+
+function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string) => string): string {
+  if (value === "bullish") {
+    return t("crypto.stanceBullish");
+  }
+  if (value === "bearish") {
+    return t("crypto.stanceBearish");
+  }
+  return t("crypto.stanceNeutral");
+}
+
 export function ReportView(props: ReportViewProps) {
-  const { lang, report, coins } = props;
+  const { lang, report, coins, macro } = props;
   const { t } = useTranslation("common");
   const coinByCode = new Map(coins.map((coin) => [coin.code, coin]));
   const focusItems = [...report.items]
@@ -72,6 +112,47 @@ export function ReportView(props: ReportViewProps) {
           valueClassName="text-base text-muted-foreground"
         />
       </MetricGrid>
+
+      {macro ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>{t("crypto.macroTitle")}</CardTitle>
+              <Badge variant="secondary">{lang === "zh" ? macro.regime.labelZh : macro.regime.labelEn}</Badge>
+              <Badge variant="outline">
+                {macro.asOf ? `${t("generatedAt")}: ${formatDateTime(macro.asOf, lang)}` : t("crypto.macroUnavailable")}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm leading-6 text-muted-foreground">
+              {lang === "zh" ? macro.regime.summaryZh : macro.regime.summaryEn}
+            </p>
+            <div className="grid gap-3 xl:grid-cols-2">
+              <article className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">{t("crypto.fearGreedLabel")}</p>
+                  <Badge variant="outline">{renderMacroStatus(macro.fearGreed, t)}</Badge>
+                </div>
+                <p className="mt-3 text-2xl font-semibold text-foreground">{formatMacroValue(macro.fearGreed, lang)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {macro.fearGreed.classification ?? t("crypto.macroUnavailable")} · {t("crypto.previousDeltaLabel")}: {formatMacroChange(macro.fearGreed)}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">{t("crypto.btcDominanceLabel")}</p>
+                  <Badge variant="outline">{renderMacroStatus(macro.btcDominance, t)}</Badge>
+                </div>
+                <p className="mt-3 text-2xl font-semibold text-foreground">{formatMacroValue(macro.btcDominance, lang)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("crypto.previousDeltaLabel")}: {formatMacroChange(macro.btcDominance)}
+                </p>
+              </article>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="pb-3">
@@ -226,15 +307,17 @@ export function ReportView(props: ReportViewProps) {
                     <Badge variant="outline">{t("crypto.clusterImpact", { impact: cluster.marketImpact })}</Badge>
                     <Badge variant="secondary">{t("crypto.clusterSources", { count: cluster.sourceCount })}</Badge>
                     <Badge variant="outline">{t("crypto.signalLabel")}: {cluster.importanceScore}</Badge>
+                    <Badge variant="outline">{renderStance(cluster.stance, t)}</Badge>
+                    {cluster.associationScore !== null ? (
+                      <Badge variant="secondary">{t("crypto.associationScoreLabel")}: {cluster.associationScore}</Badge>
+                    ) : null}
                   </div>
-                  <a
-                    href={cluster.representative.url}
-                    target="_blank"
-                    rel="noreferrer"
+                  <Link
+                    href={assetEventPath(lang, cluster.clusterId)}
                     className="mt-3 block text-sm font-semibold text-foreground transition-colors hover:text-primary hover:underline"
                   >
                     {cluster.label}
-                  </a>
+                  </Link>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {cluster.representative.source} · {formatDateTime(cluster.representative.publishedAt, lang)}
                   </p>

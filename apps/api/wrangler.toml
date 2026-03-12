@@ -4,7 +4,7 @@ compatibility_date = "2026-03-05"
 account_id = "5697c41d4efbabcbac78eafe2cdf036b"
 
 [triggers]
-crons = ["0 23 * * 1-5", "10 * * * *", "5 0 * * *"]
+crons = ["0 23 * * 1-5", "15 20 * * 1-5", "15 21 * * 1-5", "10 * * * *", "5 0 * * *"]
 
 [[d1_databases]]
 binding = "STOCKS_DB"
@@ -24,11 +24,9 @@ STOCKS_WEBHOOK_URL = ""
 STOCKS_OPENAI_BASE_URL = ""
 STOCKS_OPENAI_API_KEY = ""
 STOCKS_AI_MODEL = "gpt-5.2"
-STOCKS_ADMIN_TOKEN = ""
 STOCKS_NEWS_BODY_FETCH_ENABLED = "true"
 STOCKS_NEWS_BODY_PER_STOCK_LIMIT = "2"
 STOCKS_NEWS_BODY_TIMEOUT_MS = "4500"
 STOCKS_NEWS_BODY_MAX_CHARS = "900"
 STOCKS_AI_GATEWAY_BASE_URL = ""
 STOCKS_AI_API_KEY = ""
-CRYPTO_ADMIN_TOKEN = ""

@@ -1,12 +1,19 @@
 import Link from "next/link";
 
+import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
 import { HomeContentTabs } from "@/components/home-content-tabs";
-import { fetchReportList, fetchStockDetails, fetchStockList, fetchStockReportByDate } from "@/lib/api";
+import {
+  fetchReportList,
+  fetchStockDetails,
+  fetchStockList,
+  fetchStockReportByDate
+} from "@/lib/api";
 import { addDaysToReportDate, isValidReportDate, toReadableDate } from "@/lib/date";
 import { getFixedT, type Language } from "@/lib/i18n";
-import { assetHomePath, assetInstrumentPath } from "@/lib/platform-routes";
+import { assetHomePath, assetInstrumentPath, stocksMarketPath } from "@/lib/platform-routes";
+import { loadHomeMarketPulse } from "@/lib/stocks-market";
 import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stocks-report";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
 
@@ -109,16 +116,22 @@ function countRecentNewsByDays(publishedAtValues: string[], reportDate: string, 
 export default async function HomePage(props: HomePageProps) {
   const lang = props.lang ?? "zh";
   const channelT = getFixedT(lang, "channel", "stocks");
+  const stocksT = getFixedT(lang, "stocks", "home");
   const { date: queryDateRaw } = await props.searchParams;
   const queryDate = queryDateRaw?.trim() ?? "";
 
   const historyPromise = fetchReportList(120);
   const stockItemsPromise = fetchStockList();
+  const marketPulsePromise = loadHomeMarketPulse();
   const history = await historyPromise;
 
   const date = isValidReportDate(queryDate) ? queryDate : history[0]?.reportDateEt ?? getTodayEtDateString();
 
-  const [report, stockItems] = await Promise.all([fetchStockReportByDate(date), stockItemsPromise]);
+  const [report, stockItems, marketPulse] = await Promise.all([
+    fetchStockReportByDate(date),
+    stockItemsPromise,
+    marketPulsePromise
+  ]);
   if (!report) {
     return (
       <StatusCard title={channelT("missingReportTitle")} body={channelT("missingReportDescription")}>
@@ -177,27 +190,39 @@ export default async function HomePage(props: HomePageProps) {
 
   return (
     <main className="page-shell">
-      <HomeContentTabs
-        lang={lang}
-        date={date}
-        readableDate={toReadableDate(date, lang)}
-        rows={enhancedRows}
-        previousDate={previousDate}
-        nextDate={nextDate}
-        overview={{
-          stock: resolveLocalizedText(report.overview.stock, lang),
-          news: resolveLocalizedText(report.overview.news, lang)
-        }}
-        newsGroups={report.newsGroups.map((group) => ({
-          ...group,
-          detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
-        }))}
-        reportMeta={{
-          generatedAt: report.createdAt,
-          sampleScope: String(report.sampleSize),
-          validQuotes: String(report.validQuoteCount)
-        }}
-      />
+      <div className="space-y-6">
+        <MarketStatusGrid
+          lang={lang}
+          latest={marketPulse.latest}
+          summary={marketPulse.summary}
+          title={stocksT("marketPulseTitle")}
+          description={stocksT("marketPulseDescription")}
+          actionHref={stocksMarketPath(lang)}
+          actionLabel={stocksT("marketPulseAction")}
+        />
+
+        <HomeContentTabs
+          lang={lang}
+          date={date}
+          readableDate={toReadableDate(date, lang)}
+          rows={enhancedRows}
+          previousDate={previousDate}
+          nextDate={nextDate}
+          overview={{
+            stock: resolveLocalizedText(report.overview.stock, lang),
+            news: resolveLocalizedText(report.overview.news, lang)
+          }}
+          newsGroups={report.newsGroups.map((group) => ({
+            ...group,
+            detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
+          }))}
+          reportMeta={{
+            generatedAt: report.createdAt,
+            sampleScope: String(report.sampleSize),
+            validQuotes: String(report.validQuoteCount)
+          }}
+        />
+      </div>
     </main>
   );
 }

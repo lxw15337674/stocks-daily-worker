@@ -1,4 +1,15 @@
-import type { CoinDetail, CoinItem, CoinNewsItem, DailyReport, MarketNewsItem, NewsClusterItem, ReportDateNewsSnapshot, ReportListItem } from "@/lib/crypto/types";
+import type {
+  CoinDetail,
+  CoinItem,
+  CoinNewsItem,
+  CryptoMacroSnapshot,
+  DailyReport,
+  MarketNewsItem,
+  NewsEventDetail,
+  NewsClusterItem,
+  ReportDateNewsSnapshot,
+  ReportListItem
+} from "@/lib/crypto/types";
 
 async function fetchBrowserJson<T>(path: string): Promise<T | null> {
   const response = await fetch(path, {
@@ -39,6 +50,13 @@ export async function fetchCoinDetailClient(code: string): Promise<CoinDetail | 
     return null;
   }
   return fetchBrowserJson<CoinDetail>(`/api/crypto/coin/${encodeURIComponent(normalizedCode)}`);
+}
+
+export async function fetchMacroSnapshotClient(reportDate?: string | null): Promise<CryptoMacroSnapshot | null> {
+  if (reportDate?.trim()) {
+    return fetchBrowserJson<CryptoMacroSnapshot>(`/api/crypto/macro/report/${encodeURIComponent(reportDate.trim())}`);
+  }
+  return fetchBrowserJson<CryptoMacroSnapshot>("/api/crypto/macro/latest");
 }
 
 export async function fetchMarketNewsClient(limit = 8, hours = 36): Promise<MarketNewsItem[]> {
@@ -86,4 +104,11 @@ export async function fetchReportDateNewsClient(date: string): Promise<ReportDat
     return null;
   }
   return fetchBrowserJson<ReportDateNewsSnapshot>(`/api/crypto/news/report/${encodeURIComponent(normalizedDate)}`);
+}
+
+export async function fetchNewsEventDetailClient(clusterId: number): Promise<NewsEventDetail | null> {
+  if (!Number.isInteger(clusterId) || clusterId <= 0) {
+    return null;
+  }
+  return fetchBrowserJson<NewsEventDetail>(`/api/crypto/news/event/${clusterId}`);
 }

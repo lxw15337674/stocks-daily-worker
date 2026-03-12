@@ -27,6 +27,8 @@ type FetchHandler = (request: Request, env: unknown) => Promise<Response>;
 type ScheduledHandler = (event: ScheduledController, env: unknown) => Promise<void>;
 
 const STOCKS_CRON = "0 23 * * 1-5";
+const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
+const MARKET_INDICES_SUMMARY_CRON_STD = "15 21 * * 1-5";
 const CRYPTO_NEWS_CRON = "10 * * * *";
 const CRYPTO_CRON = "5 0 * * *";
 
@@ -145,6 +147,11 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
     if (event.cron === STOCKS_CRON) {
+      await (stocksModule.scheduled as ScheduledHandler)(event, toStocksEnv(env));
+      return;
+    }
+
+    if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST || event.cron === MARKET_INDICES_SUMMARY_CRON_STD) {
       await (stocksModule.scheduled as ScheduledHandler)(event, toStocksEnv(env));
       return;
     }

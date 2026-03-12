@@ -8,6 +8,7 @@
     "dev:web": "pnpm --filter @china-stocks/web dev",
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
+    "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/contracts.market.test.ts tests/api.indices.test.ts tests/web.market-loaders.test.ts",
     "check:api": "pnpm --filter @china-stocks/api check",
     "check:web": "pnpm --filter @china-stocks/web check",
     "deploy:api": "pnpm --filter @china-stocks/api deploy",

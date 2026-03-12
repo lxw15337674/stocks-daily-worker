@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { StatusCard } from "@/components/platform/status-card";
 import { ReportView } from "@/components/crypto/report-view";
 import { fetchCoinsClient, fetchReportByDateClient, fetchReportDateNewsClient } from "@/lib/crypto/client-api";
-import type { CoinItem, CoinNewsItem, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
+import type { CoinItem, CoinNewsItem, CryptoMacroSnapshot, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
 import type { Language } from "@/lib/i18n";
 
 type Props = {
@@ -17,6 +17,7 @@ type Props = {
 type ReportState = {
   coins: CoinItem[];
   report: DailyReport | null;
+  macro: CryptoMacroSnapshot | null;
   marketNews: MarketNewsItem[];
   clusters: NewsClusterItem[];
   coinNewsByCode: Record<string, CoinNewsItem[]>;
@@ -29,6 +30,7 @@ export function ReportDatePageClient(props: Props) {
   const [state, setState] = useState<ReportState>({
     coins: [],
     report: null,
+    macro: null,
     marketNews: [],
     clusters: [],
     coinNewsByCode: {},
@@ -45,6 +47,7 @@ export function ReportDatePageClient(props: Props) {
       setState({
         coins,
         report,
+        macro: reportNews?.macro ?? null,
         marketNews: reportNews?.marketNews ?? [],
         clusters: reportNews?.clusters ?? [],
         coinNewsByCode: reportNews?.coinNewsByCode ?? {},
@@ -71,6 +74,7 @@ export function ReportDatePageClient(props: Props) {
         lang={lang}
         report={state.report}
         coins={state.coins}
+        macro={state.macro}
         marketNews={state.marketNews}
         clusters={state.clusters}
         coinNewsByCode={state.coinNewsByCode}

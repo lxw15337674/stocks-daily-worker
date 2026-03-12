@@ -42,6 +42,17 @@ function topicTone(topic: string): "default" | "secondary" | "outline" {
   }
 }
 
+function humanizeStance(value: NewsItem["stance"], t: (key: string) => string): string {
+  switch (value) {
+    case "bullish":
+      return t("crypto.stanceBullish");
+    case "bearish":
+      return t("crypto.stanceBearish");
+    default:
+      return t("crypto.stanceNeutral");
+  }
+}
+
 export function NewsSectionCard(props: Props) {
   const { lang, title, emptyText, items } = props;
   const { t } = useTranslation("common");
@@ -80,6 +91,7 @@ export function NewsSectionCard(props: Props) {
                   <p className="mt-3 text-sm leading-6 text-foreground/90">{summary}</p>
 
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <Badge variant="outline">{humanizeStance(item.stance, t)}</Badge>
                     <Badge variant="secondary">{humanizeEventType(item.eventType)}</Badge>
                     {isMarketNews(item)
                       ? item.topics.slice(0, 3).map((topic) => (

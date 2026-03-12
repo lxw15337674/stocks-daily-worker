@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MarketAdminPanel } from "@/components/stocks/market-admin-panel";
 import { resolveLanguage, type Language } from "@/lib/i18n";
 
 type StockItem = {
@@ -820,6 +821,10 @@ export default function StocksPage(props: AdminPageProps) {
           <AlertDescription>{successMessage}</AlertDescription>
         </Alert>
       ) : null}
+
+      <div className="mb-4">
+        <MarketAdminPanel lang={lang} onUnauthorized={() => revokeAuthorization(copy.sessionExpired)} />
+      </div>
 
       <Card>
         <CardHeader className="pb-3">

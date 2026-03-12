@@ -76,3 +76,47 @@ export const reportNews = sqliteTable(
   })
 );
 
+export const marketIndexSnapshots = sqliteTable(
+  "market_index_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    snapshotDate: text("snapshot_date").notNull(),
+    indexKey: text("index_key").notNull(),
+    symbol: text("symbol").notNull(),
+    region: text("region").notNull(),
+    nameZh: text("name_zh").notNull(),
+    nameEn: text("name_en").notNull(),
+    close: real("close").notNull(),
+    previousClose: real("previous_close").notNull(),
+    changeAbs: real("change_abs").notNull(),
+    changePct: real("change_pct").notNull(),
+    currency: text("currency").notNull(),
+    quoteTimestamp: text("quote_timestamp").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => ({
+    snapshotUnique: uniqueIndex("idx_market_index_snapshots_date_key_unique").on(table.snapshotDate, table.indexKey),
+    snapshotDateIdx: index("idx_market_index_snapshots_date").on(table.snapshotDate),
+    regionDateIdx: index("idx_market_index_snapshots_region_date").on(table.region, table.snapshotDate)
+  })
+);
+
+export const marketAiSummaries = sqliteTable(
+  "market_ai_summaries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    summaryDate: text("summary_date").notNull(),
+    scope: text("scope").notNull(),
+    summaryZh: text("summary_zh"),
+    summaryEn: text("summary_en"),
+    model: text("model"),
+    snapshotCount: integer("snapshot_count").notNull().default(0),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => ({
+    summaryUnique: uniqueIndex("idx_market_ai_summaries_date_scope_unique").on(table.summaryDate, table.scope),
+    summaryDateIdx: index("idx_market_ai_summaries_date").on(table.summaryDate)
+  })
+);

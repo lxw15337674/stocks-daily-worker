@@ -7,6 +7,11 @@ import { describeRoute, openAPIRouteHandler } from "hono-openapi";
 import { parseHTML } from "linkedom";
 import type {
   LocalizedText,
+  MarketAiSummaryResponse,
+  MarketIndexHistoryResponse,
+  MarketIndexLatestResponse,
+  MarketIndexRange,
+  MarketIndicesAdminRunResponse,
   ReportListItem,
   StockDailyReport,
   StockDetailListResponse,
@@ -18,6 +23,14 @@ import type {
   StockReportQuoteItem,
   StockQuoteSnapshot
 } from "@china-stocks/contracts";
+import {
+  getMarketAiSummaryByDate,
+  getLatestMarketAiSummary,
+  getLiveMarketIndicesHistory,
+  getLiveMarketIndicesLatest,
+  runMarketIndicesAdminSync,
+  runMarketIndicesScheduledSync
+} from "./indices";
 import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./schema";
 
 interface Env {
@@ -299,6 +312,8 @@ const NEWS_BODY_FETCH_ENABLED_DEFAULT = true;
 const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
 const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
 const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
+const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
+const MARKET_INDICES_SUMMARY_CRON_STD = "15 21 * * 1-5";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -338,6 +353,195 @@ app.get(
     }
   }),
   (c) => c.json({ ok: true, service: "china-stocks-daily-worker" })
+);
+
+app.get(
+  "/indices/latest",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get live market index snapshot",
+    description: "Fetches the latest available CN, HK, and US index data from the upstream market source.",
+    responses: {
+      "200": {
+        description: "Grouped market pulse response",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const payload = await getLiveMarketIndicesLatest();
+    return c.json<MarketIndexLatestResponse>(payload);
+  }
+);
+
+app.get(
+  "/indices/history",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get live market index history",
+    description: "Fetches historical daily index bars for the requested tracked indices.",
+    parameters: [
+      {
+        name: "indexKeys",
+        in: "query",
+        required: false,
+        schema: { type: "string" },
+        description: "Comma-separated tracked index keys. Defaults to the full tracked universe."
+      },
+      {
+        name: "range",
+        in: "query",
+        required: false,
+        schema: { type: "string", enum: ["1m", "3m", "1y"], default: "1m" },
+        description: "History range."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Historical market index series",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid query parameters"
+      }
+    }
+  }),
+  async (c) => {
+    const range = parseMarketIndexRange(c.req.query("range"));
+    if (!range) {
+      return c.text("Invalid range. Use 1m, 3m, or 1y.", 400);
+    }
+
+    const indexKeys = (c.req.query("indexKeys") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    const payload = await getLiveMarketIndicesHistory(indexKeys, range);
+    return c.json<MarketIndexHistoryResponse>(payload);
+  }
+);
+
+app.get(
+  "/indices/summary/latest",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get latest archived global market AI summary",
+    responses: {
+      "200": {
+        description: "Latest AI summary payload",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const payload = await getLatestMarketAiSummary(c.env);
+    return c.json<MarketAiSummaryResponse>(payload);
+  }
+);
+
+app.get(
+  "/indices/summary/:date",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get archived global market AI summary by date",
+    parameters: [
+      {
+        name: "date",
+        in: "path",
+        required: true,
+        schema: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        description: "Summary date in YYYY-MM-DD format."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Archived AI summary payload",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid date parameter"
+      }
+    }
+  }),
+  async (c) => {
+    const summaryDate = parseSummaryDate(c.req.param("date"));
+    if (!summaryDate) {
+      return c.text("Invalid date. Use YYYY-MM-DD.", 400);
+    }
+
+    const payload = await getMarketAiSummaryByDate(c.env, summaryDate);
+    return c.json<MarketAiSummaryResponse>(payload);
+  }
+);
+
+app.get(
+  "/indices/admin/run",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Sync and summarize tracked market indices",
+    parameters: [
+      {
+        name: "x-admin-token",
+        in: "header",
+        required: true,
+        schema: { type: "string" },
+        description: "Admin token"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Manual sync result",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "401": {
+        description: "Missing or invalid admin token"
+      }
+    }
+  }),
+  async (c) => {
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const payload = await runMarketIndicesAdminSync(c.env);
+    return c.json<MarketIndicesAdminRunResponse>(payload);
+  }
 );
 
 app.get(
@@ -1155,7 +1359,12 @@ app.get(
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST || event.cron === MARKET_INDICES_SUMMARY_CRON_STD) {
+      await runMarketIndicesScheduledSync(env);
+      return;
+    }
+
     await generateAndPersistReport(env, { requireDb: true });
   }
 };
@@ -2975,6 +3184,19 @@ function parseCursor(rawCursor: string | undefined): number | null | "invalid" {
   return parsed;
 }
 
+function parseMarketIndexRange(rawRange: string | undefined): MarketIndexRange | null {
+  const normalized = rawRange?.trim() ?? "1m";
+  if (normalized === "1m" || normalized === "3m" || normalized === "1y") {
+    return normalized;
+  }
+  return null;
+}
+
+function parseSummaryDate(rawDate: string | undefined): string | null {
+  const normalized = rawDate?.trim() ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+}
+
 async function buildAiSummary(
   env: Env,
   stocks: Stock[],
@@ -3446,19 +3668,22 @@ async function persistReportToD1(
   await db.delete(reportQuotes).where(eq(reportQuotes.runId, runId));
 
   if (input.quotes.length > 0) {
-    await db.insert(reportQuotes).values(
-      input.quotes.map((quote) => ({
-        runId,
-        symbol: quote.symbol,
-        name: quote.name,
-        close: quote.close,
-        previousClose: quote.previousClose,
-        changePct: quote.changePct,
-        volume: quote.volume,
-        turnoverEstimate: quote.turnoverEstimate,
-        currency: quote.currency
-      }))
-    );
+    const quoteValues = input.quotes.map((quote) => ({
+      runId,
+      symbol: quote.symbol,
+      name: quote.name,
+      close: quote.close,
+      previousClose: quote.previousClose,
+      changePct: quote.changePct,
+      volume: quote.volume,
+      turnoverEstimate: quote.turnoverEstimate,
+      currency: quote.currency
+    }));
+    const quoteBatchSize = 10;
+
+    for (let index = 0; index < quoteValues.length; index += quoteBatchSize) {
+      await db.insert(reportQuotes).values(quoteValues.slice(index, index + quoteBatchSize));
+    }
   }
 
   const newsValues = Array.from(input.newsBySymbol.entries()).flatMap(([symbol, items]) => {
@@ -3476,7 +3701,11 @@ async function persistReportToD1(
   });
 
   if (newsValues.length > 0) {
-    await db.insert(reportNews).values(newsValues);
+    const newsBatchSize = 10;
+
+    for (let index = 0; index < newsValues.length; index += newsBatchSize) {
+      await db.insert(reportNews).values(newsValues.slice(index, index + newsBatchSize));
+    }
   }
 }
 
@@ -3520,18 +3749,31 @@ async function seedDefaultStocksIfEmpty(dbBinding: D1Database): Promise<void> {
   }
 
   const db = drizzle(dbBinding);
-  const values = DEFAULT_STOCKS.map((stock, index) => ({
-    symbol: stock.symbol,
-    name: stock.name,
-    displayName: stock.displayName,
-    codes: stock.codes,
-    businessType: stock.businessType,
-    aliasesJson: JSON.stringify(stock.aliases),
-    isActive: true,
-    sortOrder: (index + 1) * 10
-  }));
-
-  if (values.length > 0) {
-    await db.insert(stocksTable).values(values);
+  for (const [index, stock] of DEFAULT_STOCKS.entries()) {
+    await db
+      .insert(stocksTable)
+      .values({
+        symbol: stock.symbol,
+        name: stock.name,
+        displayName: stock.displayName,
+        codes: stock.codes,
+        businessType: stock.businessType,
+        aliasesJson: JSON.stringify(stock.aliases),
+        isActive: true,
+        sortOrder: (index + 1) * 10
+      })
+      .onConflictDoUpdate({
+        target: stocksTable.symbol,
+        set: {
+          name: stock.name,
+          displayName: stock.displayName,
+          codes: stock.codes,
+          businessType: stock.businessType,
+          aliasesJson: JSON.stringify(stock.aliases),
+          isActive: true,
+          sortOrder: (index + 1) * 10,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        }
+      });
   }
 }

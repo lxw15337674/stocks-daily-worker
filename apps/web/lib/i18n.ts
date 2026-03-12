@@ -20,6 +20,7 @@ type CommonBaseCopy = {
   cryptoArchive: string;
   cryptoAdmin: string;
   stocksCompare: string;
+  stocksMarket: string;
   stocksAdmin: string;
   siteTitle: string;
   siteSubtitle: string;
@@ -94,6 +95,34 @@ type CommonNamespace = CommonBaseCopy & {
   crypto: {
     breadthSummary: string;
     focusMoveSummary: string;
+    macroTitle: string;
+    marketRegimeLabel: string;
+    fearGreedLabel: string;
+    btcDominanceLabel: string;
+    previousDeltaLabel: string;
+    associationScoreLabel: string;
+    macroLive: string;
+    macroStale: string;
+    macroUnavailable: string;
+    stanceBullish: string;
+    stanceBearish: string;
+    stanceNeutral: string;
+    eventDetailTitle: string;
+    eventCoverageTitle: string;
+    eventCoinContextTitle: string;
+    eventRepresentativeLabel: string;
+    eventRelatedCoinsLabel: string;
+    eventTopicsLabel: string;
+    eventBackLabel: string;
+    eventNotFound: string;
+    eventReportDateLabel: string;
+    eventTimelineTitle: string;
+    eventTimelineEmpty: string;
+    eventReactionSameDayLabel: string;
+    eventReactionNextLabel: string;
+    eventReactionDay3Label: string;
+    eventOpenDetailLabel: string;
+    historyEventColumn: string;
     pairLabel: string;
     marketNewsTitle: string;
     coinNewsTitle: string;
@@ -164,6 +193,10 @@ type StocksNamespace = {
     noCompanyNews: string;
     sampleScope: string;
     validQuotes: string;
+    marketPulseTitle: string;
+    marketPulseDescription: string;
+    marketPulseSummaryFallback: string;
+    marketPulseAction: string;
     labels: {
       todayWatch: string;
       newsDriven: string;
@@ -213,9 +246,57 @@ type StocksNamespace = {
     recentPositiveDays: string;
     recentNegativeDays: string;
   };
+  market: {
+    pageTitle: string;
+    pageSubtitle: string;
+    backHome: string;
+    adminLinkLabel: string;
+    liveBadge: string;
+    summaryTitle: string;
+    summaryDescription: string;
+    summaryArchiveLabel: string;
+    summaryArchiveApply: string;
+    summaryArchiveLatest: string;
+    summaryMissingForDate: string;
+    noSummary: string;
+    chartTitle: string;
+    chartDescription: string;
+    latestTitle: string;
+    latestDescription: string;
+    chartEmpty: string;
+    chartLoading: string;
+    range1m: string;
+    range3m: string;
+    range1y: string;
+    primaryLabel: string;
+    latestLabel: string;
+    unavailable: string;
+    priceLabel: string;
+    moveLabel: string;
+    updatedAtLabel: string;
+    regionCn: string;
+    regionHk: string;
+    regionUs: string;
+  };
   compare: Record<string, string>;
   instrument: Record<string, string>;
-  admin: Record<string, string>;
+  admin: Record<string, string> & {
+    marketPanelTitle: string;
+    marketPanelDescription: string;
+    marketPanelRefresh: string;
+    marketPanelRun: string;
+    marketPanelRunning: string;
+    marketPanelOpenMarket: string;
+    marketPanelLatestStatus: string;
+    marketPanelLastDate: string;
+    marketPanelGeneratedAt: string;
+    marketPanelSnapshotCount: string;
+    marketPanelModel: string;
+    marketPanelNoSummary: string;
+    marketPanelLoadFailed: string;
+    marketPanelRunFailed: string;
+    marketPanelRunSuccess: string;
+  };
 };
 
 export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
@@ -234,6 +315,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     cryptoArchive: "币种归档",
     cryptoAdmin: "币种管理",
     stocksCompare: "股票对比",
+    stocksMarket: "全球指数",
     stocksAdmin: "股票管理",
     siteTitle: "加密货币日报",
     siteSubtitle: "固定 Top 10 币种，结构化日报，币安行情驱动",
@@ -306,6 +388,34 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
       breadthSummary: "涨 {{upCount}} / 跌 {{downCount}} / 平 {{flatCount}}",
       focusMoveSummary:
         "{{code}} 当前价格 {{price}}，24 小时交易额 {{volume}}，在观察池中的交易占比为 {{share}}。",
+      macroTitle: "市场宏观",
+      marketRegimeLabel: "市场状态",
+      fearGreedLabel: "恐慌与贪婪",
+      btcDominanceLabel: "BTC 市占率",
+      previousDeltaLabel: "较上一笔变化",
+      associationScoreLabel: "价格关联分",
+      macroLive: "最新",
+      macroStale: "有延迟",
+      macroUnavailable: "暂无",
+      stanceBullish: "利好",
+      stanceBearish: "利空",
+      stanceNeutral: "中性",
+      eventDetailTitle: "事件详情",
+      eventCoverageTitle: "事件报道",
+      eventCoinContextTitle: "价格上下文",
+      eventRepresentativeLabel: "代表报道",
+      eventRelatedCoinsLabel: "关联币种",
+      eventTopicsLabel: "主题",
+      eventBackLabel: "返回数字货币归档",
+      eventNotFound: "未找到该事件。",
+      eventReportDateLabel: "事件日期",
+      eventTimelineTitle: "事件时间线",
+      eventTimelineEmpty: "最近历史区间内没有关联事件。",
+      eventReactionSameDayLabel: "当日",
+      eventReactionNextLabel: "后 1 日",
+      eventReactionDay3Label: "后 3 日",
+      eventOpenDetailLabel: "打开事件详情",
+      historyEventColumn: "事件",
       pairLabel: "交易对",
       marketNewsTitle: "市场新闻",
       coinNewsTitle: "相关新闻",
@@ -339,6 +449,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     cryptoArchive: "Crypto Archive",
     cryptoAdmin: "Crypto Admin",
     stocksCompare: "Stocks Compare",
+    stocksMarket: "Global Indices",
     stocksAdmin: "Stocks Admin",
     siteTitle: "Crypto Daily",
     siteSubtitle: "Fixed Top 10 coverage with structured reports powered by Binance market data",
@@ -411,6 +522,34 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
       breadthSummary: "Up {{upCount}} / Down {{downCount}} / Flat {{flatCount}}",
       focusMoveSummary:
         "{{code}} is trading at {{price}} with {{volume}} of 24h traded value, representing {{share}} of the tracked universe.",
+      macroTitle: "Macro",
+      marketRegimeLabel: "Market regime",
+      fearGreedLabel: "Fear & Greed",
+      btcDominanceLabel: "BTC dominance",
+      previousDeltaLabel: "Change vs prior",
+      associationScoreLabel: "Association",
+      macroLive: "Live",
+      macroStale: "Stale",
+      macroUnavailable: "Unavailable",
+      stanceBullish: "Bullish",
+      stanceBearish: "Bearish",
+      stanceNeutral: "Neutral",
+      eventDetailTitle: "Event Detail",
+      eventCoverageTitle: "Coverage",
+      eventCoinContextTitle: "Price Context",
+      eventRepresentativeLabel: "Representative",
+      eventRelatedCoinsLabel: "Related coins",
+      eventTopicsLabel: "Topics",
+      eventBackLabel: "Back to Crypto Archive",
+      eventNotFound: "This event was not found.",
+      eventReportDateLabel: "Event date",
+      eventTimelineTitle: "Event Timeline",
+      eventTimelineEmpty: "No linked events were found in the recent history window.",
+      eventReactionSameDayLabel: "Day 0",
+      eventReactionNextLabel: "Day +1",
+      eventReactionDay3Label: "Day +3",
+      eventOpenDetailLabel: "Open event detail",
+      historyEventColumn: "Events",
       pairLabel: "Pair",
       marketNewsTitle: "Market News",
       coinNewsTitle: "Related Coverage",
@@ -508,6 +647,10 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noCompanyNews: "当前报告没有可展示的公司新闻。",
       sampleScope: "样本范围",
       validQuotes: "有效行情",
+      marketPulseTitle: "市场脉搏",
+      marketPulseDescription: "实时拉取中港美主要指数，用最小快照和 AI 摘要补足当天的大盘上下文。",
+      marketPulseSummaryFallback: "最新归档摘要暂不可用，请先参考下方实时指数表现。",
+      marketPulseAction: "查看全球指数页",
       labels: {
         todayWatch: "今日值得看",
         newsDriven: "消息驱动",
@@ -577,6 +720,38 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       recentFiveDayNewsCount: "{{count}} 条近 5 日新闻",
       recentPositiveDays: "{{count}}/5 日上涨",
       recentNegativeDays: "{{count}}/5 日下跌"
+    },
+    market: {
+      pageTitle: "全球指数",
+      pageSubtitle: "实时展示中港美主要指数，数据库只保留最小快照和 AI 摘要，历史曲线按外部数据即时拉取。",
+      backHome: "返回股票首页",
+      adminLinkLabel: "指数管理",
+      liveBadge: "实时拉取",
+      summaryTitle: "AI 摘要",
+      summaryDescription: "归档层只保存 AI 文本与最小快照，方便回看每日市场语境。",
+      summaryArchiveLabel: "按日期查看归档摘要",
+      summaryArchiveApply: "查看归档",
+      summaryArchiveLatest: "返回最新",
+      summaryMissingForDate: "未找到 {{date}} 的全球指数 AI 摘要。",
+      noSummary: "当前还没有可展示的全球指数摘要。",
+      chartTitle: "指数对比",
+      chartDescription: "基线统一到区间首日 100，便于直接比较不同市场的相对强弱。",
+      latestTitle: "最新快照",
+      latestDescription: "同一区域优先展示主指数，其余指数作为横向补充。",
+      chartEmpty: "当前范围内没有足够的历史数据可绘制曲线。",
+      chartLoading: "加载中",
+      range1m: "1 个月",
+      range3m: "3 个月",
+      range1y: "1 年",
+      primaryLabel: "主指数",
+      latestLabel: "最新",
+      unavailable: "暂无",
+      priceLabel: "点位",
+      moveLabel: "涨跌幅",
+      updatedAtLabel: "更新时间",
+      regionCn: "A股",
+      regionHk: "港股",
+      regionUs: "美股"
     },
     compare: {
       nameCount: "{{count}} 只",
@@ -761,6 +936,21 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       deleting: "删除中...",
       softDelete: "软删除",
       close: "关闭",
+      marketPanelTitle: "全球指数摘要管理",
+      marketPanelDescription: "直接触发指数摘要重跑，并查看最近一次生成状态。",
+      marketPanelRefresh: "刷新状态",
+      marketPanelRun: "立即重跑",
+      marketPanelRunning: "重跑中...",
+      marketPanelOpenMarket: "打开指数页",
+      marketPanelLatestStatus: "最近一次生成",
+      marketPanelLastDate: "摘要日期",
+      marketPanelGeneratedAt: "生成时间",
+      marketPanelSnapshotCount: "快照数量",
+      marketPanelModel: "模型",
+      marketPanelNoSummary: "当前还没有全球指数归档摘要。",
+      marketPanelLoadFailed: "加载全球指数状态失败。",
+      marketPanelRunFailed: "触发全球指数摘要重跑失败。",
+      marketPanelRunSuccess: "已触发全球指数摘要重跑，摘要日期 {{date}}。",
       sessionLoginFailed: "会话登录失败（{{status}}）",
       sessionCheckFailed: "会话校验失败（{{status}}）",
       sessionExpired: "登录已失效，请重新输入管理员令牌。",
@@ -817,6 +1007,10 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noCompanyNews: "There is no company news to display for this report.",
       sampleScope: "Coverage",
       validQuotes: "Valid quotes",
+      marketPulseTitle: "Market Pulse",
+      marketPulseDescription: "Live CN, HK, and US index reads with only minimal snapshots and AI summaries stored for archive replay.",
+      marketPulseSummaryFallback: "The latest archived market summary is unavailable. Use the live index snapshot below instead.",
+      marketPulseAction: "Open Global Indices",
       labels: {
         todayWatch: "Watch Today",
         newsDriven: "News Driven",
@@ -887,6 +1081,38 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       recentFiveDayNewsCount: "{{count}} headlines in 5d",
       recentPositiveDays: "{{count}}/5 up days",
       recentNegativeDays: "{{count}}/5 down days"
+    },
+    market: {
+      pageTitle: "Global Indices",
+      pageSubtitle: "Live CN, HK, and US index context with only minimal snapshots and AI summaries stored in the archive layer.",
+      backHome: "Back to Stocks",
+      adminLinkLabel: "Index Admin",
+      liveBadge: "Live",
+      summaryTitle: "AI Summary",
+      summaryDescription: "The archive keeps only AI text plus a minimal snapshot so each day still has reproducible market context.",
+      summaryArchiveLabel: "Replay archived summary by date",
+      summaryArchiveApply: "Load Archive",
+      summaryArchiveLatest: "Back to Latest",
+      summaryMissingForDate: "No archived global index AI summary was found for {{date}}.",
+      noSummary: "No archived global-index summary is available yet.",
+      chartTitle: "Index Comparison",
+      chartDescription: "Each line is rebased to 100 at the start of the selected window so relative strength is easy to compare.",
+      latestTitle: "Latest Snapshot",
+      latestDescription: "Primary benchmarks lead each region, with secondary indices shown as supporting context.",
+      chartEmpty: "There is not enough historical data in this range to draw the chart.",
+      chartLoading: "Loading",
+      range1m: "1M",
+      range3m: "3M",
+      range1y: "1Y",
+      primaryLabel: "Primary",
+      latestLabel: "Latest",
+      unavailable: "Unavailable",
+      priceLabel: "Level",
+      moveLabel: "Move",
+      updatedAtLabel: "Updated",
+      regionCn: "China",
+      regionHk: "Hong Kong",
+      regionUs: "US"
     },
     compare: {
       nameCount: "{{count}} names",
@@ -1071,6 +1297,21 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       deleting: "Deleting...",
       softDelete: "Soft Delete",
       close: "Close",
+      marketPanelTitle: "Global Index Summary Admin",
+      marketPanelDescription: "Trigger a rerun for the global index summary and inspect the latest generation status.",
+      marketPanelRefresh: "Refresh Status",
+      marketPanelRun: "Run Now",
+      marketPanelRunning: "Running...",
+      marketPanelOpenMarket: "Open Indices",
+      marketPanelLatestStatus: "Latest Generation",
+      marketPanelLastDate: "Summary Date",
+      marketPanelGeneratedAt: "Generated At",
+      marketPanelSnapshotCount: "Snapshot Count",
+      marketPanelModel: "Model",
+      marketPanelNoSummary: "No archived global index summary is available yet.",
+      marketPanelLoadFailed: "Failed to load the global index status.",
+      marketPanelRunFailed: "Failed to rerun the global index summary.",
+      marketPanelRunSuccess: "Global index summary rerun completed for {{date}}.",
       sessionLoginFailed: "Session login failed ({{status}})",
       sessionCheckFailed: "Session check failed ({{status}})",
       sessionExpired: "Your session has expired. Please enter the admin token again.",

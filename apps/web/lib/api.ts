@@ -1,6 +1,11 @@
 import "server-only";
 import { headers } from "next/headers";
 import type {
+  MarketAiSummary,
+  MarketAiSummaryResponse,
+  MarketIndexHistoryResponse,
+  MarketIndexLatestResponse,
+  MarketIndexRange,
   ReportListItem,
   ReportListResponse,
   StockDailyReport,
@@ -13,6 +18,10 @@ import type {
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 export type {
   LocalizedText,
+  MarketAiSummary,
+  MarketIndexHistoryResponse,
+  MarketIndexLatestResponse,
+  MarketIndexRange,
   ReportListItem,
   StockDailyReport,
   StockDetailResult,
@@ -112,4 +121,35 @@ export async function fetchStockDetails(symbols: string[]): Promise<StockDetailR
   });
   const result = await fetchJson<StockDetailListResponse>(`/stocks/details?${query.toString()}`);
   return result?.items ?? [];
+}
+
+export async function fetchStockIndicesLatest(): Promise<MarketIndexLatestResponse | null> {
+  return fetchJson<MarketIndexLatestResponse>("/indices/latest");
+}
+
+export async function fetchStockIndicesHistory(
+  indexKeys: string[],
+  range: MarketIndexRange
+): Promise<MarketIndexHistoryResponse | null> {
+  const query = new URLSearchParams({ range });
+  const normalized = Array.from(new Set(indexKeys.map((item) => item.trim()).filter((item) => item.length > 0)));
+  if (normalized.length > 0) {
+    query.set("indexKeys", normalized.join(","));
+  }
+  return fetchJson<MarketIndexHistoryResponse>(`/indices/history?${query.toString()}`);
+}
+
+export async function fetchStockIndicesSummaryLatest(): Promise<MarketAiSummary | null> {
+  const result = await fetchJson<MarketAiSummaryResponse>("/indices/summary/latest");
+  return result?.item ?? null;
+}
+
+export async function fetchStockIndicesSummaryByDate(date: string): Promise<MarketAiSummary | null> {
+  const normalized = date.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const result = await fetchJson<MarketAiSummaryResponse>(`/indices/summary/${encodeURIComponent(normalized)}`);
+  return result?.item ?? null;
 }

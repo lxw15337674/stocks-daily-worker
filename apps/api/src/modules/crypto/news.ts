@@ -1,5 +1,18 @@
 import { Readability } from "@mozilla/readability";
+import { and, asc, count, desc, eq, gte, inArray, like, lt, or } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { parseHTML } from "linkedom";
+import { getReportDateCryptoMacroSnapshot, type CryptoMacroSnapshot } from "./macro";
+import {
+  cryptoNewsClusterMembers,
+  cryptoNewsClusters,
+  cryptoNewsItemCoins,
+  cryptoNewsItems,
+  cryptoNewsItemTopics,
+  cryptoNewsRaw,
+  dailyCoinSnapshots,
+  dailyReports
+} from "./schema";
 
 export interface CryptoNewsEnv {
   DB?: D1Database;
@@ -32,6 +45,7 @@ type EventType =
   | "adoption";
 
 type MarketImpact = "low" | "medium" | "high";
+type NewsStance = "bullish" | "bearish" | "neutral";
 
 type FeedSource = {
   name: string;
@@ -120,6 +134,7 @@ export type MarketNewsItem = {
   summaryEn: string;
   topics: string[];
   eventType: string;
+  stance: NewsStance;
   signalScore: number;
   clusterId: number | null;
 };
@@ -133,6 +148,7 @@ export type CoinNewsItem = {
   summaryZh: string;
   summaryEn: string;
   eventType: string;
+  stance: NewsStance;
   signalScore: number;
   isPrimary: boolean;
   clusterId: number | null;
@@ -143,6 +159,8 @@ export type NewsClusterListItem = {
   label: string;
   importanceScore: number;
   marketImpact: MarketImpact;
+  stance: NewsStance;
+  associationScore: number | null;
   representative: {
     id: number;
     title: string;
@@ -155,8 +173,56 @@ export type NewsClusterListItem = {
   sourceCount: number;
 };
 
+export type NewsEventCoverageItem = {
+  id: number;
+  title: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+  summaryZh: string;
+  summaryEn: string;
+  eventType: string;
+  stance: NewsStance;
+  signalScore: number;
+  relatedCoins: string[];
+  isRepresentative: boolean;
+};
+
+export type NewsEventCoinSnapshot = {
+  reportDate: string;
+  code: string;
+  priceUsdt: number;
+  change24hPct: number;
+  quoteVolume24hUsdt: number;
+  tradeSharePct: number;
+};
+
+export type NewsEventDetail = NewsClusterListItem & {
+  reportDate: string;
+  coverage: NewsEventCoverageItem[];
+  coinSnapshots: NewsEventCoinSnapshot[];
+};
+
+export type CoinEventReactionPoint = {
+  reportDate: string | null;
+  priceUsdt: number | null;
+  change24hPct: number | null;
+  returnPct: number | null;
+};
+
+export type CoinEventTimelineItem = NewsClusterListItem & {
+  coinCode: string;
+  reportDate: string;
+  reaction: {
+    event: CoinEventReactionPoint;
+    next: CoinEventReactionPoint;
+    day3: CoinEventReactionPoint;
+  };
+};
+
 export type ReportDateNewsSnapshot = {
   reportDate: string;
+  macro: CryptoMacroSnapshot;
   marketNews: MarketNewsItem[];
   clusters: NewsClusterListItem[];
   coinNewsByCode: Record<string, CoinNewsItem[]>;
@@ -201,6 +267,51 @@ export type CryptoNewsAdminCuratedItem = {
   reason: string;
   relatedCoins: string[];
   topics: string[];
+};
+
+export type CryptoNewsAdminClusterListItem = {
+  clusterId: number;
+  label: string;
+  importanceScore: number;
+  marketImpact: MarketImpact;
+  representativeNewsItemId: number;
+  representativeTitle: string;
+  representativeSource: string;
+  representativePublishedAt: string;
+  relatedCoins: string[];
+  topics: string[];
+  sourceCount: number;
+  memberCount: number;
+  updatedAt: string;
+};
+
+export type CryptoNewsAdminClusterMember = {
+  id: number;
+  rawId: number;
+  title: string;
+  canonicalUrl: string;
+  sourceName: string;
+  sourceType: NewsSourceType;
+  publishedAt: string;
+  summaryZh: string;
+  summaryEn: string;
+  eventType: string;
+  stance: NewsStance;
+  signalScore: number;
+  noiseScore: number;
+  confidence: number;
+  shouldDisplay: boolean;
+  isMarketWide: boolean;
+  reason: string;
+  relatedCoins: string[];
+  topics: string[];
+  isRepresentative: boolean;
+};
+
+export type CryptoNewsAdminClusterDetail = {
+  cluster: NewsEventDetail;
+  representativeNewsItemId: number;
+  members: CryptoNewsAdminClusterMember[];
 };
 
 const NEWS_AI_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -436,73 +547,84 @@ async function listMarketNewsForWindow(
   }
 ): Promise<MarketNewsItem[]> {
   const normalizedTopic = sanitizeTopicCode(options.topic ?? "");
-  const topicClause = normalizedTopic
-    ? "AND EXISTS (SELECT 1 FROM crypto_news_item_topics t2 WHERE t2.news_item_id = n.id AND t2.topic_code = ?)"
-    : "";
-  const endClause = options.endIso ? "AND n.published_at < ?" : "";
-  const statement = `
-    SELECT
-      n.id AS id,
-      n.title AS title,
-      n.canonical_url AS url,
-      n.source_name AS source,
-      n.published_at AS publishedAt,
-      n.summary_zh AS summaryZh,
-      n.summary_en AS summaryEn,
-      n.event_type AS eventType,
-      n.signal_score AS signalScore,
-      c.id AS clusterId,
-      GROUP_CONCAT(DISTINCT t.topic_code) AS topicsCsv
-    FROM crypto_news_items n
-    LEFT JOIN crypto_news_item_topics t ON t.news_item_id = n.id
-    LEFT JOIN crypto_news_cluster_members cm ON cm.news_item_id = n.id
-    LEFT JOIN crypto_news_clusters c ON c.id = cm.cluster_id
-    WHERE n.should_display = 1
-      AND n.is_market_wide = 1
-      AND n.published_at >= ?
-      ${endClause}
-      ${topicClause}
-      AND (c.id IS NULL OR c.representative_news_item_id = n.id)
-    GROUP BY n.id
-    ORDER BY n.published_at DESC, n.signal_score DESC
-    LIMIT ?
-  `;
+  const orm = drizzle(db);
+  const topicRows = normalizedTopic
+    ? await orm
+        .select({
+          newsItemId: cryptoNewsItemTopics.newsItemId
+        })
+        .from(cryptoNewsItemTopics)
+        .where(eq(cryptoNewsItemTopics.topicCode, normalizedTopic))
+    : null;
+  const topicNewsItemIds = topicRows ? [...new Set(topicRows.map((row) => Number(row.newsItemId)))] : null;
+  if (normalizedTopic && (topicNewsItemIds?.length ?? 0) === 0) {
+    return [];
+  }
 
-  const bindings: Array<string | number> = [options.startIso];
+  const filters = [
+    eq(cryptoNewsItems.shouldDisplay, true),
+    eq(cryptoNewsItems.isMarketWide, true),
+    gte(cryptoNewsItems.publishedAt, options.startIso)
+  ];
   if (options.endIso) {
-    bindings.push(options.endIso);
+    filters.push(lt(cryptoNewsItems.publishedAt, options.endIso));
   }
-  if (normalizedTopic) {
-    bindings.push(normalizedTopic);
+  if (topicNewsItemIds) {
+    filters.push(inArray(cryptoNewsItems.id, topicNewsItemIds));
   }
-  bindings.push(options.limit);
-  const result = await db.prepare(statement).bind(...bindings).all<{
-    id: number;
-    title: string;
-    url: string;
-    source: string;
-    publishedAt: string;
-    summaryZh: string;
-    summaryEn: string;
-    eventType: string;
-    signalScore: number;
-    clusterId: number | null;
-    topicsCsv: string | null;
-  }>();
 
-  return (result.results ?? []).map((row) => ({
-    id: Number(row.id),
-    title: row.title,
-    url: row.url,
-    source: row.source,
-    publishedAt: row.publishedAt,
-    summaryZh: row.summaryZh,
-    summaryEn: row.summaryEn,
-    topics: splitCsv(row.topicsCsv),
-    eventType: row.eventType,
-    signalScore: Number(row.signalScore ?? 0),
-    clusterId: row.clusterId ? Number(row.clusterId) : null
-  }));
+  const rows = await orm
+    .select({
+      id: cryptoNewsItems.id,
+      title: cryptoNewsItems.title,
+      url: cryptoNewsItems.canonicalUrl,
+      source: cryptoNewsItems.sourceName,
+      publishedAt: cryptoNewsItems.publishedAt,
+      summaryZh: cryptoNewsItems.summaryZh,
+      summaryEn: cryptoNewsItems.summaryEn,
+      eventType: cryptoNewsItems.eventType,
+      signalScore: cryptoNewsItems.signalScore
+    })
+    .from(cryptoNewsItems)
+    .where(and(...filters))
+    .orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.signalScore))
+    .limit(Math.max(options.limit * 4, options.limit));
+
+  const newsItemIds = rows.map((row) => Number(row.id));
+  const [taxonomy, visibility] = await Promise.all([
+    getNewsItemTaxonomy(db, newsItemIds),
+    getNewsItemClusterVisibility(db, newsItemIds)
+  ]);
+
+  const out: MarketNewsItem[] = [];
+  for (const row of rows) {
+    const id = Number(row.id);
+    const clusterId = resolveVisibleClusterId(id, visibility);
+    if (typeof clusterId === "undefined") {
+      continue;
+    }
+
+    const topics = taxonomy.topicCodesByNewsItemId.get(id) ?? [];
+    out.push({
+      id,
+      title: row.title,
+      url: row.url,
+      source: row.source,
+      publishedAt: row.publishedAt,
+      summaryZh: row.summaryZh,
+      summaryEn: row.summaryEn,
+      eventType: row.eventType,
+      stance: deriveNewsStance(row.eventType, topics, row.title),
+      topics,
+      signalScore: Number(row.signalScore ?? 0),
+      clusterId
+    });
+    if (out.length >= options.limit) {
+      break;
+    }
+  }
+
+  return out;
 }
 
 export async function listCoinNews(
@@ -539,64 +661,64 @@ async function listCoinNewsForWindow(
     endIso: string | null;
   }
 ): Promise<CoinNewsItem[]> {
-  const endClause = options.endIso ? "AND n.published_at < ?" : "";
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        n.id AS id,
-        n.title AS title,
-        n.canonical_url AS url,
-        n.source_name AS source,
-        n.published_at AS publishedAt,
-        n.summary_zh AS summaryZh,
-        n.summary_en AS summaryEn,
-        n.event_type AS eventType,
-        n.signal_score AS signalScore,
-        MAX(ic.is_primary) AS isPrimary,
-        c.id AS clusterId
-      FROM crypto_news_items n
-      INNER JOIN crypto_news_item_coins ic ON ic.news_item_id = n.id
-      LEFT JOIN crypto_news_cluster_members cm ON cm.news_item_id = n.id
-      LEFT JOIN crypto_news_clusters c ON c.id = cm.cluster_id
-      WHERE n.should_display = 1
-        AND ic.coin_code = ?
-        AND n.published_at >= ?
-        ${endClause}
-        AND (c.id IS NULL OR c.representative_news_item_id = n.id)
-      GROUP BY n.id
-      ORDER BY n.published_at DESC, n.signal_score DESC
-      LIMIT ?
-      `
-    )
-    .bind(...(options.endIso ? [coinCode, options.startIso, options.endIso, options.limit] : [coinCode, options.startIso, options.limit]))
-    .all<{
-      id: number;
-      title: string;
-      url: string;
-      source: string;
-      publishedAt: string;
-      summaryZh: string;
-      summaryEn: string;
-      eventType: string;
-      signalScore: number;
-      isPrimary: number | boolean;
-      clusterId: number | null;
-    }>();
+  const orm = drizzle(db);
+  const filters = [eq(cryptoNewsItems.shouldDisplay, true), eq(cryptoNewsItemCoins.coinCode, coinCode), gte(cryptoNewsItems.publishedAt, options.startIso)];
+  if (options.endIso) {
+    filters.push(lt(cryptoNewsItems.publishedAt, options.endIso));
+  }
 
-  return (result.results ?? []).map((row) => ({
-    id: Number(row.id),
-    title: row.title,
-    url: row.url,
-    source: row.source,
-    publishedAt: row.publishedAt,
-    summaryZh: row.summaryZh,
-    summaryEn: row.summaryEn,
-    eventType: row.eventType,
-    signalScore: Number(row.signalScore ?? 0),
-    isPrimary: !!row.isPrimary,
-    clusterId: row.clusterId ? Number(row.clusterId) : null
-  }));
+  const rows = await orm
+    .select({
+      id: cryptoNewsItems.id,
+      title: cryptoNewsItems.title,
+      url: cryptoNewsItems.canonicalUrl,
+      source: cryptoNewsItems.sourceName,
+      publishedAt: cryptoNewsItems.publishedAt,
+      summaryZh: cryptoNewsItems.summaryZh,
+      summaryEn: cryptoNewsItems.summaryEn,
+      eventType: cryptoNewsItems.eventType,
+      signalScore: cryptoNewsItems.signalScore,
+      isPrimary: cryptoNewsItemCoins.isPrimary
+    })
+    .from(cryptoNewsItems)
+    .innerJoin(cryptoNewsItemCoins, eq(cryptoNewsItemCoins.newsItemId, cryptoNewsItems.id))
+    .where(and(...filters))
+    .orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.signalScore))
+    .limit(Math.max(options.limit * 4, options.limit));
+
+  const visibility = await getNewsItemClusterVisibility(
+    db,
+    rows.map((row) => Number(row.id))
+  );
+
+  const out: CoinNewsItem[] = [];
+  for (const row of rows) {
+    const id = Number(row.id);
+    const clusterId = resolveVisibleClusterId(id, visibility);
+    if (typeof clusterId === "undefined") {
+      continue;
+    }
+
+    out.push({
+      id,
+      title: row.title,
+      url: row.url,
+      source: row.source,
+      publishedAt: row.publishedAt,
+      summaryZh: row.summaryZh,
+      summaryEn: row.summaryEn,
+      eventType: row.eventType,
+      stance: deriveNewsStance(row.eventType, [], row.title),
+      signalScore: Number(row.signalScore ?? 0),
+      isPrimary: !!row.isPrimary,
+      clusterId
+    });
+    if (out.length >= options.limit) {
+      break;
+    }
+  }
+
+  return out;
 }
 
 export async function listRecentNewsClusters(
@@ -622,73 +744,43 @@ async function listRecentNewsClustersForWindow(
     endIso: string | null;
   }
 ): Promise<NewsClusterListItem[]> {
-  const endClause = options.endIso ? "AND n.published_at < ?" : "";
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        c.id AS clusterId,
-        c.cluster_label AS label,
-        c.importance_score AS importanceScore,
-        c.market_impact AS marketImpact,
-        n.id AS representativeId,
-        n.title AS representativeTitle,
-        n.canonical_url AS representativeUrl,
-        n.source_name AS representativeSource,
-        n.published_at AS representativePublishedAt,
-        GROUP_CONCAT(DISTINCT ic.coin_code) AS relatedCoinsCsv,
-        GROUP_CONCAT(DISTINCT t.topic_code) AS topicsCsv,
-        COUNT(DISTINCT m.source_name) AS sourceCount
-      FROM crypto_news_clusters c
-      INNER JOIN crypto_news_items n ON n.id = c.representative_news_item_id
-      LEFT JOIN crypto_news_cluster_members cm ON cm.cluster_id = c.id
-      LEFT JOIN crypto_news_items m ON m.id = cm.news_item_id
-      LEFT JOIN crypto_news_item_coins ic ON ic.news_item_id = n.id
-      LEFT JOIN crypto_news_item_topics t ON t.news_item_id = n.id
-      WHERE n.published_at >= ?
-      ${endClause}
-      GROUP BY c.id
-      ORDER BY c.importance_score DESC, n.published_at DESC
-      LIMIT ?
-      `
-    )
-    .bind(...(options.endIso ? [options.startIso, options.endIso, options.limit] : [options.startIso, options.limit]))
-    .all<{
-      clusterId: number;
-      label: string;
-      importanceScore: number;
-      marketImpact: MarketImpact;
-      representativeId: number;
-      representativeTitle: string;
-      representativeUrl: string;
-      representativeSource: string;
-      representativePublishedAt: string;
-      relatedCoinsCsv: string | null;
-      topicsCsv: string | null;
-      sourceCount: number;
-    }>();
+  const orm = drizzle(db);
+  const filters = [gte(cryptoNewsItems.publishedAt, options.startIso)];
+  if (options.endIso) {
+    filters.push(lt(cryptoNewsItems.publishedAt, options.endIso));
+  }
 
-  return (result.results ?? []).map((row) => ({
-    clusterId: Number(row.clusterId),
-    label: row.label,
-    importanceScore: Number(row.importanceScore ?? 0),
-    marketImpact: sanitizeMarketImpact(row.marketImpact),
-    representative: {
-      id: Number(row.representativeId),
-      title: row.representativeTitle,
-      url: row.representativeUrl,
-      source: row.representativeSource,
-      publishedAt: row.representativePublishedAt
-    },
-    relatedCoins: splitCsv(row.relatedCoinsCsv),
-    topics: splitCsv(row.topicsCsv),
-    sourceCount: Number(row.sourceCount ?? 0)
-  }));
+  const rows = await orm
+    .select({
+      clusterId: cryptoNewsClusters.id
+    })
+    .from(cryptoNewsClusters)
+    .innerJoin(cryptoNewsItems, eq(cryptoNewsItems.id, cryptoNewsClusters.representativeNewsItemId))
+    .where(and(...filters))
+    .orderBy(desc(cryptoNewsClusters.importanceScore), desc(cryptoNewsItems.publishedAt))
+    .limit(options.limit);
+
+  const details = await Promise.all(rows.map((row) => getNewsEventDetail(db, Number(row.clusterId))));
+  return details
+    .filter((detail): detail is NewsEventDetail => !!detail)
+    .map((detail) => ({
+      clusterId: detail.clusterId,
+      label: detail.label,
+      importanceScore: detail.importanceScore,
+      marketImpact: detail.marketImpact,
+      stance: detail.stance,
+      associationScore: detail.associationScore,
+      representative: detail.representative,
+      relatedCoins: detail.relatedCoins,
+      topics: detail.topics,
+      sourceCount: detail.sourceCount
+    }));
 }
 
 export async function getReportDateNewsSnapshot(db: D1Database, reportDate: string): Promise<ReportDateNewsSnapshot> {
   const { startIso, endIso } = getReportDateWindow(reportDate);
-  const [marketNews, clusters, coinNewsByCode] = await Promise.all([
+  const [macro, marketNews, clusters, coinNewsByCode] = await Promise.all([
+    getReportDateCryptoMacroSnapshot(db, reportDate),
     listMarketNewsForWindow(db, {
       limit: 24,
       startIso,
@@ -709,59 +801,825 @@ export async function getReportDateNewsSnapshot(db: D1Database, reportDate: stri
 
   return {
     reportDate,
+    macro,
     marketNews,
     clusters,
     coinNewsByCode
   };
 }
 
-export async function getCryptoNewsAdminOverview(db: D1Database): Promise<CryptoNewsAdminOverview> {
-  const [rawStats, itemStats] = await Promise.all([
-    db
-      .prepare(
-        `
-        SELECT
-          SUM(CASE WHEN ingest_status = 'pending' THEN 1 ELSE 0 END) AS pendingRawCount,
-          SUM(CASE WHEN ingest_status = 'processed' THEN 1 ELSE 0 END) AS processedRawCount,
-          SUM(CASE WHEN ingest_status = 'rejected' THEN 1 ELSE 0 END) AS rejectedRawCount,
-          SUM(CASE WHEN ingest_status = 'failed' THEN 1 ELSE 0 END) AS failedRawCount,
-          MAX(fetched_at) AS latestFetchedAt
-        FROM crypto_news_raw
-        `
-      )
-      .first<{
-        pendingRawCount: number | null;
-        processedRawCount: number | null;
-        rejectedRawCount: number | null;
-        failedRawCount: number | null;
-        latestFetchedAt: string | null;
-      }>(),
-    db
-      .prepare(
-        `
-        SELECT
-          SUM(CASE WHEN should_display = 1 THEN 1 ELSE 0 END) AS displayItemCount,
-          SUM(CASE WHEN should_display = 0 THEN 1 ELSE 0 END) AS hiddenItemCount,
-          MAX(published_at) AS latestPublishedAt
-        FROM crypto_news_items
-        `
-      )
-      .first<{
-        displayItemCount: number | null;
-        hiddenItemCount: number | null;
-        latestPublishedAt: string | null;
-      }>()
+export async function getNewsEventDetail(db: D1Database, clusterId: number): Promise<NewsEventDetail | null> {
+  const base = await getClusterBaseRecord(db, clusterId);
+  if (!base) {
+    return null;
+  }
+
+  const reportDate = formatIsoDate(base.representativePublishedAt);
+  const clusterNewsItemIds = await getClusterNewsItemIds(db, clusterId, base.representativeId);
+  const coverageContext = await getClusterNewsItemContext(db, clusterNewsItemIds);
+  const orderedItemRows = sortClusterNewsItems(coverageContext.itemRows, base.representativeId);
+  const coverage = orderedItemRows.map((row) => {
+    const topics = coverageContext.topicCodesByNewsItemId.get(row.id) ?? [];
+    return {
+      id: Number(row.id),
+      title: row.title,
+      url: row.canonicalUrl,
+      source: row.sourceName,
+      publishedAt: row.publishedAt,
+      summaryZh: row.summaryZh,
+      summaryEn: row.summaryEn,
+      eventType: row.eventType,
+      stance: deriveNewsStance(row.eventType, topics, row.title),
+      signalScore: Number(row.signalScore ?? 0),
+      relatedCoins: coverageContext.coinCodesByNewsItemId.get(row.id) ?? [],
+      isRepresentative: row.id === base.representativeId
+    };
+  });
+
+  const baseCluster: NewsClusterListItem = {
+    clusterId: base.clusterId,
+    label: base.label,
+    importanceScore: base.importanceScore,
+    marketImpact: sanitizeMarketImpact(base.marketImpact),
+    stance: deriveNewsStance(base.representativeEventType, coverageContext.topicCodes, base.label),
+    associationScore: null,
+    representative: {
+      id: base.representativeId,
+      title: base.representativeTitle,
+      url: base.representativeUrl,
+      source: base.representativeSource,
+      publishedAt: base.representativePublishedAt
+    },
+    relatedCoins: coverageContext.coinCodes,
+    topics: coverageContext.topicCodes,
+    sourceCount: Math.max(1, coverageContext.sourceNames.length)
+  };
+
+  const [enrichedClusters, coinSnapshots] = await Promise.all([
+    attachClusterAssociationScores(db, reportDate, [baseCluster]),
+    listEventCoinSnapshots(db, reportDate, baseCluster.relatedCoins)
   ]);
 
   return {
-    pendingRawCount: Number(rawStats?.pendingRawCount ?? 0),
-    processedRawCount: Number(rawStats?.processedRawCount ?? 0),
-    rejectedRawCount: Number(rawStats?.rejectedRawCount ?? 0),
-    failedRawCount: Number(rawStats?.failedRawCount ?? 0),
-    displayItemCount: Number(itemStats?.displayItemCount ?? 0),
-    hiddenItemCount: Number(itemStats?.hiddenItemCount ?? 0),
-    latestFetchedAt: rawStats?.latestFetchedAt ?? null,
-    latestPublishedAt: itemStats?.latestPublishedAt ?? null
+    ...(enrichedClusters[0] ?? baseCluster),
+    reportDate,
+    coverage,
+    coinSnapshots
+  };
+}
+
+export async function listCoinEventTimeline(
+  db: D1Database,
+  coinCode: string,
+  options: {
+    limit: number;
+  }
+): Promise<CoinEventTimelineItem[]> {
+  const normalizedCode = coinCode.trim().toUpperCase();
+  if (!normalizedCode) {
+    return [];
+  }
+
+  const orderedClusterIds = await listClusterIdsByCoin(db, normalizedCode, Math.max(1, options.limit * 2));
+  if (orderedClusterIds.length === 0) {
+    return [];
+  }
+
+  const priceHistory = await listCoinPriceHistoryPoints(db, normalizedCode, 120);
+
+  const details = await Promise.all(
+    orderedClusterIds.map(async (clusterId) => {
+      const detail = await getNewsEventDetail(db, clusterId);
+      if (!detail || !detail.relatedCoins.includes(normalizedCode)) {
+        return null;
+      }
+      return detail;
+    })
+  );
+
+  return details
+    .filter((detail): detail is NewsEventDetail => !!detail)
+    .slice(0, options.limit)
+    .map((detail) => ({
+      ...detail,
+      coinCode: normalizedCode,
+      reaction: buildCoinEventReaction(priceHistory, detail.reportDate)
+    }));
+}
+
+export async function listCryptoNewsAdminClusters(
+  db: D1Database,
+  options: {
+    limit: number;
+    query: string | null;
+    coinCode: string | null;
+  }
+): Promise<CryptoNewsAdminClusterListItem[]> {
+  const normalizedQuery = options.query?.trim() ?? "";
+  const normalizedCoinCode = options.coinCode?.trim().toUpperCase() ?? "";
+  const orm = drizzle(db);
+  const coinClusterIds = normalizedCoinCode ? await listClusterIdsByCoin(db, normalizedCoinCode, 400) : null;
+  if (coinClusterIds && coinClusterIds.length === 0) {
+    return [];
+  }
+
+  const filters = [];
+  if (normalizedQuery) {
+    const queryLike = `%${normalizedQuery}%`;
+    filters.push(
+      or(
+        like(cryptoNewsClusters.clusterLabel, queryLike),
+        like(cryptoNewsItems.title, queryLike),
+        like(cryptoNewsItems.sourceName, queryLike)
+      )!
+    );
+  }
+  if (coinClusterIds) {
+    filters.push(inArray(cryptoNewsClusters.id, coinClusterIds));
+  }
+
+  const baseQuery = orm
+    .select({
+      clusterId: cryptoNewsClusters.id,
+      label: cryptoNewsClusters.clusterLabel,
+      importanceScore: cryptoNewsClusters.importanceScore,
+      marketImpact: cryptoNewsClusters.marketImpact,
+      representativeNewsItemId: cryptoNewsClusters.representativeNewsItemId,
+      updatedAt: cryptoNewsClusters.updatedAt,
+      representativeTitle: cryptoNewsItems.title,
+      representativeSource: cryptoNewsItems.sourceName,
+      representativePublishedAt: cryptoNewsItems.publishedAt
+    })
+    .from(cryptoNewsClusters)
+    .innerJoin(cryptoNewsItems, eq(cryptoNewsClusters.representativeNewsItemId, cryptoNewsItems.id));
+  const whereClause = filters.length === 0 ? null : filters.length === 1 ? filters[0] : and(...filters);
+  const rows = await (whereClause
+    ? baseQuery.where(whereClause).orderBy(desc(cryptoNewsClusters.updatedAt), desc(cryptoNewsItems.publishedAt)).limit(options.limit)
+    : baseQuery.orderBy(desc(cryptoNewsClusters.updatedAt), desc(cryptoNewsItems.publishedAt)).limit(options.limit));
+
+  const details = await Promise.all(rows.map((row) => getNewsEventDetail(db, Number(row.clusterId))));
+  return rows
+    .map((row, index) => {
+      const detail = details[index];
+      if (!detail) {
+        return null;
+      }
+      return {
+        clusterId: Number(row.clusterId),
+        label: row.label,
+        importanceScore: Number(row.importanceScore ?? 0),
+        marketImpact: sanitizeMarketImpact(row.marketImpact),
+        representativeNewsItemId: Number(row.representativeNewsItemId),
+        representativeTitle: row.representativeTitle,
+        representativeSource: row.representativeSource,
+        representativePublishedAt: row.representativePublishedAt,
+        relatedCoins: detail.relatedCoins,
+        topics: detail.topics,
+        sourceCount: detail.sourceCount,
+        memberCount: detail.coverage.length,
+        updatedAt: row.updatedAt
+      };
+    })
+    .filter((item): item is CryptoNewsAdminClusterListItem => !!item);
+}
+
+export async function getCryptoNewsAdminClusterDetail(
+  db: D1Database,
+  clusterId: number
+): Promise<CryptoNewsAdminClusterDetail | null> {
+  const cluster = await getNewsEventDetail(db, clusterId);
+  if (!cluster) {
+    return null;
+  }
+
+  const clusterNewsItemIds = await getClusterNewsItemIds(db, clusterId, cluster.representative.id);
+  if (clusterNewsItemIds.length === 0) {
+    return {
+      cluster,
+      representativeNewsItemId: cluster.representative.id,
+      members: []
+    };
+  }
+
+  const coverageContext = await getClusterNewsItemContext(db, clusterNewsItemIds);
+  const orderedItemRows = sortClusterNewsItems(coverageContext.itemRows, cluster.representative.id);
+
+  return {
+    cluster,
+    representativeNewsItemId: cluster.representative.id,
+    members: orderedItemRows.map((row) => ({
+      id: Number(row.id),
+      rawId: Number(row.rawId),
+      title: row.title,
+      canonicalUrl: row.canonicalUrl,
+      sourceName: row.sourceName,
+      sourceType: row.sourceType,
+      publishedAt: row.publishedAt,
+      summaryZh: row.summaryZh,
+      summaryEn: row.summaryEn,
+      eventType: row.eventType,
+      stance: deriveNewsStance(row.eventType, coverageContext.topicCodesByNewsItemId.get(row.id) ?? [], row.title),
+      signalScore: Number(row.signalScore ?? 0),
+      noiseScore: Number(row.noiseScore ?? 0),
+      confidence: Number(row.confidence ?? 0),
+      shouldDisplay: !!row.shouldDisplay,
+      isMarketWide: !!row.isMarketWide,
+      reason: row.reason,
+      relatedCoins: coverageContext.coinCodesByNewsItemId.get(row.id) ?? [],
+      topics: coverageContext.topicCodesByNewsItemId.get(row.id) ?? [],
+      isRepresentative: row.id === cluster.representative.id
+    }))
+  };
+}
+
+export async function setCryptoNewsClusterRepresentative(
+  db: D1Database,
+  clusterId: number,
+  newsItemId: number
+): Promise<CryptoNewsAdminClusterDetail | null> {
+  const orm = drizzle(db);
+  const clusterRows = await orm
+    .select({
+      representativeNewsItemId: cryptoNewsClusters.representativeNewsItemId
+    })
+    .from(cryptoNewsClusters)
+    .where(eq(cryptoNewsClusters.id, clusterId))
+    .limit(1);
+  const clusterRow = clusterRows[0];
+  if (!clusterRow) {
+    return null;
+  }
+
+  const clusterNewsItemIds = await getClusterNewsItemIds(db, clusterId, Number(clusterRow.representativeNewsItemId));
+  if (!clusterNewsItemIds.includes(newsItemId)) {
+    return null;
+  }
+
+  const nextRepresentativeRows = await orm
+    .select({
+      id: cryptoNewsItems.id,
+      title: cryptoNewsItems.title
+    })
+    .from(cryptoNewsItems)
+    .where(eq(cryptoNewsItems.id, newsItemId))
+    .limit(1);
+  const nextRepresentative = nextRepresentativeRows[0];
+  if (!nextRepresentative) {
+    return null;
+  }
+
+  const currentRepresentativeId = Number(clusterRow.representativeNewsItemId);
+  if (currentRepresentativeId !== Number(nextRepresentative.id)) {
+    await orm
+      .insert(cryptoNewsClusterMembers)
+      .values({
+        clusterId,
+        newsItemId: currentRepresentativeId
+      })
+      .onConflictDoNothing();
+
+    await orm
+      .update(cryptoNewsClusters)
+      .set({
+        representativeNewsItemId: Number(nextRepresentative.id),
+        clusterLabel: nextRepresentative.title,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(cryptoNewsClusters.id, clusterId));
+  }
+
+  return getCryptoNewsAdminClusterDetail(db, clusterId);
+}
+
+async function getClusterBaseRecord(
+  db: D1Database,
+  clusterId: number
+): Promise<{
+  clusterId: number;
+  label: string;
+  importanceScore: number;
+  marketImpact: MarketImpact;
+  representativeId: number;
+  representativeTitle: string;
+  representativeUrl: string;
+  representativeSource: string;
+  representativePublishedAt: string;
+  representativeEventType: string;
+} | null> {
+  const orm = drizzle(db);
+  const rows = await orm
+    .select({
+      clusterId: cryptoNewsClusters.id,
+      label: cryptoNewsClusters.clusterLabel,
+      importanceScore: cryptoNewsClusters.importanceScore,
+      marketImpact: cryptoNewsClusters.marketImpact,
+      representativeId: cryptoNewsItems.id,
+      representativeTitle: cryptoNewsItems.title,
+      representativeUrl: cryptoNewsItems.canonicalUrl,
+      representativeSource: cryptoNewsItems.sourceName,
+      representativePublishedAt: cryptoNewsItems.publishedAt,
+      representativeEventType: cryptoNewsItems.eventType
+    })
+    .from(cryptoNewsClusters)
+    .innerJoin(cryptoNewsItems, eq(cryptoNewsClusters.representativeNewsItemId, cryptoNewsItems.id))
+    .where(eq(cryptoNewsClusters.id, clusterId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    clusterId: Number(row.clusterId),
+    label: row.label,
+    importanceScore: Number(row.importanceScore ?? 0),
+    marketImpact: sanitizeMarketImpact(row.marketImpact),
+    representativeId: Number(row.representativeId),
+    representativeTitle: row.representativeTitle,
+    representativeUrl: row.representativeUrl,
+    representativeSource: row.representativeSource,
+    representativePublishedAt: row.representativePublishedAt,
+    representativeEventType: row.representativeEventType
+  };
+}
+
+async function getClusterNewsItemIds(db: D1Database, clusterId: number, representativeNewsItemId: number): Promise<number[]> {
+  const orm = drizzle(db);
+  const memberRows = await orm
+    .select({
+      newsItemId: cryptoNewsClusterMembers.newsItemId
+    })
+    .from(cryptoNewsClusterMembers)
+    .where(eq(cryptoNewsClusterMembers.clusterId, clusterId));
+
+  return Array.from(
+    new Set(
+      [representativeNewsItemId, ...memberRows.map((row) => Number(row.newsItemId))].filter(
+        (value) => Number.isInteger(value) && value > 0
+      )
+    )
+  );
+}
+
+async function getClusterNewsItemContext(
+  db: D1Database,
+  newsItemIds: number[]
+): Promise<{
+  itemRows: Array<{
+    id: number;
+    rawId: number;
+    title: string;
+    canonicalUrl: string;
+    sourceName: string;
+    sourceType: NewsSourceType;
+    publishedAt: string;
+    summaryZh: string;
+    summaryEn: string;
+    eventType: string;
+    signalScore: number;
+    noiseScore: number;
+    confidence: number;
+    shouldDisplay: boolean;
+    isMarketWide: boolean;
+    reason: string;
+  }>;
+  coinCodesByNewsItemId: Map<number, string[]>;
+  topicCodesByNewsItemId: Map<number, string[]>;
+  coinCodes: string[];
+  topicCodes: string[];
+  sourceNames: string[];
+}> {
+  if (newsItemIds.length === 0) {
+    return {
+      itemRows: [],
+      coinCodesByNewsItemId: new Map<number, string[]>(),
+      topicCodesByNewsItemId: new Map<number, string[]>(),
+      coinCodes: [],
+      topicCodes: [],
+      sourceNames: []
+    };
+  }
+
+  const orm = drizzle(db);
+  const [itemRows, coinRows, topicRows] = await Promise.all([
+    orm
+      .select({
+        id: cryptoNewsItems.id,
+        rawId: cryptoNewsItems.rawId,
+        title: cryptoNewsItems.title,
+        canonicalUrl: cryptoNewsItems.canonicalUrl,
+        sourceName: cryptoNewsItems.sourceName,
+        sourceType: cryptoNewsItems.sourceType,
+        publishedAt: cryptoNewsItems.publishedAt,
+        summaryZh: cryptoNewsItems.summaryZh,
+        summaryEn: cryptoNewsItems.summaryEn,
+        eventType: cryptoNewsItems.eventType,
+        signalScore: cryptoNewsItems.signalScore,
+        noiseScore: cryptoNewsItems.noiseScore,
+        confidence: cryptoNewsItems.confidence,
+        shouldDisplay: cryptoNewsItems.shouldDisplay,
+        isMarketWide: cryptoNewsItems.isMarketWide,
+        reason: cryptoNewsItems.reason
+      })
+      .from(cryptoNewsItems)
+      .where(inArray(cryptoNewsItems.id, newsItemIds))
+      .orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.signalScore)),
+    orm
+      .select({
+        newsItemId: cryptoNewsItemCoins.newsItemId,
+        coinCode: cryptoNewsItemCoins.coinCode
+      })
+      .from(cryptoNewsItemCoins)
+      .where(inArray(cryptoNewsItemCoins.newsItemId, newsItemIds)),
+    orm
+      .select({
+        newsItemId: cryptoNewsItemTopics.newsItemId,
+        topicCode: cryptoNewsItemTopics.topicCode
+      })
+      .from(cryptoNewsItemTopics)
+      .where(inArray(cryptoNewsItemTopics.newsItemId, newsItemIds))
+  ]);
+
+  const coinCodesByNewsItemId = new Map<number, string[]>();
+  const topicCodesByNewsItemId = new Map<number, string[]>();
+  const coinCodeSet = new Set<string>();
+  const topicCodeSet = new Set<string>();
+  const sourceNameSet = new Set<string>();
+
+  for (const row of itemRows) {
+    sourceNameSet.add(row.sourceName);
+  }
+  for (const row of coinRows) {
+    const newsItemId = Number(row.newsItemId);
+    const next = coinCodesByNewsItemId.get(newsItemId) ?? [];
+    if (!next.includes(row.coinCode)) {
+      next.push(row.coinCode);
+      coinCodeSet.add(row.coinCode);
+    }
+    coinCodesByNewsItemId.set(newsItemId, next);
+  }
+  for (const row of topicRows) {
+    const newsItemId = Number(row.newsItemId);
+    const next = topicCodesByNewsItemId.get(newsItemId) ?? [];
+    if (!next.includes(row.topicCode)) {
+      next.push(row.topicCode);
+      topicCodeSet.add(row.topicCode);
+    }
+    topicCodesByNewsItemId.set(newsItemId, next);
+  }
+
+  return {
+    itemRows: itemRows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      rawId: Number(row.rawId),
+      signalScore: Number(row.signalScore ?? 0),
+      noiseScore: Number(row.noiseScore ?? 0),
+      confidence: Number(row.confidence ?? 0),
+      shouldDisplay: !!row.shouldDisplay,
+      isMarketWide: !!row.isMarketWide,
+      sourceType: row.sourceType as NewsSourceType
+    })),
+    coinCodesByNewsItemId,
+    topicCodesByNewsItemId,
+    coinCodes: [...coinCodeSet],
+    topicCodes: [...topicCodeSet],
+    sourceNames: [...sourceNameSet]
+  };
+}
+
+async function getNewsItemTaxonomy(
+  db: D1Database,
+  newsItemIds: number[]
+): Promise<{
+  coinCodesByNewsItemId: Map<number, string[]>;
+  topicCodesByNewsItemId: Map<number, string[]>;
+}> {
+  if (newsItemIds.length === 0) {
+    return {
+      coinCodesByNewsItemId: new Map<number, string[]>(),
+      topicCodesByNewsItemId: new Map<number, string[]>()
+    };
+  }
+
+  const orm = drizzle(db);
+  const [coinRows, topicRows] = await Promise.all([
+    orm
+      .select({
+        newsItemId: cryptoNewsItemCoins.newsItemId,
+        coinCode: cryptoNewsItemCoins.coinCode
+      })
+      .from(cryptoNewsItemCoins)
+      .where(inArray(cryptoNewsItemCoins.newsItemId, newsItemIds)),
+    orm
+      .select({
+        newsItemId: cryptoNewsItemTopics.newsItemId,
+        topicCode: cryptoNewsItemTopics.topicCode
+      })
+      .from(cryptoNewsItemTopics)
+      .where(inArray(cryptoNewsItemTopics.newsItemId, newsItemIds))
+  ]);
+
+  const coinCodesByNewsItemId = new Map<number, string[]>();
+  const topicCodesByNewsItemId = new Map<number, string[]>();
+  for (const row of coinRows) {
+    const newsItemId = Number(row.newsItemId);
+    const next = coinCodesByNewsItemId.get(newsItemId) ?? [];
+    if (!next.includes(row.coinCode)) {
+      next.push(row.coinCode);
+    }
+    coinCodesByNewsItemId.set(newsItemId, next);
+  }
+  for (const row of topicRows) {
+    const newsItemId = Number(row.newsItemId);
+    const next = topicCodesByNewsItemId.get(newsItemId) ?? [];
+    if (!next.includes(row.topicCode)) {
+      next.push(row.topicCode);
+    }
+    topicCodesByNewsItemId.set(newsItemId, next);
+  }
+
+  return {
+    coinCodesByNewsItemId,
+    topicCodesByNewsItemId
+  };
+}
+
+async function getNewsItemClusterVisibility(
+  db: D1Database,
+  newsItemIds: number[]
+): Promise<{
+  representativeClusterIdByNewsItemId: Map<number, number>;
+  clusteredMemberNewsItemIds: Set<number>;
+}> {
+  if (newsItemIds.length === 0) {
+    return {
+      representativeClusterIdByNewsItemId: new Map<number, number>(),
+      clusteredMemberNewsItemIds: new Set<number>()
+    };
+  }
+
+  const orm = drizzle(db);
+  const [representativeRows, memberRows] = await Promise.all([
+    orm
+      .select({
+        newsItemId: cryptoNewsClusters.representativeNewsItemId,
+        clusterId: cryptoNewsClusters.id
+      })
+      .from(cryptoNewsClusters)
+      .where(inArray(cryptoNewsClusters.representativeNewsItemId, newsItemIds)),
+    orm
+      .select({
+        newsItemId: cryptoNewsClusterMembers.newsItemId
+      })
+      .from(cryptoNewsClusterMembers)
+      .where(inArray(cryptoNewsClusterMembers.newsItemId, newsItemIds))
+  ]);
+
+  const representativeClusterIdByNewsItemId = new Map<number, number>();
+  for (const row of representativeRows) {
+    representativeClusterIdByNewsItemId.set(Number(row.newsItemId), Number(row.clusterId));
+  }
+
+  const clusteredMemberNewsItemIds = new Set<number>();
+  for (const row of memberRows) {
+    const newsItemId = Number(row.newsItemId);
+    if (!representativeClusterIdByNewsItemId.has(newsItemId)) {
+      clusteredMemberNewsItemIds.add(newsItemId);
+    }
+  }
+
+  return {
+    representativeClusterIdByNewsItemId,
+    clusteredMemberNewsItemIds
+  };
+}
+
+function resolveVisibleClusterId(
+  newsItemId: number,
+  visibility: {
+    representativeClusterIdByNewsItemId: Map<number, number>;
+    clusteredMemberNewsItemIds: Set<number>;
+  }
+): number | null | undefined {
+  if (visibility.representativeClusterIdByNewsItemId.has(newsItemId)) {
+    return visibility.representativeClusterIdByNewsItemId.get(newsItemId) ?? null;
+  }
+  if (visibility.clusteredMemberNewsItemIds.has(newsItemId)) {
+    return undefined;
+  }
+  return null;
+}
+
+function sortClusterNewsItems<
+  T extends {
+    id: number;
+    publishedAt: string;
+    signalScore: number;
+  }
+>(rows: T[], representativeNewsItemId: number): T[] {
+  return [...rows].sort((left, right) => {
+    if (left.id === representativeNewsItemId && right.id !== representativeNewsItemId) {
+      return -1;
+    }
+    if (right.id === representativeNewsItemId && left.id !== representativeNewsItemId) {
+      return 1;
+    }
+    return right.publishedAt.localeCompare(left.publishedAt) || Number(right.signalScore ?? 0) - Number(left.signalScore ?? 0);
+  });
+}
+
+async function listEventCoinSnapshots(
+  db: D1Database,
+  reportDate: string,
+  coinCodes: string[]
+): Promise<NewsEventCoinSnapshot[]> {
+  if (coinCodes.length === 0) {
+    return [];
+  }
+
+  const orm = drizzle(db);
+  const rows = await orm
+    .select({
+      reportDate: dailyReports.reportDate,
+      code: dailyCoinSnapshots.code,
+      priceUsdt: dailyCoinSnapshots.priceUsdt,
+      change24hPct: dailyCoinSnapshots.change24hPct,
+      quoteVolume24hUsdt: dailyCoinSnapshots.quoteVolume24hUsdt,
+      tradeSharePct: dailyCoinSnapshots.tradeSharePct
+    })
+    .from(dailyCoinSnapshots)
+    .innerJoin(dailyReports, eq(dailyReports.id, dailyCoinSnapshots.reportId))
+    .where(and(eq(dailyReports.reportDate, reportDate), inArray(dailyCoinSnapshots.code, coinCodes)))
+    .orderBy(desc(dailyCoinSnapshots.tradeSharePct), asc(dailyCoinSnapshots.code));
+
+  return rows.map((row) => ({
+    reportDate: row.reportDate,
+    code: row.code,
+    priceUsdt: Number(row.priceUsdt ?? 0),
+    change24hPct: Number(row.change24hPct ?? 0),
+    quoteVolume24hUsdt: Number(row.quoteVolume24hUsdt ?? 0),
+    tradeSharePct: Number(row.tradeSharePct ?? 0)
+  }));
+}
+
+async function listClusterIdsByCoin(db: D1Database, coinCode: string, limit: number): Promise<number[]> {
+  const orm = drizzle(db);
+  const [representativeRows, memberRows] = await Promise.all([
+    orm
+      .select({
+        clusterId: cryptoNewsClusters.id,
+        representativePublishedAt: cryptoNewsItems.publishedAt
+      })
+      .from(cryptoNewsClusters)
+      .innerJoin(cryptoNewsItems, eq(cryptoNewsClusters.representativeNewsItemId, cryptoNewsItems.id))
+      .innerJoin(cryptoNewsItemCoins, eq(cryptoNewsItemCoins.newsItemId, cryptoNewsItems.id))
+      .where(eq(cryptoNewsItemCoins.coinCode, coinCode))
+      .orderBy(desc(cryptoNewsItems.publishedAt))
+      .limit(limit),
+    orm
+      .select({
+        clusterId: cryptoNewsClusterMembers.clusterId,
+        representativePublishedAt: cryptoNewsItems.publishedAt
+      })
+      .from(cryptoNewsClusterMembers)
+      .innerJoin(cryptoNewsClusters, eq(cryptoNewsClusters.id, cryptoNewsClusterMembers.clusterId))
+      .innerJoin(cryptoNewsItems, eq(cryptoNewsClusters.representativeNewsItemId, cryptoNewsItems.id))
+      .innerJoin(cryptoNewsItemCoins, eq(cryptoNewsItemCoins.newsItemId, cryptoNewsClusterMembers.newsItemId))
+      .where(eq(cryptoNewsItemCoins.coinCode, coinCode))
+      .orderBy(desc(cryptoNewsItems.publishedAt))
+      .limit(limit)
+  ]);
+
+  const merged = [...representativeRows, ...memberRows].sort((left, right) =>
+    right.representativePublishedAt.localeCompare(left.representativePublishedAt)
+  );
+  const orderedClusterIds: number[] = [];
+  const seen = new Set<number>();
+  for (const row of merged) {
+    const clusterId = Number(row.clusterId);
+    if (!Number.isInteger(clusterId) || clusterId <= 0 || seen.has(clusterId)) {
+      continue;
+    }
+    seen.add(clusterId);
+    orderedClusterIds.push(clusterId);
+    if (orderedClusterIds.length >= limit) {
+      break;
+    }
+  }
+
+  return orderedClusterIds;
+}
+
+async function listCoinPriceHistoryPoints(
+  db: D1Database,
+  coinCode: string,
+  limit: number
+): Promise<Array<{ reportDate: string; priceUsdt: number; change24hPct: number }>> {
+  const orm = drizzle(db);
+  const rows = await orm
+    .select({
+      reportDate: dailyReports.reportDate,
+      priceUsdt: dailyCoinSnapshots.priceUsdt,
+      change24hPct: dailyCoinSnapshots.change24hPct
+    })
+    .from(dailyCoinSnapshots)
+    .innerJoin(dailyReports, eq(dailyReports.id, dailyCoinSnapshots.reportId))
+    .where(eq(dailyCoinSnapshots.code, coinCode))
+    .orderBy(asc(dailyReports.reportDate))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    reportDate: row.reportDate,
+    priceUsdt: Number(row.priceUsdt ?? 0),
+    change24hPct: Number(row.change24hPct ?? 0)
+  }));
+}
+
+function buildCoinEventReaction(
+  priceHistory: Array<{ reportDate: string; priceUsdt: number; change24hPct: number }>,
+  reportDate: string
+): CoinEventTimelineItem["reaction"] {
+  const eventIndex = priceHistory.findIndex((row) => row.reportDate === reportDate);
+  const eventRow = eventIndex >= 0 ? priceHistory[eventIndex] : null;
+  const basePrice = eventRow?.priceUsdt ?? null;
+  const nextRow = eventIndex >= 0 ? priceHistory[eventIndex + 1] ?? null : null;
+  const day3Row = eventIndex >= 0 ? priceHistory[eventIndex + 3] ?? null : null;
+
+  return {
+    event: {
+      reportDate,
+      priceUsdt: eventRow?.priceUsdt ?? null,
+      change24hPct: eventRow?.change24hPct ?? null,
+      returnPct: eventRow ? 0 : null
+    },
+    next: {
+      reportDate: nextRow?.reportDate ?? null,
+      priceUsdt: nextRow?.priceUsdt ?? null,
+      change24hPct: nextRow?.change24hPct ?? null,
+      returnPct: calculateReturnPct(basePrice, nextRow?.priceUsdt ?? null)
+    },
+    day3: {
+      reportDate: day3Row?.reportDate ?? null,
+      priceUsdt: day3Row?.priceUsdt ?? null,
+      change24hPct: day3Row?.change24hPct ?? null,
+      returnPct: calculateReturnPct(basePrice, day3Row?.priceUsdt ?? null)
+    }
+  };
+}
+
+function calculateReturnPct(basePrice: number | null, price: number | null): number | null {
+  if (basePrice === null || price === null || basePrice <= 0) {
+    return null;
+  }
+  return Number((((price - basePrice) / basePrice) * 100).toFixed(2));
+}
+
+export async function getCryptoNewsAdminOverview(db: D1Database): Promise<CryptoNewsAdminOverview> {
+  const orm = drizzle(db);
+  const [rawCountRows, latestRawRows, itemCountRows, latestItemRows] = await Promise.all([
+    orm
+      .select({
+        ingestStatus: cryptoNewsRaw.ingestStatus,
+        count: count()
+      })
+      .from(cryptoNewsRaw)
+      .groupBy(cryptoNewsRaw.ingestStatus),
+    orm
+      .select({
+        fetchedAt: cryptoNewsRaw.fetchedAt
+      })
+      .from(cryptoNewsRaw)
+      .orderBy(desc(cryptoNewsRaw.fetchedAt))
+      .limit(1),
+    orm
+      .select({
+        shouldDisplay: cryptoNewsItems.shouldDisplay,
+        count: count()
+      })
+      .from(cryptoNewsItems)
+      .groupBy(cryptoNewsItems.shouldDisplay),
+    orm
+      .select({
+        publishedAt: cryptoNewsItems.publishedAt
+      })
+      .from(cryptoNewsItems)
+      .orderBy(desc(cryptoNewsItems.publishedAt))
+      .limit(1)
+  ]);
+
+  const rawCountByStatus = new Map(rawCountRows.map((row) => [row.ingestStatus, Number(row.count ?? 0)]));
+  const itemCountByDisplay = new Map(itemCountRows.map((row) => [!!row.shouldDisplay, Number(row.count ?? 0)]));
+
+  return {
+    pendingRawCount: rawCountByStatus.get("pending") ?? 0,
+    processedRawCount: rawCountByStatus.get("processed") ?? 0,
+    rejectedRawCount: rawCountByStatus.get("rejected") ?? 0,
+    failedRawCount: rawCountByStatus.get("failed") ?? 0,
+    displayItemCount: itemCountByDisplay.get(true) ?? 0,
+    hiddenItemCount: itemCountByDisplay.get(false) ?? 0,
+    latestFetchedAt: latestRawRows[0]?.fetchedAt ?? null,
+    latestPublishedAt: latestItemRows[0]?.publishedAt ?? null
   };
 }
 
@@ -773,29 +1631,33 @@ export async function listCryptoNewsAdminRaw(
   }
 ): Promise<CryptoNewsAdminRawItem[]> {
   const normalizedStatus = sanitizeAdminRawStatus(options.status ?? "");
-  const statusClause = normalizedStatus ? "WHERE ingest_status = ?" : "";
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        id AS id,
-        source_name AS sourceName,
-        source_type AS sourceType,
-        title AS title,
-        canonical_url AS canonicalUrl,
-        published_at AS publishedAt,
-        fetched_at AS fetchedAt,
-        ingest_status AS ingestStatus
-      FROM crypto_news_raw
-      ${statusClause}
-      ORDER BY published_at DESC, id DESC
-      LIMIT ?
-      `
-    )
-    .bind(...(normalizedStatus ? [normalizedStatus, options.limit] : [options.limit]))
-    .all<CryptoNewsAdminRawItem>();
+  const orm = drizzle(db);
+  const baseQuery = orm
+    .select({
+      id: cryptoNewsRaw.id,
+      sourceName: cryptoNewsRaw.sourceName,
+      sourceType: cryptoNewsRaw.sourceType,
+      title: cryptoNewsRaw.title,
+      canonicalUrl: cryptoNewsRaw.canonicalUrl,
+      publishedAt: cryptoNewsRaw.publishedAt,
+      fetchedAt: cryptoNewsRaw.fetchedAt,
+      ingestStatus: cryptoNewsRaw.ingestStatus
+    })
+    .from(cryptoNewsRaw);
+  const rows = await (normalizedStatus
+    ? baseQuery.where(eq(cryptoNewsRaw.ingestStatus, normalizedStatus)).orderBy(desc(cryptoNewsRaw.publishedAt), desc(cryptoNewsRaw.id)).limit(options.limit)
+    : baseQuery.orderBy(desc(cryptoNewsRaw.publishedAt), desc(cryptoNewsRaw.id)).limit(options.limit));
 
-  return result.results ?? [];
+  return rows.map((row) => ({
+    id: Number(row.id),
+    sourceName: row.sourceName,
+    sourceType: row.sourceType as NewsSourceType,
+    title: row.title,
+    canonicalUrl: row.canonicalUrl,
+    publishedAt: row.publishedAt,
+    fetchedAt: row.fetchedAt,
+    ingestStatus: row.ingestStatus
+  }));
 }
 
 export async function listCryptoNewsAdminItems(
@@ -805,73 +1667,50 @@ export async function listCryptoNewsAdminItems(
     displayOnly?: boolean;
   }
 ): Promise<CryptoNewsAdminCuratedItem[]> {
-  const displayClause = options.displayOnly ? "WHERE n.should_display = 1" : "";
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        n.id AS id,
-        n.raw_id AS rawId,
-        n.title AS title,
-        n.canonical_url AS canonicalUrl,
-        n.source_name AS sourceName,
-        n.published_at AS publishedAt,
-        n.relevance_type AS relevanceType,
-        n.event_type AS eventType,
-        n.signal_score AS signalScore,
-        n.noise_score AS noiseScore,
-        n.confidence AS confidence,
-        n.should_display AS shouldDisplay,
-        n.is_market_wide AS isMarketWide,
-        n.reason AS reason,
-        GROUP_CONCAT(DISTINCT ic.coin_code) AS relatedCoinsCsv,
-        GROUP_CONCAT(DISTINCT t.topic_code) AS topicsCsv
-      FROM crypto_news_items n
-      LEFT JOIN crypto_news_item_coins ic ON ic.news_item_id = n.id
-      LEFT JOIN crypto_news_item_topics t ON t.news_item_id = n.id
-      ${displayClause}
-      GROUP BY n.id
-      ORDER BY n.published_at DESC, n.id DESC
-      LIMIT ?
-      `
-    )
-    .bind(options.limit)
-    .all<{
-      id: number;
-      rawId: number;
-      title: string;
-      canonicalUrl: string;
-      sourceName: string;
-      publishedAt: string;
-      relevanceType: RelevanceType;
-      eventType: EventType;
-      signalScore: number;
-      noiseScore: number;
-      confidence: number;
-      shouldDisplay: number | boolean;
-      isMarketWide: number | boolean;
-      reason: string;
-      relatedCoinsCsv: string | null;
-      topicsCsv: string | null;
-    }>();
+  const orm = drizzle(db);
+  const baseQuery = orm
+    .select({
+      id: cryptoNewsItems.id,
+      rawId: cryptoNewsItems.rawId,
+      title: cryptoNewsItems.title,
+      canonicalUrl: cryptoNewsItems.canonicalUrl,
+      sourceName: cryptoNewsItems.sourceName,
+      publishedAt: cryptoNewsItems.publishedAt,
+      relevanceType: cryptoNewsItems.relevanceType,
+      eventType: cryptoNewsItems.eventType,
+      signalScore: cryptoNewsItems.signalScore,
+      noiseScore: cryptoNewsItems.noiseScore,
+      confidence: cryptoNewsItems.confidence,
+      shouldDisplay: cryptoNewsItems.shouldDisplay,
+      isMarketWide: cryptoNewsItems.isMarketWide,
+      reason: cryptoNewsItems.reason
+    })
+    .from(cryptoNewsItems);
+  const rows = await (options.displayOnly
+    ? baseQuery.where(eq(cryptoNewsItems.shouldDisplay, true)).orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.id)).limit(options.limit)
+    : baseQuery.orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.id)).limit(options.limit));
+  const taxonomy = await getNewsItemTaxonomy(
+    db,
+    rows.map((row) => Number(row.id))
+  );
 
-  return (result.results ?? []).map((row) => ({
+  return rows.map((row) => ({
     id: Number(row.id),
     rawId: Number(row.rawId),
     title: row.title,
     canonicalUrl: row.canonicalUrl,
     sourceName: row.sourceName,
     publishedAt: row.publishedAt,
-    relevanceType: row.relevanceType,
-    eventType: row.eventType,
+    relevanceType: row.relevanceType as RelevanceType,
+    eventType: row.eventType as EventType,
     signalScore: Number(row.signalScore ?? 0),
     noiseScore: Number(row.noiseScore ?? 0),
     confidence: Number(row.confidence ?? 0),
     shouldDisplay: !!row.shouldDisplay,
     isMarketWide: !!row.isMarketWide,
     reason: row.reason,
-    relatedCoins: splitCsv(row.relatedCoinsCsv),
-    topics: splitCsv(row.topicsCsv)
+    relatedCoins: taxonomy.coinCodesByNewsItemId.get(Number(row.id)) ?? [],
+    topics: taxonomy.topicCodesByNewsItemId.get(Number(row.id)) ?? []
   }));
 }
 
@@ -888,31 +1727,29 @@ export async function reprocessCryptoNews(
   }
 
   const since = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
-  const rawRowsResult = await env.DB
-    .prepare(
-      `
-      SELECT
-        id AS id,
-        source_name AS sourceName,
-        source_type AS sourceType,
-        source_url AS sourceUrl,
-        canonical_url AS canonicalUrl,
-        title AS title,
-        published_at AS publishedAt,
-        fetched_at AS fetchedAt,
-        raw_hash AS rawHash,
-        ingest_status AS ingestStatus
-      FROM crypto_news_raw
-      WHERE published_at >= ?
-      ORDER BY published_at DESC, id DESC
-      LIMIT ?
-      `
-    )
-    .bind(since, options.limit)
-    .all<RawNewsRow>();
+  const orm = drizzle(env.DB);
+  const rawRowsBase = await orm
+    .select({
+      id: cryptoNewsRaw.id,
+      sourceName: cryptoNewsRaw.sourceName,
+      sourceType: cryptoNewsRaw.sourceType,
+      sourceUrl: cryptoNewsRaw.sourceUrl,
+      canonicalUrl: cryptoNewsRaw.canonicalUrl,
+      title: cryptoNewsRaw.title,
+      publishedAt: cryptoNewsRaw.publishedAt,
+      fetchedAt: cryptoNewsRaw.fetchedAt,
+      rawHash: cryptoNewsRaw.rawHash,
+      ingestStatus: cryptoNewsRaw.ingestStatus
+    })
+    .from(cryptoNewsRaw)
+    .where(gte(cryptoNewsRaw.publishedAt, since))
+    .orderBy(desc(cryptoNewsRaw.publishedAt), desc(cryptoNewsRaw.id))
+    .limit(options.limit);
 
-  const rawRows = (rawRowsResult.results ?? []).map((row) => ({
+  const rawRows = rawRowsBase.map((row) => ({
     ...row,
+    id: Number(row.id),
+    sourceType: row.sourceType as NewsSourceType,
     snippet: null,
     bodyText: null,
     hintCoins: [],
@@ -1166,107 +2003,43 @@ function dedupeCandidates(candidates: CandidateNewsItem[]): CandidateNewsItem[] 
 
 async function persistRawCandidates(db: D1Database, candidates: CandidateNewsItem[]): Promise<RawNewsRow[]> {
   const out: RawNewsRow[] = [];
+  const orm = drizzle(db);
 
   for (const candidate of candidates) {
-    const existing = await db
-      .prepare(
-        `
-        SELECT
-          id AS id,
-          source_name AS sourceName,
-          source_type AS sourceType,
-          source_url AS sourceUrl,
-          canonical_url AS canonicalUrl,
-          title AS title,
-          published_at AS publishedAt,
-          fetched_at AS fetchedAt,
-          raw_hash AS rawHash,
-          ingest_status AS ingestStatus
-        FROM crypto_news_raw
-        WHERE raw_hash = ?
-        LIMIT 1
-        `
-      )
-      .bind(candidate.rawHash)
-      .first<RawNewsRow>();
-
-    if (existing) {
-      await db
-        .prepare(
-          `
-          UPDATE crypto_news_raw
-          SET
-            source_name = ?,
-            source_type = ?,
-            source_url = ?,
-            canonical_url = ?,
-            title = ?,
-            fetched_at = ?,
-            published_at = ?
-          WHERE id = ?
-          `
-        )
-        .bind(
-          candidate.sourceName,
-          candidate.sourceType,
-          candidate.sourceUrl,
-          candidate.canonicalUrl,
-          candidate.title,
-          candidate.fetchedAt,
-          candidate.publishedAt,
-          existing.id
-        )
-        .run();
-
-      out.push({
-        ...candidate,
-        id: Number(existing.id),
-        ingestStatus: existing.ingestStatus
+    await orm
+      .insert(cryptoNewsRaw)
+      .values({
+        sourceName: candidate.sourceName,
+        sourceType: candidate.sourceType,
+        sourceUrl: candidate.sourceUrl,
+        canonicalUrl: candidate.canonicalUrl,
+        title: candidate.title,
+        publishedAt: candidate.publishedAt,
+        fetchedAt: candidate.fetchedAt,
+        rawHash: candidate.rawHash,
+        ingestStatus: "pending"
+      })
+      .onConflictDoUpdate({
+        target: cryptoNewsRaw.rawHash,
+        set: {
+          sourceName: candidate.sourceName,
+          sourceType: candidate.sourceType,
+          sourceUrl: candidate.sourceUrl,
+          canonicalUrl: candidate.canonicalUrl,
+          title: candidate.title,
+          fetchedAt: candidate.fetchedAt,
+          publishedAt: candidate.publishedAt
+        }
       });
-      continue;
-    }
-
-    await db
-      .prepare(
-        `
-        INSERT INTO crypto_news_raw (
-          source_name,
-          source_type,
-          source_url,
-          canonical_url,
-          title,
-          published_at,
-          fetched_at,
-          raw_hash,
-          ingest_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-        `
-      )
-      .bind(
-        candidate.sourceName,
-        candidate.sourceType,
-        candidate.sourceUrl,
-        candidate.canonicalUrl,
-        candidate.title,
-        candidate.publishedAt,
-        candidate.fetchedAt,
-        candidate.rawHash
-      )
-      .run();
-
-    const inserted = await db
-      .prepare(
-        `
-        SELECT
-          id AS id,
-          ingest_status AS ingestStatus
-        FROM crypto_news_raw
-        WHERE raw_hash = ?
-        LIMIT 1
-        `
-      )
-      .bind(candidate.rawHash)
-      .first<{ id: number; ingestStatus: string }>();
+    const rows = await orm
+      .select({
+        id: cryptoNewsRaw.id,
+        ingestStatus: cryptoNewsRaw.ingestStatus
+      })
+      .from(cryptoNewsRaw)
+      .where(eq(cryptoNewsRaw.rawHash, candidate.rawHash))
+      .limit(1);
+    const inserted = rows[0];
 
     out.push({
       ...candidate,
@@ -1490,114 +2263,102 @@ function fallbackClassifyRawRow(rawRow: RawNewsRow, coins: CoinSeedLike[]): Cura
 }
 
 async function upsertCuratedNews(db: D1Database, record: CuratedNewsRecord): Promise<void> {
-  await db
-    .prepare(
-      `
-      INSERT INTO crypto_news_items (
-        raw_id,
-        title,
-        canonical_url,
-        source_name,
-        source_type,
-        published_at,
-        summary_zh,
-        summary_en,
-        relevance_type,
-        event_type,
-        signal_score,
-        noise_score,
-        confidence,
-        should_display,
-        is_market_wide,
-        reason,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(raw_id) DO UPDATE SET
-        title = excluded.title,
-        canonical_url = excluded.canonical_url,
-        source_name = excluded.source_name,
-        source_type = excluded.source_type,
-        published_at = excluded.published_at,
-        summary_zh = excluded.summary_zh,
-        summary_en = excluded.summary_en,
-        relevance_type = excluded.relevance_type,
-        event_type = excluded.event_type,
-        signal_score = excluded.signal_score,
-        noise_score = excluded.noise_score,
-        confidence = excluded.confidence,
-        should_display = excluded.should_display,
-        is_market_wide = excluded.is_market_wide,
-        reason = excluded.reason,
-        updated_at = CURRENT_TIMESTAMP
-      `
-    )
-    .bind(
-      record.rawId,
-      record.title,
-      record.canonicalUrl,
-      record.sourceName,
-      record.sourceType,
-      record.publishedAt,
-      record.summaryZh,
-      record.summaryEn,
-      record.relevanceType,
-      record.eventType,
-      record.signalScore,
-      record.noiseScore,
-      record.confidence,
-      record.shouldDisplay ? 1 : 0,
-      record.isMarketWide ? 1 : 0,
-      record.reason
-    )
-    .run();
+  const orm = drizzle(db);
+  const updatedAt = new Date().toISOString();
+  await orm
+    .insert(cryptoNewsItems)
+    .values({
+      rawId: record.rawId,
+      title: record.title,
+      canonicalUrl: record.canonicalUrl,
+      sourceName: record.sourceName,
+      sourceType: record.sourceType,
+      publishedAt: record.publishedAt,
+      summaryZh: record.summaryZh,
+      summaryEn: record.summaryEn,
+      relevanceType: record.relevanceType,
+      eventType: record.eventType,
+      signalScore: record.signalScore,
+      noiseScore: record.noiseScore,
+      confidence: record.confidence,
+      shouldDisplay: record.shouldDisplay,
+      isMarketWide: record.isMarketWide,
+      reason: record.reason,
+      updatedAt
+    })
+    .onConflictDoUpdate({
+      target: cryptoNewsItems.rawId,
+      set: {
+        title: record.title,
+        canonicalUrl: record.canonicalUrl,
+        sourceName: record.sourceName,
+        sourceType: record.sourceType,
+        publishedAt: record.publishedAt,
+        summaryZh: record.summaryZh,
+        summaryEn: record.summaryEn,
+        relevanceType: record.relevanceType,
+        eventType: record.eventType,
+        signalScore: record.signalScore,
+        noiseScore: record.noiseScore,
+        confidence: record.confidence,
+        shouldDisplay: record.shouldDisplay,
+        isMarketWide: record.isMarketWide,
+        reason: record.reason,
+        updatedAt
+      }
+    });
 
-  const row = await db
-    .prepare("SELECT id FROM crypto_news_items WHERE raw_id = ? LIMIT 1")
-    .bind(record.rawId)
-    .first<{ id: number }>();
-  const newsItemId = Number(row?.id ?? 0);
+  const row = await orm
+    .select({
+      id: cryptoNewsItems.id
+    })
+    .from(cryptoNewsItems)
+    .where(eq(cryptoNewsItems.rawId, record.rawId))
+    .limit(1);
+  const newsItemId = Number(row[0]?.id ?? 0);
 
   if (!newsItemId) {
     await updateRawIngestStatus(db, record.rawId, "failed");
     return;
   }
 
-  await db.prepare("DELETE FROM crypto_news_item_coins WHERE news_item_id = ?").bind(newsItemId).run();
-  await db.prepare("DELETE FROM crypto_news_item_topics WHERE news_item_id = ?").bind(newsItemId).run();
+  await orm.delete(cryptoNewsItemCoins).where(eq(cryptoNewsItemCoins.newsItemId, newsItemId));
+  await orm.delete(cryptoNewsItemTopics).where(eq(cryptoNewsItemTopics.newsItemId, newsItemId));
 
   for (const [index, coinCode] of record.relatedCoins.entries()) {
-    await db
-      .prepare(
-        `
-        INSERT INTO crypto_news_item_coins (news_item_id, coin_code, relation_confidence, is_primary)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(news_item_id, coin_code) DO UPDATE SET
-          relation_confidence = excluded.relation_confidence,
-          is_primary = excluded.is_primary
-        `
-      )
-      .bind(newsItemId, coinCode, record.confidence, index === 0 ? 1 : 0)
-      .run();
+    await orm
+      .insert(cryptoNewsItemCoins)
+      .values({
+        newsItemId,
+        coinCode,
+        relationConfidence: record.confidence,
+        isPrimary: index === 0
+      })
+      .onConflictDoUpdate({
+        target: [cryptoNewsItemCoins.newsItemId, cryptoNewsItemCoins.coinCode],
+        set: {
+          relationConfidence: record.confidence,
+          isPrimary: index === 0
+        }
+      });
   }
 
   for (const topicCode of record.marketTopics) {
-    await db
-      .prepare(
-        `
-        INSERT INTO crypto_news_item_topics (news_item_id, topic_code)
-        VALUES (?, ?)
-        ON CONFLICT(news_item_id, topic_code) DO NOTHING
-        `
-      )
-      .bind(newsItemId, topicCode)
-      .run();
+    await orm
+      .insert(cryptoNewsItemTopics)
+      .values({
+        newsItemId,
+        topicCode
+      })
+      .onConflictDoNothing();
   }
 
   await updateRawIngestStatus(db, record.rawId, record.shouldDisplay ? "processed" : "rejected");
 }
 
 async function updateRawIngestStatus(db: D1Database, rawId: number, status: string): Promise<void> {
-  await db.prepare("UPDATE crypto_news_raw SET ingest_status = ? WHERE id = ?").bind(status, rawId).run();
+  const orm = drizzle(db);
+  await orm.update(cryptoNewsRaw).set({ ingestStatus: status }).where(eq(cryptoNewsRaw.id, rawId));
 }
 
 async function rebuildNewsClusters(env: CryptoNewsEnv, hours: number): Promise<number> {
@@ -1605,9 +2366,10 @@ async function rebuildNewsClusters(env: CryptoNewsEnv, hours: number): Promise<n
     return 0;
   }
 
+  const orm = drizzle(env.DB);
   const candidates = await listClusterInputs(env.DB, hours);
-  await env.DB.prepare("DELETE FROM crypto_news_cluster_members").run();
-  await env.DB.prepare("DELETE FROM crypto_news_clusters").run();
+  await orm.delete(cryptoNewsClusterMembers);
+  await orm.delete(cryptoNewsClusters);
 
   if (candidates.length === 0) {
     return 0;
@@ -1617,42 +2379,35 @@ async function rebuildNewsClusters(env: CryptoNewsEnv, hours: number): Promise<n
 
   for (const cluster of clusters) {
     const clusterKey = cluster.clusterId || buildClusterKey(cluster.clusterLabel, cluster.representativeNewsId);
-    await env.DB
-      .prepare(
-        `
-        INSERT INTO crypto_news_clusters (
-          cluster_key,
-          cluster_label,
-          representative_news_item_id,
-          importance_score,
-          market_impact,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `
-      )
-      .bind(clusterKey, cluster.clusterLabel, cluster.representativeNewsId, cluster.importanceScore, cluster.marketImpact)
-      .run();
+    await orm.insert(cryptoNewsClusters).values({
+      clusterKey,
+      clusterLabel: cluster.clusterLabel,
+      representativeNewsItemId: cluster.representativeNewsId,
+      importanceScore: cluster.importanceScore,
+      marketImpact: cluster.marketImpact,
+      updatedAt: new Date().toISOString()
+    });
 
-    const clusterRow = await env.DB
-      .prepare("SELECT id FROM crypto_news_clusters WHERE cluster_key = ? LIMIT 1")
-      .bind(clusterKey)
-      .first<{ id: number }>();
-    const clusterId = Number(clusterRow?.id ?? 0);
+    const clusterRow = await orm
+      .select({
+        id: cryptoNewsClusters.id
+      })
+      .from(cryptoNewsClusters)
+      .where(eq(cryptoNewsClusters.clusterKey, clusterKey))
+      .limit(1);
+    const clusterId = Number(clusterRow[0]?.id ?? 0);
     if (!clusterId) {
       continue;
     }
 
     for (const memberNewsId of cluster.memberNewsIds) {
-      await env.DB
-        .prepare(
-          `
-          INSERT INTO crypto_news_cluster_members (cluster_id, news_item_id)
-          VALUES (?, ?)
-          ON CONFLICT(cluster_id, news_item_id) DO NOTHING
-          `
-        )
-        .bind(clusterId, memberNewsId)
-        .run();
+      await orm
+        .insert(cryptoNewsClusterMembers)
+        .values({
+          clusterId,
+          newsItemId: memberNewsId
+        })
+        .onConflictDoNothing();
     }
   }
 
@@ -1661,51 +2416,35 @@ async function rebuildNewsClusters(env: CryptoNewsEnv, hours: number): Promise<n
 
 async function listClusterInputs(db: D1Database, hours: number): Promise<ClusterInputItem[]> {
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        n.id AS id,
-        n.title AS title,
-        n.source_name AS sourceName,
-        n.published_at AS publishedAt,
-        n.summary_zh AS summaryZh,
-        n.summary_en AS summaryEn,
-        n.signal_score AS signalScore,
-        GROUP_CONCAT(DISTINCT ic.coin_code) AS relatedCoinsCsv,
-        GROUP_CONCAT(DISTINCT t.topic_code) AS marketTopicsCsv
-      FROM crypto_news_items n
-      LEFT JOIN crypto_news_item_coins ic ON ic.news_item_id = n.id
-      LEFT JOIN crypto_news_item_topics t ON t.news_item_id = n.id
-      WHERE n.should_display = 1
-        AND n.published_at >= ?
-      GROUP BY n.id
-      ORDER BY n.published_at DESC, n.signal_score DESC
-      LIMIT 60
-      `
-    )
-    .bind(since)
-    .all<{
-      id: number;
-      title: string;
-      sourceName: string;
-      publishedAt: string;
-      summaryZh: string;
-      summaryEn: string;
-      signalScore: number;
-      relatedCoinsCsv: string | null;
-      marketTopicsCsv: string | null;
-    }>();
+  const orm = drizzle(db);
+  const rows = await orm
+    .select({
+      id: cryptoNewsItems.id,
+      title: cryptoNewsItems.title,
+      sourceName: cryptoNewsItems.sourceName,
+      publishedAt: cryptoNewsItems.publishedAt,
+      summaryZh: cryptoNewsItems.summaryZh,
+      summaryEn: cryptoNewsItems.summaryEn,
+      signalScore: cryptoNewsItems.signalScore
+    })
+    .from(cryptoNewsItems)
+    .where(and(eq(cryptoNewsItems.shouldDisplay, true), gte(cryptoNewsItems.publishedAt, since)))
+    .orderBy(desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.signalScore))
+    .limit(60);
+  const taxonomy = await getNewsItemTaxonomy(
+    db,
+    rows.map((row) => Number(row.id))
+  );
 
-  return (result.results ?? []).map((row) => ({
+  return rows.map((row) => ({
     id: Number(row.id),
     title: row.title,
     sourceName: row.sourceName,
     publishedAt: row.publishedAt,
     summaryZh: row.summaryZh,
     summaryEn: row.summaryEn,
-    relatedCoins: splitCsv(row.relatedCoinsCsv),
-    marketTopics: splitCsv(row.marketTopicsCsv),
+    relatedCoins: taxonomy.coinCodesByNewsItemId.get(Number(row.id)) ?? [],
+    marketTopics: taxonomy.topicCodesByNewsItemId.get(Number(row.id)) ?? [],
     signalScore: Number(row.signalScore ?? 0)
   }));
 }
@@ -2430,6 +3169,100 @@ function getReportDateWindow(reportDate: string): { startIso: string; endIso: st
   };
 }
 
+function formatIsoDate(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return "1970-01-01";
+  }
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function deriveNewsStance(eventType: string, topics: string[], title: string): NewsStance {
+  const bearishEventTypes = new Set(["delisting", "lawsuit", "hack", "exploit"]);
+  const bullishEventTypes = new Set(["listing", "partnership", "network_upgrade", "etf_flow", "reserve_update", "funding", "adoption"]);
+  if (bearishEventTypes.has(eventType)) {
+    return "bearish";
+  }
+  if (bullishEventTypes.has(eventType)) {
+    return "bullish";
+  }
+
+  if (topics.includes("security")) {
+    return "bearish";
+  }
+  if (topics.includes("liquidity") || topics.includes("infrastructure")) {
+    return "bullish";
+  }
+
+  const normalizedTitle = title.toLowerCase();
+  if (/(hack|exploit|lawsuit|outflow|probe|breach|liquidat)/.test(normalizedTitle)) {
+    return "bearish";
+  }
+  if (/(approval|launch|partnership|funding|inflow|adoption|upgrade)/.test(normalizedTitle)) {
+    return "bullish";
+  }
+
+  return "neutral";
+}
+
+async function attachClusterAssociationScores(
+  db: D1Database,
+  reportDate: string,
+  clusters: NewsClusterListItem[]
+): Promise<NewsClusterListItem[]> {
+  if (clusters.length === 0) {
+    return clusters;
+  }
+
+  const orm = drizzle(db);
+  const snapshotRows = await orm
+    .select({
+      code: dailyCoinSnapshots.code,
+      change24hPct: dailyCoinSnapshots.change24hPct
+    })
+    .from(dailyCoinSnapshots)
+    .innerJoin(dailyReports, eq(dailyReports.id, dailyCoinSnapshots.reportId))
+    .where(eq(dailyReports.reportDate, reportDate));
+
+  const changeByCode = new Map<string, number>();
+  let marketMoveAbsMax = 0;
+  for (const row of snapshotRows) {
+    const change = Number(row.change24hPct ?? 0);
+    changeByCode.set(row.code, change);
+    marketMoveAbsMax = Math.max(marketMoveAbsMax, Math.abs(change));
+  }
+
+  return clusters.map((cluster) => {
+    const relatedChanges = cluster.relatedCoins
+      .map((coinCode) => changeByCode.get(coinCode))
+      .filter((value): value is number => typeof value === "number");
+
+    const moveAnchor = relatedChanges.length > 0 ? Math.max(...relatedChanges.map((value) => Math.abs(value))) : marketMoveAbsMax;
+    const directionalAverage =
+      relatedChanges.length > 0 ? relatedChanges.reduce((sum, value) => sum + value, 0) / relatedChanges.length : 0;
+    const directionBonus =
+      cluster.stance === "bullish" && directionalAverage > 0
+        ? 10
+        : cluster.stance === "bearish" && directionalAverage < 0
+          ? 10
+          : cluster.stance === "neutral"
+            ? 4
+            : 0;
+    const score = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(cluster.importanceScore * 0.58 + Math.min(22, moveAnchor * 2.5) + Math.min(12, cluster.sourceCount * 3) + directionBonus)
+      )
+    );
+
+    return {
+      ...cluster,
+      associationScore: score
+    };
+  });
+}
+
 async function getCoinNewsByCodeForWindow(
   db: D1Database,
   options: {
@@ -2438,57 +3271,50 @@ async function getCoinNewsByCodeForWindow(
     limitPerCoin: number;
   }
 ): Promise<Record<string, CoinNewsItem[]>> {
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        ic.coin_code AS coinCode,
-        n.id AS id,
-        n.title AS title,
-        n.canonical_url AS url,
-        n.source_name AS source,
-        n.published_at AS publishedAt,
-        n.summary_zh AS summaryZh,
-        n.summary_en AS summaryEn,
-        n.event_type AS eventType,
-        n.signal_score AS signalScore,
-        ic.is_primary AS isPrimary,
-        c.id AS clusterId
-      FROM crypto_news_items n
-      INNER JOIN crypto_news_item_coins ic ON ic.news_item_id = n.id
-      LEFT JOIN crypto_news_cluster_members cm ON cm.news_item_id = n.id
-      LEFT JOIN crypto_news_clusters c ON c.id = cm.cluster_id
-      WHERE n.should_display = 1
-        AND n.published_at >= ?
-        AND n.published_at < ?
-        AND (c.id IS NULL OR c.representative_news_item_id = n.id)
-      ORDER BY ic.coin_code ASC, n.published_at DESC, n.signal_score DESC
-      `
+  const orm = drizzle(db);
+  const rows = await orm
+    .select({
+      coinCode: cryptoNewsItemCoins.coinCode,
+      id: cryptoNewsItems.id,
+      title: cryptoNewsItems.title,
+      url: cryptoNewsItems.canonicalUrl,
+      source: cryptoNewsItems.sourceName,
+      publishedAt: cryptoNewsItems.publishedAt,
+      summaryZh: cryptoNewsItems.summaryZh,
+      summaryEn: cryptoNewsItems.summaryEn,
+      eventType: cryptoNewsItems.eventType,
+      signalScore: cryptoNewsItems.signalScore,
+      isPrimary: cryptoNewsItemCoins.isPrimary
+    })
+    .from(cryptoNewsItems)
+    .innerJoin(cryptoNewsItemCoins, eq(cryptoNewsItemCoins.newsItemId, cryptoNewsItems.id))
+    .where(
+      and(
+        eq(cryptoNewsItems.shouldDisplay, true),
+        gte(cryptoNewsItems.publishedAt, options.startIso),
+        lt(cryptoNewsItems.publishedAt, options.endIso)
+      )
     )
-    .bind(options.startIso, options.endIso)
-    .all<{
-      coinCode: string;
-      id: number;
-      title: string;
-      url: string;
-      source: string;
-      publishedAt: string;
-      summaryZh: string;
-      summaryEn: string;
-      eventType: string;
-      signalScore: number;
-      isPrimary: number | boolean;
-      clusterId: number | null;
-    }>();
+    .orderBy(asc(cryptoNewsItemCoins.coinCode), desc(cryptoNewsItems.publishedAt), desc(cryptoNewsItems.signalScore));
+  const visibility = await getNewsItemClusterVisibility(
+    db,
+    rows.map((row) => Number(row.id))
+  );
 
   const out: Record<string, CoinNewsItem[]> = {};
-  for (const row of result.results ?? []) {
+  for (const row of rows) {
+    const id = Number(row.id);
+    const clusterId = resolveVisibleClusterId(id, visibility);
+    if (typeof clusterId === "undefined") {
+      continue;
+    }
+
     const bucket = out[row.coinCode] ?? [];
     if (bucket.length >= options.limitPerCoin) {
       continue;
     }
     bucket.push({
-      id: Number(row.id),
+      id,
       title: row.title,
       url: row.url,
       source: row.source,
@@ -2496,9 +3322,10 @@ async function getCoinNewsByCodeForWindow(
       summaryZh: row.summaryZh,
       summaryEn: row.summaryEn,
       eventType: row.eventType,
+      stance: deriveNewsStance(row.eventType, [], row.title),
       signalScore: Number(row.signalScore ?? 0),
       isPrimary: !!row.isPrimary,
-      clusterId: row.clusterId ? Number(row.clusterId) : null
+      clusterId
     });
     out[row.coinCode] = bucket;
   }

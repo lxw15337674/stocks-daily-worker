@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, LayoutGrid, Newspaper, Settings2 } from "lucide-react";
+import { ArrowLeftRight, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
 import { useTranslation, type UseTranslationResponse } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import {
   platformHomePath,
   stocksAdminPath,
   stocksComparePath,
+  stocksMarketPath,
   switchLanguagePath
 } from "@/lib/platform-routes";
 
@@ -69,6 +70,12 @@ function resolveNavItems(
         active: pathname.startsWith(stocksComparePath(lang))
       },
       {
+        href: stocksMarketPath(lang),
+        label: t("stocksMarket"),
+        icon: TrendingUp,
+        active: pathname.startsWith(stocksMarketPath(lang))
+      },
+      {
         href: stocksAdminPath(lang),
         label: t("stocksAdmin"),
         icon: Settings2,
@@ -92,7 +99,8 @@ function resolveNavItems(
         active:
           pathname.startsWith(assetArchivePath(lang, "crypto")) ||
           pathname.startsWith(assetHomePath(lang, "crypto") + "/report") ||
-          pathname.startsWith(assetHomePath(lang, "crypto") + "/instrument")
+          pathname.startsWith(assetHomePath(lang, "crypto") + "/instrument") ||
+          pathname.startsWith(assetHomePath(lang, "crypto") + "/event")
       },
       {
         href: cryptoAdminPath(lang),

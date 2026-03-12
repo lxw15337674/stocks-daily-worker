@@ -1,16 +1,29 @@
 import { Hono } from "hono";
 import {
+  getCryptoNewsAdminClusterDetail,
+  getNewsEventDetail,
   getCryptoNewsAdminOverview,
   getReportDateNewsSnapshot,
   getCryptoNewsSchemaStatements,
+  listCoinEventTimeline,
   listCoinNews,
+  listCryptoNewsAdminClusters,
   listCryptoNewsAdminItems,
   listCryptoNewsAdminRaw,
   listMarketNews,
   listRecentNewsClusters,
   reprocessCryptoNews,
+  setCryptoNewsClusterRepresentative,
   runHourlyNewsIngestion
 } from "./news";
+import {
+  createEmptyCryptoMacroSnapshot,
+  getCryptoMacroAdminOverview,
+  getCryptoMacroSchemaStatements,
+  getLatestCryptoMacroSnapshot,
+  getReportDateCryptoMacroSnapshot,
+  refreshCryptoMacroSnapshot
+} from "./macro";
 
 interface Env {
   DB?: D1Database;
@@ -290,12 +303,70 @@ app.get("/coin/:code", async (c) => {
     return c.json({ message: "Coin not found." }, 404);
   }
 
-  const history = c.env.DB ? await getCoinHistory(c.env.DB, code, 30) : [];
+  const [history, eventTimeline] = c.env.DB
+    ? await Promise.all([getCoinHistory(c.env.DB, code, 30), listCoinEventTimeline(c.env.DB, code, { limit: 12 })])
+    : [[], []];
   const latestSnapshot = history[0] ?? null;
   return c.json({
     coin,
     latestSnapshot,
-    history
+    history,
+    eventTimeline
+  });
+});
+
+app.get("/macro/latest", async (c) => {
+  if (!c.env.DB) {
+    return c.json(createEmptyCryptoMacroSnapshot());
+  }
+
+  await ensureD1Schema(c.env.DB);
+  await refreshCryptoMacroSnapshot(c.env);
+  const snapshot = await getLatestCryptoMacroSnapshot(c.env.DB);
+  return c.json(snapshot);
+});
+
+app.get("/macro/report/:date", async (c) => {
+  const reportDate = c.req.param("date").trim();
+  if (!isIsoDate(reportDate)) {
+    return c.json({ message: "Invalid report date." }, 400);
+  }
+
+  if (!c.env.DB) {
+    return c.json(createEmptyCryptoMacroSnapshot());
+  }
+
+  await ensureD1Schema(c.env.DB);
+  if (reportDate === formatDate(new Date())) {
+    await refreshCryptoMacroSnapshot(c.env);
+  }
+  const snapshot = await getReportDateCryptoMacroSnapshot(c.env.DB, reportDate);
+  return c.json(snapshot);
+});
+
+app.get("/macro/admin/overview", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+
+  const overview = await getCryptoMacroAdminOverview(c.env);
+  return c.json(overview);
+});
+
+app.get("/macro/admin/refresh", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  await ensureD1Schema(c.env.DB);
+  await refreshCryptoMacroSnapshot(c.env, { force: true });
+  const overview = await getCryptoMacroAdminOverview(c.env);
+  return c.json({
+    ok: true,
+    ...overview
   });
 });
 
@@ -343,15 +414,41 @@ app.get("/news/clusters", async (c) => {
   return c.json({ items });
 });
 
+app.get("/news/event/:clusterId", async (c) => {
+  const clusterId = Number.parseInt(c.req.param("clusterId"), 10);
+  if (!Number.isInteger(clusterId) || clusterId <= 0) {
+    return c.json({ message: "Invalid cluster id." }, 400);
+  }
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const detail = await getNewsEventDetail(c.env.DB, clusterId);
+  if (!detail) {
+    return c.json({ message: "Event not found." }, 404);
+  }
+
+  return c.json(detail);
+});
+
 app.get("/news/report/:date", async (c) => {
   const reportDate = c.req.param("date").trim();
   if (!isIsoDate(reportDate)) {
     return c.json({ message: "Invalid report date." }, 400);
   }
   if (!c.env.DB) {
-    return c.json({ reportDate, marketNews: [], clusters: [] });
+    return c.json({
+      reportDate,
+      macro: createEmptyCryptoMacroSnapshot(),
+      marketNews: [],
+      clusters: [],
+      coinNewsByCode: {}
+    });
   }
 
+  if (reportDate === formatDate(new Date())) {
+    await refreshCryptoMacroSnapshot(c.env);
+  }
   const snapshot = await getReportDateNewsSnapshot(c.env.DB, reportDate);
   return c.json(snapshot);
 });
@@ -412,6 +509,66 @@ app.get("/news/admin/items", async (c) => {
   return c.json({ items });
 });
 
+app.get("/news/admin/clusters", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+  if (!c.env.DB) {
+    return c.json({ items: [] });
+  }
+
+  const limit = parseLimit(c.req.query("limit"), 30, 1, 200);
+  const query = c.req.query("query")?.trim() ?? null;
+  const coinCode = c.req.query("coinCode")?.trim().toUpperCase() ?? null;
+  const items = await listCryptoNewsAdminClusters(c.env.DB, { limit, query, coinCode });
+  return c.json({ items });
+});
+
+app.get("/news/admin/cluster/:clusterId", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const clusterId = Number.parseInt(c.req.param("clusterId"), 10);
+  if (!Number.isInteger(clusterId) || clusterId <= 0) {
+    return c.json({ message: "Invalid cluster id." }, 400);
+  }
+
+  const detail = await getCryptoNewsAdminClusterDetail(c.env.DB, clusterId);
+  if (!detail) {
+    return c.json({ message: "Cluster not found." }, 404);
+  }
+  return c.json(detail);
+});
+
+app.get("/news/admin/cluster/:clusterId/promote/:newsItemId", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const clusterId = Number.parseInt(c.req.param("clusterId"), 10);
+  const newsItemId = Number.parseInt(c.req.param("newsItemId"), 10);
+  if (!Number.isInteger(clusterId) || clusterId <= 0 || !Number.isInteger(newsItemId) || newsItemId <= 0) {
+    return c.json({ message: "Invalid cluster or news item id." }, 400);
+  }
+
+  const detail = await setCryptoNewsClusterRepresentative(c.env.DB, clusterId, newsItemId);
+  if (!detail) {
+    return c.json({ message: "Cluster or news item not found." }, 404);
+  }
+
+  return c.json({
+    ok: true,
+    detail
+  });
+});
+
 app.get("/news/admin/reprocess", async (c) => {
   if (!hasValidAdminToken(c)) {
     return c.json({ message: "Unauthorized." }, 401);
@@ -452,14 +609,22 @@ app.get("/", (c) =>
       "/report/:date",
       "/reports",
       "/coin/:code",
+      "/macro/latest",
+      "/macro/report/:date",
+      "/macro/admin/overview",
+      "/macro/admin/refresh",
       "/news/market/latest",
       "/news/coin/:code",
       "/news/clusters",
+      "/news/event/:clusterId",
       "/news/report/:date",
       "/news/admin/run",
       "/news/admin/overview",
       "/news/admin/raw",
       "/news/admin/items",
+      "/news/admin/clusters",
+      "/news/admin/cluster/:clusterId",
+      "/news/admin/cluster/:clusterId/promote/:newsItemId",
       "/news/admin/reprocess",
       "/run"
     ]
@@ -473,11 +638,15 @@ export default {
       throw new Error("DB binding is required for scheduled generation.");
     }
 
+    await ensureD1Schema(env.DB);
+
     if (event.cron === CRYPTO_NEWS_CRON) {
+      await refreshCryptoMacroSnapshot(env);
       await runHourlyNewsIngestion(env, COINS);
       return;
     }
 
+    await refreshCryptoMacroSnapshot(env);
     await generateAndPersistReport(env);
   }
 };
@@ -863,6 +1032,7 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_daily_coin_snapshots_report_code ON daily_coin_snapshots(report_id, code)`,
     `CREATE INDEX IF NOT EXISTS idx_daily_coin_snapshots_code_report ON daily_coin_snapshots(code, report_id)`,
+    ...getCryptoMacroSchemaStatements(),
     ...getCryptoNewsSchemaStatements()
   ];
 
