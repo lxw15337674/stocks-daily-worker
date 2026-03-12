@@ -27,10 +27,10 @@ The repository uses `pnpm workspace` only. There is no `turbo` layer.
 
 ## Setup
 
-1. Login Cloudflare:
+1. Login Cloudflare from the repo root:
 
 ```bash
-npx wrangler login
+pnpm run cf:login
 ```
 
 2. Install dependencies from the workspace root:
@@ -42,8 +42,8 @@ pnpm install
 3. Create D1 databases (first time):
 
 ```bash
-npx wrangler d1 create china-stocks-daily
-npx wrangler d1 create crypto-daily
+pnpm run cf:d1:create:stocks
+pnpm run cf:d1:create:crypto
 ```
 
 Then update `apps/api/wrangler.toml` with the returned `database_id` values.
@@ -84,15 +84,21 @@ Recommended setup for this monorepo:
 - Backend Worker project
   - Root Directory: `/`
   - Build Command: `pnpm install --frozen-lockfile`
-  - Deploy Command: `pnpm --filter @china-stocks/api deploy`
+  - Deploy Command: `pnpm --filter @china-stocks/api run deploy`
   - Production Branch: `main`
 - Frontend Worker project
   - Root Directory: `/`
   - Build Command: `pnpm install --frozen-lockfile`
-  - Deploy Command: `pnpm --filter @china-stocks/web deploy`
+  - Deploy Command: `pnpm --filter @china-stocks/web run deploy`
   - Production Branch: `main`
 
 When configured, commits pushed to `main` will trigger Cloudflare auto deploy directly.
+
+Legacy compatibility note:
+
+- If an existing frontend Worker Build project still uses `Root Directory: /web`, this repo now includes a thin `web/` compatibility wrapper so the old setting can still deploy `apps/web`.
+- If that legacy project also still uses `Deploy Command: pnpm deploy`, change it to `pnpm run deploy` because `pnpm@10` reserves `deploy` as a built-in CLI command.
+- The preferred long-term Cloudflare configuration remains `Root Directory: /`.
 
 ## Optional configuration
 
@@ -134,10 +140,9 @@ Set `STOCKS_ADMIN_TOKEN` for stock admin APIs and `CRYPTO_ADMIN_TOKEN` for crypt
 This Worker uses Cloudflare Worker Versions, so use versioned secret commands:
 
 ```bash
-cd apps/api
-pnpm wrangler versions secret put STOCKS_ADMIN_TOKEN
-pnpm wrangler versions secret put CRYPTO_ADMIN_TOKEN
-pnpm wrangler versions deploy <new-version-id>@100 --yes
+pnpm exec wrangler versions secret put STOCKS_ADMIN_TOKEN --config apps/api/wrangler.toml
+pnpm exec wrangler versions secret put CRYPTO_ADMIN_TOKEN --config apps/api/wrangler.toml
+pnpm exec wrangler versions deploy <new-version-id>@100 --yes --config apps/api/wrangler.toml
 ```
 
 Admin endpoints require header:
@@ -146,7 +151,7 @@ Admin endpoints require header:
 x-admin-token: <STOCKS_ADMIN_TOKEN or CRYPTO_ADMIN_TOKEN>
 ```
 
-For local development, prefer a non-committed `apps/api/.dev.vars` file or `wrangler dev --var CRYPTO_ADMIN_TOKEN:...`.
+For local development, prefer a non-committed `apps/api/.dev.vars` file or `pnpm exec wrangler dev --config apps/api/wrangler.toml --var CRYPTO_ADMIN_TOKEN:...`.
 
 Web frontend provides the stock admin UI at `/{lang}/stocks/admin`.
 

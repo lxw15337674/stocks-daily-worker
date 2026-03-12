@@ -32,6 +32,10 @@ pnpm build
 pnpm deploy
 ```
 
+`pnpm deploy` now builds locally and then calls the repository-root Wrangler via
+`pnpm --dir ../.. exec wrangler`, so Cloudflare CLI usage stays centralized at the
+workspace root.
+
 ## API Base URL
 
 Set `MARKETS_API_BASE_URL` in `wrangler.jsonc` if the unified API worker uses a different domain.

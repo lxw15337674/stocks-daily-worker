@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "pnpm --dir ../.. exec wrangler dev --config apps/api/wrangler.toml",
+    "deploy": "pnpm --dir ../.. exec wrangler deploy --config apps/api/wrangler.toml",
     "check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio"
@@ -23,7 +23,6 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260310.1",
     "drizzle-kit": "^0.31.9",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.72.0"
+    "typescript": "^5.9.3"
   }
 }
