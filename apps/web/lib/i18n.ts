@@ -9,6 +9,7 @@ type CommonBaseCopy = {
   platformTitle: string;
   platformSubtitle: string;
   platformHome: string;
+  channelSwitcherLabel: string;
   switchLanguage: string;
   assetHubTitle: string;
   assetHubSubtitle: string;
@@ -304,6 +305,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     platformTitle: "Market Daily",
     platformSubtitle: "统一多资产市场日报平台",
     platformHome: "平台首页",
+    channelSwitcherLabel: "切换频道",
     switchLanguage: "English",
     assetHubTitle: "选择要查看的资产频道",
     assetHubSubtitle: "股票与数字货币已经接入统一平台，黄金和债券会按相同频道结构继续扩展。",
@@ -437,6 +439,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     platformTitle: "Market Daily",
     platformSubtitle: "Unified multi-asset market report platform",
     platformHome: "Platform",
+    channelSwitcherLabel: "Channel",
     switchLanguage: "中文",
     assetHubTitle: "Choose an asset channel",
     assetHubSubtitle:

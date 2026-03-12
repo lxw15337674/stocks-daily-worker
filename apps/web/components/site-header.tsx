@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
 import { useTranslation, type UseTranslationResponse } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { ASSET_REGISTRY, getAssetDescriptor, getLocalizedAssetRegistry, type AssetKey } from "@/lib/assets";
 import { MARKET_LANG_COOKIE, resolveLanguage, type Language } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import {
   assetArchivePath,
   cryptoAdminPath,
@@ -125,7 +128,10 @@ export function SiteHeader(props: SiteHeaderProps) {
   const alternateHref = searchParams?.toString() ? `${alternatePath}?${searchParams.toString()}` : alternatePath;
   const navItems = resolveNavItems(currentLang, currentAsset, pathname || "", t);
   const activeAsset = getAssetDescriptor(currentAsset, currentLang);
-  const localizedAssets = getLocalizedAssetRegistry(currentLang);
+  const localizedAssets = getLocalizedAssetRegistry(currentLang).filter(
+    (asset) => asset.enabled && (asset.key === "stocks" || asset.key === "crypto")
+  );
+  const currentChannel = localizedAssets.find((asset) => asset.key === currentAsset) ?? null;
 
   useEffect(() => {
     document.cookie = `${MARKET_LANG_COOKIE}=${currentLang}; Path=/; Max-Age=31536000; SameSite=Lax`;
@@ -136,29 +142,48 @@ export function SiteHeader(props: SiteHeaderProps) {
       <div className="site-header-inner">
         <div className="site-header">
           <div className="site-header-head">
-            <Link href={platformHomePath(currentLang)} className="site-header-brandline">
-              <span className="site-header-mark" aria-hidden="true" />
-              <p className="eyebrow">{t("platformTitle")}</p>
-              <span className="site-header-title">{activeAsset?.label ?? t("platformHome")}</span>
-              <Badge variant="outline">{t("platformSubtitle")}</Badge>
-            </Link>
+            <div className="site-header-leading">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="channel-switcher-trigger">
+                    <span className="channel-switcher-copy">
+                      <span className="channel-switcher-label">{t("channelSwitcherLabel")}</span>
+                      <span className="channel-switcher-value">{currentChannel?.label ?? t("platformHome")}</span>
+                    </span>
+                    <ChevronDown data-icon="inline-end" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-2">
+                  <div className="flex flex-col gap-1">
+                    {localizedAssets.map((asset) => (
+                      <Button
+                        key={asset.key}
+                        asChild
+                        variant="ghost"
+                        className={cn(
+                          "h-auto min-h-14 justify-start rounded-xl px-3 py-2 text-left",
+                          asset.key === currentAsset && "bg-muted text-foreground"
+                        )}
+                      >
+                        <Link href={assetHomePath(currentLang, asset.key)}>
+                          <span className="flex min-w-0 flex-1 flex-col gap-1">
+                            <span className="font-medium text-foreground">{asset.label}</span>
+                            <span className="line-clamp-2 text-xs text-muted-foreground">{asset.description}</span>
+                          </span>
+                          {asset.key === currentAsset ? <Check data-icon="inline-end" /> : null}
+                        </Link>
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
-            <div className="asset-switcher">
-              {localizedAssets.map((asset) =>
-                asset.enabled ? (
-                  <Link
-                    key={asset.key}
-                    href={assetHomePath(currentLang, asset.key)}
-                    className={asset.key === currentAsset ? "asset-chip is-active" : "asset-chip"}
-                  >
-                    {asset.label}
-                  </Link>
-                ) : (
-                  <span key={asset.key} className="asset-chip is-disabled">
-                    {asset.label}
-                  </span>
-                )
-              )}
+              <Link href={platformHomePath(currentLang)} className="site-header-brandline">
+                <span className="site-header-mark" aria-hidden="true" />
+                <p className="eyebrow">{t("platformTitle")}</p>
+                <span className="site-header-title">{activeAsset?.label ?? t("platformHome")}</span>
+                <Badge variant="outline">{t("platformSubtitle")}</Badge>
+              </Link>
             </div>
           </div>
 
