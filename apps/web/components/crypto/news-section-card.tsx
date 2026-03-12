@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import type { CoinNewsItem, MarketNewsItem } from "@/lib/crypto/types";
 import { formatDateTime } from "@/lib/crypto/format";
 import type { Language } from "@/lib/i18n";
@@ -64,7 +65,11 @@ export function NewsSectionCard(props: Props) {
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
-          <p className="empty">{emptyText}</p>
+          <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+            <EmptyHeader>
+              <EmptyTitle>{emptyText}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
             {items.map((item) => {

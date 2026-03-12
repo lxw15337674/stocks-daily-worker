@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  ArrowLeftRight,
   CalendarDays,
   ChevronLeft,
   LineChart,
@@ -12,9 +11,11 @@ import {
 import { notFound } from "next/navigation";
 
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
+import { InstrumentCompareSelect } from "@/components/stocks/instrument-compare-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   fetchStockDetail,
@@ -382,37 +383,18 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                 </div>
               </div>
 
-              <form method="get" className="w-full max-w-md space-y-2 rounded-xl border bg-background/40 p-4">
-                <label htmlFor="compare-symbol" className="text-sm font-medium">
-                  {t("compareLabel")}
-                </label>
-                <select
-                  id="compare-symbol"
-                  name="compare"
-                  defaultValue={compareTarget?.stock.symbol ?? ""}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition focus:border-ring"
-                >
-                  <option value="">{t("comparePlaceholder")}</option>
-                  {stockItems
-                    .filter((item) => item.symbol !== detail.stock.symbol)
-                    .map((item) => (
-                      <option key={item.symbol} value={item.symbol}>
-                        {item.displayName}
-                      </option>
-                    ))}
-                </select>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="submit" size="sm" variant="secondary" className="gap-1.5">
-                    <ArrowLeftRight className="h-4 w-4" />
-                    {t("updateCompare")}
-                  </Button>
-                  {compareTarget ? (
-                    <Button asChild type="button" size="sm" variant="outline">
-                      <Link href={assetInstrumentPath(lang, "stocks", detail.stock.symbol)}>{t("clearCompare")}</Link>
-                    </Button>
-                  ) : null}
-                </div>
-              </form>
+              <InstrumentCompareSelect
+                lang={lang}
+                currentSymbol={detail.stock.symbol}
+                compareSymbol={compareTarget?.stock.symbol ?? null}
+                options={stockItems
+                  .filter((item) => item.symbol !== detail.stock.symbol)
+                  .map((item) => ({ symbol: item.symbol, displayName: item.displayName }))}
+                label={t("compareLabel")}
+                placeholder={t("comparePlaceholder")}
+                submitLabel={t("updateCompare")}
+                clearLabel={t("clearCompare")}
+              />
             </div>
           </CardHeader>
         </Card>
@@ -548,7 +530,11 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {detail.reportRecords.length === 0 ? (
-                <p className="empty">{t("noReportRecords")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("noReportRecords")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 detail.reportRecords.map((item) => (
                   <article key={`${item.reportDateEt}-${item.close}`} className="rounded-xl border bg-background/40 p-4">
@@ -600,7 +586,11 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             {detail.recentNews.length === 0 ? (
-              <p className="empty">{t("noRecentNews")}</p>
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>{t("noRecentNews")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               detail.recentNews.map((item) => (
                 <article key={`${item.link}-${item.publishedAt}`} className="rounded-xl border bg-background/40 p-3">
@@ -661,7 +651,11 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
               </div>
 
               {comparisonRows.length === 0 ? (
-                <p className="empty">{t("noOverlapHistory")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("noOverlapHistory")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="overflow-x-auto">
                   <Table className="min-w-[760px]">
@@ -714,7 +708,11 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
           </CardHeader>
           <CardContent>
             {detail.history.length === 0 ? (
-              <p className="empty">{t("noHistory")}</p>
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>{t("noHistory")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <div className="overflow-x-auto">
                 <Table className="min-w-[760px]">

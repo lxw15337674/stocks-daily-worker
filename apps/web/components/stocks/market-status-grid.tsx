@@ -4,6 +4,7 @@ import type { MarketAiSummary, MarketIndexLatestResponse, MarketRegion } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { getFixedT, type Language } from "@/lib/i18n";
 import {
   formatMarketMove,
@@ -84,7 +85,11 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
                   </p>
                 </div>
               ) : (
-                <p className="empty">{t("unavailable")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-6">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("unavailable")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               )}
 
               {secondary.length > 0 ? (

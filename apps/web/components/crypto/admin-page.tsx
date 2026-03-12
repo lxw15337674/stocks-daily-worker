@@ -7,9 +7,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime } from "@/lib/crypto/format";
 import type { Language } from "@/lib/i18n";
 import { assetEventPath, assetInstrumentPath } from "@/lib/platform-routes";
@@ -229,6 +233,7 @@ type Copy = {
   actionOk: string;
   actionFailed: string;
   openSource: string;
+  allItems: string;
   displayOnly: string;
   clusters: string;
   clusterSearchLabel: string;
@@ -299,6 +304,7 @@ function getCopy(lang: Language): Copy {
       actionOk: "操作执行成功。",
       actionFailed: "操作执行失败。",
       openSource: "打开原文",
+      allItems: "全部条目",
       displayOnly: "只看展示项",
       clusters: "Cluster 调试",
       clusterSearchLabel: "标题检索",
@@ -368,6 +374,7 @@ function getCopy(lang: Language): Copy {
     actionOk: "Action completed successfully.",
     actionFailed: "Action failed.",
     openSource: "Open source",
+    allItems: "All items",
     displayOnly: "Display items only",
     clusters: "Cluster debug",
     clusterSearchLabel: "Title search",
@@ -586,6 +593,30 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
     }
   }
 
+  function renderMetricSkeleton(count: number, className: string) {
+    return (
+      <div className={className}>
+        {Array.from({ length: count }, (_, index) => (
+          <div key={`metric-skeleton-${count}-${index}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="mt-3 h-7 w-24" />
+            <Skeleton className="mt-3 h-4 w-full" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderEmptyState(message: string) {
+    return (
+      <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+        <EmptyHeader>
+          <EmptyTitle>{message}</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
   return (
     <main className="page-shell space-y-6">
       <Card>
@@ -595,15 +626,19 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{copy.subtitle}</p>
           <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto]">
-            <div className="space-y-2">
-              <Label>{copy.tokenLabel}</Label>
-              <Input
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder={copy.tokenPlaceholder}
-              />
-            </div>
+            <FieldGroup className="gap-0">
+              <Field className="gap-2">
+                <FieldContent>
+                  <FieldLabel>{copy.tokenLabel}</FieldLabel>
+                  <Input
+                    type="password"
+                    value={token}
+                    onChange={(event) => setToken(event.target.value)}
+                    placeholder={copy.tokenPlaceholder}
+                  />
+                </FieldContent>
+              </Field>
+            </FieldGroup>
             <Button className="self-end" onClick={() => void loadData()} disabled={loading}>
               {loading ? copy.loading : copy.loadData}
             </Button>
@@ -616,6 +651,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
               </Button>
             </div>
           </div>
+          {message ? <Separator /> : null}
           {message ? (
             <Alert variant={message.kind === "error" ? "destructive" : "default"}>
               <AlertTitle>{message.kind === "error" ? copy.actionFailed : copy.actionOk}</AlertTitle>
@@ -636,7 +672,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {!macroOverview ? (
-            <p className="empty">{loading ? copy.loading : copy.noData}</p>
+            loading ? renderMetricSkeleton(4, "grid gap-3 md:grid-cols-2 xl:grid-cols-4") : renderEmptyState(copy.noData)
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -745,7 +781,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         </CardHeader>
         <CardContent>
           {!overview ? (
-            <p className="empty">{loading ? copy.loading : copy.noData}</p>
+            loading ? renderMetricSkeleton(8, "grid gap-3 md:grid-cols-4 xl:grid-cols-8") : renderEmptyState(copy.noData)
           ) : (
             <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
               <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.pending}</p><p className="mt-2 text-2xl font-semibold">{overview.pendingRawCount}</p></div>
@@ -767,22 +803,30 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-[1fr_220px_auto]">
-            <div className="space-y-2">
-              <Label>{copy.clusterSearchLabel}</Label>
-              <Input
-                value={clusterQuery}
-                onChange={(event) => setClusterQuery(event.target.value)}
-                placeholder={copy.clusterSearchPlaceholder}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{copy.clusterCoinLabel}</Label>
-              <Input
-                value={clusterCoinCode}
-                onChange={(event) => setClusterCoinCode(event.target.value.toUpperCase())}
-                placeholder={copy.clusterCoinPlaceholder}
-              />
-            </div>
+            <FieldGroup className="gap-0">
+              <Field className="gap-2">
+                <FieldContent>
+                  <FieldLabel>{copy.clusterSearchLabel}</FieldLabel>
+                  <Input
+                    value={clusterQuery}
+                    onChange={(event) => setClusterQuery(event.target.value)}
+                    placeholder={copy.clusterSearchPlaceholder}
+                  />
+                </FieldContent>
+              </Field>
+            </FieldGroup>
+            <FieldGroup className="gap-0">
+              <Field className="gap-2">
+                <FieldContent>
+                  <FieldLabel>{copy.clusterCoinLabel}</FieldLabel>
+                  <Input
+                    value={clusterCoinCode}
+                    onChange={(event) => setClusterCoinCode(event.target.value.toUpperCase())}
+                    placeholder={copy.clusterCoinPlaceholder}
+                  />
+                </FieldContent>
+              </Field>
+            </FieldGroup>
             <Button
               className="self-end"
               variant="outline"
@@ -797,7 +841,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
           </div>
 
           {clusterItems.length === 0 ? (
-            <p className="empty">{loading ? copy.loading : copy.noData}</p>
+            renderEmptyState(loading ? copy.loading : copy.noData)
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[1120px]">
@@ -855,7 +899,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
             {!clusterDetail ? (
               <p className="text-sm text-muted-foreground">{copy.clusterEmptySelection}</p>
             ) : (
-              <div className="space-y-4">
+              <div className="flex flex-col gap-4">
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{copy.clusterDetailTitle}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-base font-semibold text-foreground">{clusterDetail.cluster.label}</p>
@@ -872,6 +916,8 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
                   <p>{copy.publishedAt}: {formatDateTime(clusterDetail.cluster.representative.publishedAt, props.lang)}</p>
                   <p>{copy.clusterUpdatedAt}: {formatDateTime(clusterItems.find((item) => item.clusterId === clusterDetail.cluster.clusterId)?.updatedAt ?? clusterDetail.cluster.representative.publishedAt, props.lang)}</p>
                 </div>
+
+                <Separator />
 
                 <div className="rounded-2xl border border-border/70 bg-background/55 p-4">
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{copy.clusterVerificationTitle}</p>
@@ -909,6 +955,8 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
                     ))}
                   </div>
                 </div>
+
+                <Separator />
 
                 <div className="grid gap-3 xl:grid-cols-2">
                   {clusterDetail.members.map((member) => (
@@ -968,20 +1016,35 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
             <CardTitle>{copy.curatedItems}</CardTitle>
-            <Button variant={displayOnly ? "default" : "outline"} size="sm" onClick={() => {
-              const nextValue = !displayOnly;
-              setDisplayOnly(nextValue);
-              if (token.trim()) {
-                void loadData(token, nextValue, selectedClusterId, clusterQuery, clusterCoinCode);
-              }
-            }}>
-              {copy.displayOnly}
-            </Button>
+            <ToggleGroup
+              type="single"
+              value={displayOnly ? "display" : "all"}
+              onValueChange={(value) => {
+                if (value !== "all" && value !== "display") {
+                  return;
+                }
+
+                const nextValue = value === "display";
+                setDisplayOnly(nextValue);
+                if (token.trim()) {
+                  void loadData(token, nextValue, selectedClusterId, clusterQuery, clusterCoinCode);
+                }
+              }}
+              variant="outline"
+              size="sm"
+            >
+              <ToggleGroupItem value="all" aria-label={copy.allItems}>
+                {copy.allItems}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="display" aria-label={copy.displayOnly}>
+                {copy.displayOnly}
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
         </CardHeader>
         <CardContent>
           {curatedItems.length === 0 ? (
-            <p className="empty">{loading ? copy.loading : copy.noData}</p>
+            renderEmptyState(loading ? copy.loading : copy.noData)
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[1100px]">
@@ -1034,7 +1097,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
         </CardHeader>
         <CardContent>
           {rawItems.length === 0 ? (
-            <p className="empty">{loading ? copy.loading : copy.noData}</p>
+            renderEmptyState(loading ? copy.loading : copy.noData)
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[980px]">

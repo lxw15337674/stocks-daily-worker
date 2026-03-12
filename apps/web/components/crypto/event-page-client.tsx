@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusCard } from "@/components/platform/status-card";
 import { fetchCoinsClient, fetchNewsEventDetailClient } from "@/lib/crypto/client-api";
@@ -129,7 +130,11 @@ export function EventPageClient(props: Props) {
         </CardHeader>
         <CardContent>
           {detail.coinSnapshots.length === 0 ? (
-            <p className="empty">{t("noData")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("noData")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[780px]">
@@ -176,7 +181,11 @@ export function EventPageClient(props: Props) {
         </CardHeader>
         <CardContent>
           {detail.coverage.length === 0 ? (
-            <p className="empty">{t("noData")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("noData")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {detail.coverage.map((item) => (

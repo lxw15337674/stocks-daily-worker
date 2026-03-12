@@ -18,9 +18,12 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { Field, FieldContent, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MarketAdminPanel } from "@/components/stocks/market-admin-panel";
 import { resolveLanguage, type Language } from "@/lib/i18n";
 
@@ -768,17 +771,21 @@ export default function StocksPage(props: AdminPageProps) {
                 <AlertDescription>{copy.authSessionChecking}</AlertDescription>
               </Alert>
             ) : null}
-            <form className="space-y-3" onSubmit={submitAuth}>
-              <div className="space-y-1">
-                <Label htmlFor="admin-token">{copy.adminTokenLabel}</Label>
-                <Input
-                  id="admin-token"
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  placeholder={copy.adminTokenPlaceholder}
-                  autoComplete="off"
-                />
-              </div>
+            <form className="flex flex-col gap-3" onSubmit={submitAuth}>
+              <FieldGroup className="gap-0">
+                <Field className="gap-1">
+                  <FieldContent>
+                    <FieldLabel htmlFor="admin-token">{copy.adminTokenLabel}</FieldLabel>
+                    <Input
+                      id="admin-token"
+                      value={token}
+                      onChange={(event) => setToken(event.target.value)}
+                      placeholder={copy.adminTokenPlaceholder}
+                      autoComplete="off"
+                    />
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
               <Button type="submit" className="w-full" disabled={authChecking}>
                 {authChecking ? copy.authSubmitting : copy.authSubmit}
               </Button>
@@ -830,25 +837,25 @@ export default function StocksPage(props: AdminPageProps) {
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>{copy.stockPoolTitle}</CardTitle>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="include-inactive"
-                  checked={includeInactive}
-                  onCheckedChange={(checked) => {
-                    const next = checked === true;
-                    setIncludeInactive(next);
-                    void loadStocks(next);
-                  }}
-                />
-                <Label htmlFor="include-inactive" className="font-normal">
-                  {copy.includeInactive}
-                </Label>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => void loadStocks()} disabled={loading || isBusy}>
-                {copy.refresh}
-              </Button>
-            </div>
+                <div className="flex items-center gap-2">
+                  <Field orientation="horizontal" className="w-auto items-center gap-2">
+                    <Checkbox
+                      id="include-inactive"
+                      checked={includeInactive}
+                      onCheckedChange={(checked) => {
+                        const next = checked === true;
+                        setIncludeInactive(next);
+                        void loadStocks(next);
+                      }}
+                    />
+                    <FieldLabel htmlFor="include-inactive" className="font-normal">
+                      {copy.includeInactive}
+                    </FieldLabel>
+                  </Field>
+                  <Button variant="outline" size="sm" onClick={() => void loadStocks()} disabled={loading || isBusy}>
+                    {copy.refresh}
+                  </Button>
+                </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -927,21 +934,25 @@ export default function StocksPage(props: AdminPageProps) {
             <DialogTitle>{isCreateMode ? copy.createDialogTitle : copy.editDialogTitle(editingId)}</DialogTitle>
             {isCreateMode ? <DialogDescription>{copy.createDialogDescription}</DialogDescription> : null}
           </DialogHeader>
-          <form className="space-y-3" onSubmit={submitForm}>
+          <form className="flex flex-col gap-3" onSubmit={submitForm}>
             {isCreateMode ? (
               <>
-                <div className="space-y-2">
-                  <Label htmlFor="preview-name">{copy.stockNameLabel}</Label>
-                  <Input
-                    id="preview-name"
-                    value={form.name}
-                    onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder={copy.stockNamePlaceholder}
-                  />
+                <FieldGroup className="gap-2">
+                  <Field className="gap-2">
+                    <FieldContent>
+                      <FieldLabel htmlFor="preview-name">{copy.stockNameLabel}</FieldLabel>
+                      <Input
+                        id="preview-name"
+                        value={form.name}
+                        onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                        placeholder={copy.stockNamePlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
                   <Button type="button" variant="secondary" onClick={() => void generatePreviewCandidates()} disabled={isBusy}>
                     {previewLoading ? copy.previewGenerating : copy.previewGenerate}
                   </Button>
-                </div>
+                </FieldGroup>
 
                 {previewGlobalWarnings.length > 0 ? (
                   <Alert>
@@ -951,26 +962,40 @@ export default function StocksPage(props: AdminPageProps) {
                 ) : null}
 
                 {previewCandidates.length > 0 ? (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label>{copy.previewCandidatesLabel}</Label>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="flex flex-col gap-3">
+                    <FieldSet className="gap-2">
+                      <FieldLegend variant="label">{copy.previewCandidatesLabel}</FieldLegend>
+                      <ToggleGroup
+                        type="single"
+                        value={selectedPreviewIndex >= 0 ? String(selectedPreviewIndex) : ""}
+                        onValueChange={(value) => {
+                          if (!value) {
+                            return;
+                          }
+
+                          const nextIndex = Number(value);
+                          if (Number.isInteger(nextIndex)) {
+                            choosePreviewCandidate(nextIndex);
+                          }
+                        }}
+                        variant="outline"
+                        className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2"
+                      >
                         {previewCandidates.map((candidate, index) => (
-                          <Button
+                          <ToggleGroupItem
                             key={`${candidate.symbol}-${index}`}
-                            type="button"
-                            variant={selectedPreviewIndex === index ? "default" : "outline"}
-                            className="h-auto min-h-[86px] w-full flex-col items-start justify-start gap-1 whitespace-normal py-2 text-left"
-                            onClick={() => choosePreviewCandidate(index)}
+                            value={String(index)}
+                            aria-label={`${copy.previewCandidateLabel(index)} ${candidate.symbol}`}
+                            className="h-auto min-h-[86px] w-full flex-col items-start justify-start gap-1 whitespace-normal px-3 py-2 text-left"
                             disabled={isBusy}
                           >
                             <span className="block text-xs text-muted-foreground">{copy.previewCandidateLabel(index)}</span>
                             <span className="block break-all font-medium leading-tight">{candidate.symbol}</span>
                             <span className="block break-words text-xs leading-tight">{candidate.displayName}</span>
-                          </Button>
+                          </ToggleGroupItem>
                         ))}
-                      </div>
-                    </div>
+                      </ToggleGroup>
+                    </FieldSet>
 
                     {selectedPreviewCandidate?.warnings && selectedPreviewCandidate.warnings.length > 0 ? (
                       <Alert>
@@ -986,150 +1011,182 @@ export default function StocksPage(props: AdminPageProps) {
                       </Alert>
                     ) : null}
 
-                    <div className="space-y-1">
-                      <Label htmlFor="create-symbol">{copy.symbolLabel}</Label>
-                      <Input
-                        id="create-symbol"
-                        value={form.symbol}
-                        onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
-                        placeholder={copy.symbolEditablePlaceholder}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="create-display-name">{copy.displayNameLabel}</Label>
-                      <Input
-                        id="create-display-name"
-                        value={form.displayName}
-                        onChange={(event) => setForm((prev) => ({ ...prev, displayName: event.target.value }))}
-                        placeholder={copy.displayNamePlaceholder}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="create-codes">{copy.exchangeCodesLabel}</Label>
-                      <Input
-                        id="create-codes"
-                        value={form.codes}
-                        onChange={(event) => setForm((prev) => ({ ...prev, codes: event.target.value }))}
-                        placeholder={copy.exchangeCodesPlaceholder}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="create-business-type">{copy.businessTypeLabel}</Label>
-                      <Input
-                        id="create-business-type"
-                        value={form.businessType}
-                        onChange={(event) => setForm((prev) => ({ ...prev, businessType: event.target.value }))}
-                        placeholder={copy.businessTypePlaceholder}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="create-aliases">{copy.aliasesLabel}</Label>
-                      <Input
-                        id="create-aliases"
-                        value={form.aliasesText}
-                        onChange={(event) => setForm((prev) => ({ ...prev, aliasesText: event.target.value }))}
-                        placeholder={copy.aliasesPlaceholder}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="create-sort-order">{copy.sortOrderLabel}</Label>
-                      <Input
-                        id="create-sort-order"
-                        value={form.sortOrder}
-                        onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: event.target.value }))}
-                        placeholder={copy.sortOrderOptionalPlaceholder}
-                        inputMode="numeric"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
+                    <Separator />
+
+                    <FieldGroup className="gap-3">
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-symbol">{copy.symbolLabel}</FieldLabel>
+                          <Input
+                            id="create-symbol"
+                            value={form.symbol}
+                            onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
+                            placeholder={copy.symbolEditablePlaceholder}
+                          />
+                        </FieldContent>
+                      </Field>
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-display-name">{copy.displayNameLabel}</FieldLabel>
+                          <Input
+                            id="create-display-name"
+                            value={form.displayName}
+                            onChange={(event) => setForm((prev) => ({ ...prev, displayName: event.target.value }))}
+                            placeholder={copy.displayNamePlaceholder}
+                          />
+                        </FieldContent>
+                      </Field>
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-codes">{copy.exchangeCodesLabel}</FieldLabel>
+                          <Input
+                            id="create-codes"
+                            value={form.codes}
+                            onChange={(event) => setForm((prev) => ({ ...prev, codes: event.target.value }))}
+                            placeholder={copy.exchangeCodesPlaceholder}
+                          />
+                        </FieldContent>
+                      </Field>
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-business-type">{copy.businessTypeLabel}</FieldLabel>
+                          <Input
+                            id="create-business-type"
+                            value={form.businessType}
+                            onChange={(event) => setForm((prev) => ({ ...prev, businessType: event.target.value }))}
+                            placeholder={copy.businessTypePlaceholder}
+                          />
+                        </FieldContent>
+                      </Field>
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-aliases">{copy.aliasesLabel}</FieldLabel>
+                          <Input
+                            id="create-aliases"
+                            value={form.aliasesText}
+                            onChange={(event) => setForm((prev) => ({ ...prev, aliasesText: event.target.value }))}
+                            placeholder={copy.aliasesPlaceholder}
+                          />
+                        </FieldContent>
+                      </Field>
+                      <Field className="gap-1">
+                        <FieldContent>
+                          <FieldLabel htmlFor="create-sort-order">{copy.sortOrderLabel}</FieldLabel>
+                          <Input
+                            id="create-sort-order"
+                            value={form.sortOrder}
+                            onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                            placeholder={copy.sortOrderOptionalPlaceholder}
+                            inputMode="numeric"
+                          />
+                        </FieldContent>
+                      </Field>
+                    </FieldGroup>
+                    <Field orientation="horizontal" className="w-auto items-center gap-2">
                       <Checkbox
                         id="create-stock-active"
                         checked={form.isActive}
                         onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isActive: checked === true }))}
                       />
-                      <Label htmlFor="create-stock-active" className="font-normal">
+                      <FieldLabel htmlFor="create-stock-active" className="font-normal">
                         {copy.active}
-                      </Label>
-                    </div>
+                      </FieldLabel>
+                    </Field>
                   </div>
                 ) : null}
               </>
             ) : (
               <>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-symbol">{copy.symbolLabel}</Label>
-                  <Input
-                    id="edit-symbol"
-                    value={form.symbol}
-                    onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
-                    placeholder={copy.symbolPlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-name">{copy.stockNameLabel}</Label>
-                  <Input
-                    id="edit-name"
-                    value={form.name}
-                    onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder={copy.stockNamePlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-display-name">{copy.displayNameLabel}</Label>
-                  <Input
-                    id="edit-display-name"
-                    value={form.displayName}
-                    onChange={(event) => setForm((prev) => ({ ...prev, displayName: event.target.value }))}
-                    placeholder={copy.displayNamePlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-codes">{copy.exchangeCodesLabel}</Label>
-                  <Input
-                    id="edit-codes"
-                    value={form.codes}
-                    onChange={(event) => setForm((prev) => ({ ...prev, codes: event.target.value }))}
-                    placeholder={copy.exchangeCodesPlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-business-type">{copy.businessTypeLabel}</Label>
-                  <Input
-                    id="edit-business-type"
-                    value={form.businessType}
-                    onChange={(event) => setForm((prev) => ({ ...prev, businessType: event.target.value }))}
-                    placeholder={copy.businessTypePlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-aliases">{copy.aliasesLabel}</Label>
-                  <Input
-                    id="edit-aliases"
-                    value={form.aliasesText}
-                    onChange={(event) => setForm((prev) => ({ ...prev, aliasesText: event.target.value }))}
-                    placeholder={copy.aliasesPlaceholder}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="edit-sort-order">{copy.sortOrderLabel}</Label>
-                  <Input
-                    id="edit-sort-order"
-                    value={form.sortOrder}
-                    onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: event.target.value }))}
-                    placeholder={copy.sortOrderPlaceholder}
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
+                <FieldGroup className="gap-3">
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-symbol">{copy.symbolLabel}</FieldLabel>
+                      <Input
+                        id="edit-symbol"
+                        value={form.symbol}
+                        onChange={(event) => setForm((prev) => ({ ...prev, symbol: event.target.value }))}
+                        placeholder={copy.symbolPlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-name">{copy.stockNameLabel}</FieldLabel>
+                      <Input
+                        id="edit-name"
+                        value={form.name}
+                        onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                        placeholder={copy.stockNamePlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-display-name">{copy.displayNameLabel}</FieldLabel>
+                      <Input
+                        id="edit-display-name"
+                        value={form.displayName}
+                        onChange={(event) => setForm((prev) => ({ ...prev, displayName: event.target.value }))}
+                        placeholder={copy.displayNamePlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-codes">{copy.exchangeCodesLabel}</FieldLabel>
+                      <Input
+                        id="edit-codes"
+                        value={form.codes}
+                        onChange={(event) => setForm((prev) => ({ ...prev, codes: event.target.value }))}
+                        placeholder={copy.exchangeCodesPlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-business-type">{copy.businessTypeLabel}</FieldLabel>
+                      <Input
+                        id="edit-business-type"
+                        value={form.businessType}
+                        onChange={(event) => setForm((prev) => ({ ...prev, businessType: event.target.value }))}
+                        placeholder={copy.businessTypePlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-aliases">{copy.aliasesLabel}</FieldLabel>
+                      <Input
+                        id="edit-aliases"
+                        value={form.aliasesText}
+                        onChange={(event) => setForm((prev) => ({ ...prev, aliasesText: event.target.value }))}
+                        placeholder={copy.aliasesPlaceholder}
+                      />
+                    </FieldContent>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="edit-sort-order">{copy.sortOrderLabel}</FieldLabel>
+                      <Input
+                        id="edit-sort-order"
+                        value={form.sortOrder}
+                        onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                        placeholder={copy.sortOrderPlaceholder}
+                        inputMode="numeric"
+                      />
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
+                <Field orientation="horizontal" className="w-auto items-center gap-2">
                   <Checkbox
                     id="stock-active"
                     checked={form.isActive}
                     onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isActive: checked === true }))}
                   />
-                  <Label htmlFor="stock-active" className="font-normal">
+                  <FieldLabel htmlFor="stock-active" className="font-normal">
                     {copy.active}
-                  </Label>
-                </div>
+                  </FieldLabel>
+                </Field>
               </>
             )}
 

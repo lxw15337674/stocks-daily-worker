@@ -13,6 +13,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getFixedT, type Language } from "@/lib/i18n";
@@ -101,12 +103,16 @@ export default async function MarketPage(props: MarketPageProps) {
               <form action={stocksMarketPath(lang)} method="get" className="flex flex-wrap items-end gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
                 <input type="hidden" name="range" value={initialRange} />
                 <input type="hidden" name="indexKeys" value={selectedIndexKeys.join(",")} />
-                <div className="min-w-[220px] space-y-1">
-                  <label htmlFor="market-summary-date" className="text-xs font-medium text-muted-foreground">
-                    {t("summaryArchiveLabel")}
-                  </label>
-                  <Input id="market-summary-date" type="date" name="summaryDate" defaultValue={summaryDateValue} />
-                </div>
+                <FieldGroup className="min-w-[220px] flex-1 gap-0">
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="market-summary-date" className="text-xs text-muted-foreground">
+                        {t("summaryArchiveLabel")}
+                      </FieldLabel>
+                      <Input id="market-summary-date" type="date" name="summaryDate" defaultValue={summaryDateValue} />
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
                 <Button type="submit" size="sm">
                   {t("summaryArchiveApply")}
                 </Button>
@@ -141,11 +147,19 @@ export default async function MarketPage(props: MarketPageProps) {
                 <CardTitle className="text-lg">{t("latestTitle")}</CardTitle>
               </div>
               <p className="meta">{t("latestDescription")}</p>
-            </CardHeader>
-            <CardContent>
-              {hasMarketContent(latest, summary) ? <MarketStatusGrid lang={lang} latest={latest} compact /> : <p className="empty">{t("noSummary")}</p>}
-            </CardContent>
-          </Card>
+          </CardHeader>
+          <CardContent>
+            {hasMarketContent(latest, summary) ? (
+              <MarketStatusGrid lang={lang} latest={latest} compact />
+            ) : (
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>{t("noSummary")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </CardContent>
+        </Card>
         </div>
 
         <Card>
@@ -174,7 +188,11 @@ export default async function MarketPage(props: MarketPageProps) {
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
-              <p className="empty">{t("unavailable")}</p>
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>{t("unavailable")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <div className="overflow-x-auto">
                 <Table className="min-w-[780px]">

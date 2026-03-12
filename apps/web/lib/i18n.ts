@@ -78,18 +78,22 @@ type CommonNamespace = CommonBaseCopy & {
   assets: {
     stocks: {
       label: string;
+      shortLabel: string;
       description: string;
     };
     crypto: {
       label: string;
+      shortLabel: string;
       description: string;
     };
     gold: {
       label: string;
+      shortLabel: string;
       description: string;
     };
     bonds: {
       label: string;
+      shortLabel: string;
       description: string;
     };
   };
@@ -371,18 +375,22 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     assets: {
       stocks: {
         label: "股票",
+        shortLabel: "股票",
         description: "股票日报、股票池管理、历史归档和对比复盘。"
       },
       crypto: {
         label: "数字货币",
+        shortLabel: "币圈",
         description: "固定 Top 10 币种的结构化日报、归档与币种详情。"
       },
       gold: {
         label: "黄金",
+        shortLabel: "黄金",
         description: "黄金资产频道会沿用同样的日报、归档和标的详情结构。"
       },
       bonds: {
         label: "债券",
+        shortLabel: "债券",
         description: "债券资产频道会在统一平台下接入。"
       }
     },
@@ -506,18 +514,22 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     assets: {
       stocks: {
         label: "Stocks",
+        shortLabel: "Stocks",
         description: "Stock reports, stock pool management, archive, and comparison workflows."
       },
       crypto: {
         label: "Crypto",
+        shortLabel: "Crypto",
         description: "Structured reports, archive, and instrument detail views for the fixed Top 10 crypto universe."
       },
       gold: {
         label: "Gold",
+        shortLabel: "Gold",
         description: "The gold channel will reuse the same report, archive, and instrument detail structure."
       },
       bonds: {
         label: "Bonds",
+        shortLabel: "Bonds",
         description: "The bonds channel will be added under the same unified platform."
       }
     },

@@ -4,6 +4,7 @@ import { HeroPanel } from "@/components/platform/hero-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { getLocalizedAssetRegistry } from "@/lib/assets";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
@@ -37,7 +38,11 @@ export default async function PlatformHomePage(props: {
                   <Link href={assetHomePath(lang, asset.key)}>{t("openChannel")}</Link>
                 </Button>
               ) : (
-                <p className="empty">{t("comingSoon")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-6">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("comingSoon")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               )}
             </CardContent>
           </Card>

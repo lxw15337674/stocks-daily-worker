@@ -7,7 +7,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type MarketChartClientProps = {
   lang: "zh" | "en";
@@ -124,32 +125,26 @@ export function MarketChartClient(props: MarketChartClientProps) {
     });
   }
 
-  function toggleIndex(indexKey: string) {
-    const nextSelectedKeys = selectedKeys.includes(indexKey)
-      ? selectedKeys.length > 1
-        ? selectedKeys.filter((item) => item !== indexKey)
-        : selectedKeys
-      : [...selectedKeys, indexKey];
-
-    updateUrl(range, nextSelectedKeys);
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+        <ToggleGroup
+          type="single"
+          value={range}
+          onValueChange={(value) => {
+            if (value === "1m" || value === "3m" || value === "1y") {
+              updateUrl(value, selectedKeys);
+            }
+          }}
+          variant="outline"
+          size="sm"
+        >
           {RANGE_OPTIONS.map((item) => (
-            <Button
-              key={item}
-              type="button"
-              variant={item === range ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => updateUrl(item, selectedKeys)}
-            >
+            <ToggleGroupItem key={item} value={item} aria-label={item}>
               {item === "1m" ? t("market.range1m") : item === "3m" ? t("market.range3m") : t("market.range1y")}
-            </Button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {isPending ? <Badge variant="outline">{t("market.chartLoading")}</Badge> : null}
@@ -157,26 +152,34 @@ export function MarketChartClient(props: MarketChartClientProps) {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <ToggleGroup
+        type="multiple"
+        value={selectedKeys}
+        onValueChange={(value) => {
+          if (value.length > 0) {
+            updateUrl(range, value);
+          }
+        }}
+        variant="outline"
+        className="flex w-full flex-wrap justify-start gap-2"
+        spacing={2}
+      >
         {allItems.map((item) => (
-          <Button
-            key={item.indexKey}
-            type="button"
-            variant={selectedKeys.includes(item.indexKey) ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => toggleIndex(item.indexKey)}
-            className="h-auto min-h-8 px-3 py-2"
-          >
+          <ToggleGroupItem key={item.indexKey} value={item.indexKey} className="h-auto min-h-8 px-3 py-2">
             <span className="flex flex-col items-start gap-1 text-left leading-none">
               <span>{lang === "zh" ? item.nameZh : item.nameEn}</span>
               {item.isPrimary ? <span className="text-[11px] opacity-75">{t("market.primaryLabel")}</span> : null}
             </span>
-          </Button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
 
       {chartData.length === 0 || seriesList.length === 0 ? (
-        <p className="empty">{t("market.chartEmpty")}</p>
+        <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+          <EmptyHeader>
+            <EmptyTitle>{t("market.chartEmpty")}</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="h-[360px] rounded-2xl border border-border/70 bg-background/40 p-3">
           <ResponsiveContainer width="100%" height="100%">

@@ -9,6 +9,7 @@ type AssetRegistryItem = {
 
 export type AssetDescriptor = AssetRegistryItem & {
   label: string;
+  shortLabel: string;
   description: string;
 };
 
@@ -37,6 +38,7 @@ function localizeAsset(asset: AssetRegistryItem, lang: Language): AssetDescripto
   return {
     ...asset,
     label: t("label"),
+    shortLabel: t("shortLabel"),
     description: t("description")
   };
 }

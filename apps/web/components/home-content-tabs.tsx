@@ -11,6 +11,7 @@ import { ReportStockTable } from "@/components/report-stock-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Language } from "@/lib/i18n";
@@ -248,7 +249,11 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
           </div>
 
           {featuredStocks.length === 0 ? (
-            <p className="empty mt-4">{t("home.featuredEmpty")}</p>
+            <Empty className="mt-4 border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("home.featuredEmpty")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               {featuredStocks.map((item) => (
@@ -367,7 +372,11 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
               </div>
 
               {newsGroups.every((group) => group.items.length === 0) ? (
-                <p className="empty">{t("home.noCompanyNews")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("home.noCompanyNews")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="grid gap-4 xl:grid-cols-2">
                   {newsGroups

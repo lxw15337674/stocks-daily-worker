@@ -11,6 +11,7 @@ import { StatusCard } from "@/components/platform/status-card";
 import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchCoinDetailClient, fetchCoinNewsClient, fetchMacroSnapshotClient } from "@/lib/crypto/client-api";
 import type { CoinDetail, CoinNewsItem, CryptoMacroSnapshot } from "@/lib/crypto/types";
@@ -186,7 +187,11 @@ export function InstrumentPageClient(props: Props) {
         </CardHeader>
         <CardContent>
           {detail.eventTimeline.length === 0 ? (
-            <p className="empty">{t("crypto.eventTimelineEmpty")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("crypto.eventTimelineEmpty")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="grid gap-3 xl:grid-cols-2">
               {detail.eventTimeline.map((item) => (
@@ -242,7 +247,11 @@ export function InstrumentPageClient(props: Props) {
         </CardHeader>
         <CardContent>
           {detail.history.length === 0 ? (
-            <p className="empty">{t("noData")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("noData")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[900px]">

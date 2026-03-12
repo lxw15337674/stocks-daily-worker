@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type JSX } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type ReportStockRow = {
@@ -79,14 +80,16 @@ function SortableHead(props: {
 
   return (
     <TableHead className={textClass}>
-      <button
+      <Button
         type="button"
         onClick={() => onClick(sortKey)}
-        className={`inline-flex w-full items-center gap-1.5 ${justifyClass} text-muted-foreground transition-colors hover:text-foreground`}
+        variant="ghost"
+        size="sm"
+        className={`h-auto w-full px-0 ${justifyClass} text-muted-foreground hover:bg-transparent hover:text-foreground`}
       >
         <span>{label}</span>
         <SortIndicator active={isActive} direction={direction} />
-      </button>
+      </Button>
     </TableHead>
   );
 }

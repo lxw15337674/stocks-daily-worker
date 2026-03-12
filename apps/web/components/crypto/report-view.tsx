@@ -8,6 +8,7 @@ import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
 import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CoinItem, CoinNewsItem, CryptoMacroSnapshot, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
@@ -237,7 +238,11 @@ export function ReportView(props: ReportViewProps) {
         </CardHeader>
         <CardContent>
           {focusItems.every((item) => (props.coinNewsByCode[item.code] ?? []).length === 0) ? (
-            <p className="empty">{t("crypto.noFocusCoverage")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("crypto.noFocusCoverage")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="grid gap-3 xl:grid-cols-3">
               {focusItems.map((item) => {
@@ -298,7 +303,11 @@ export function ReportView(props: ReportViewProps) {
         </CardHeader>
         <CardContent>
           {props.clusters.length === 0 ? (
-            <p className="empty">{t("crypto.noMarketNews")}</p>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyHeader>
+                <EmptyTitle>{t("crypto.noMarketNews")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="grid gap-3 lg:grid-cols-3">
               {props.clusters.map((cluster) => (

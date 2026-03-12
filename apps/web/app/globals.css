@@ -130,7 +130,7 @@
   }
 
   .site-header-leading {
-    @apply flex flex-col gap-2;
+    @apply flex flex-col gap-1.5;
   }
 
   .site-header-brandline {
@@ -138,19 +138,27 @@
   }
 
   .channel-switcher-trigger {
-    @apply h-auto min-h-10 justify-between gap-3 rounded-xl border-border/70 bg-background/45 px-3 py-2 text-left;
+    @apply h-auto min-h-9 justify-between gap-2.5 rounded-xl border-border/70 bg-background/45 px-2.5 py-1.5 text-left;
   }
 
   .channel-switcher-copy {
-    @apply flex min-w-0 flex-col items-start gap-0.5;
+    @apply flex min-w-0 items-center gap-2;
   }
 
   .channel-switcher-label {
-    @apply text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground;
+    @apply hidden text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground;
   }
 
   .channel-switcher-value {
     @apply truncate text-sm font-semibold text-foreground;
+  }
+
+  .channel-switcher-badge {
+    @apply inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em];
+  }
+
+  .channel-menu-badge {
+    @apply rounded-full px-1.5 py-0 text-[10px] font-semibold tracking-[0.14em];
   }
 
   .site-header-mark {
@@ -159,6 +167,10 @@
 
   .site-header-title {
     @apply font-sans text-sm font-semibold tracking-[0.01em] text-foreground;
+  }
+
+  .site-header-subtitle-badge {
+    @apply hidden sm:inline-flex;
   }
 
   .site-header-separator {
@@ -242,10 +254,6 @@
     @apply rounded-md bg-secondary px-3 py-2 transition hover:bg-secondary/70;
   }
 
-  .empty {
-    @apply text-sm text-muted-foreground;
-  }
-
   .report-list {
     @apply mt-4 grid gap-3;
   }
@@ -325,6 +333,18 @@
 
     .site-header-leading {
       @apply flex-row items-center gap-3;
+    }
+
+    .channel-switcher-trigger {
+      @apply min-h-10 gap-3 px-3 py-2;
+    }
+
+    .channel-switcher-copy {
+      @apply flex-col items-start gap-0.5;
+    }
+
+    .channel-switcher-label {
+      @apply inline;
     }
 
     .site-header-controls {

@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, Check, ChevronDown, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bitcoin, Check, ChevronDown, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
 import { useTranslation, type UseTranslationResponse } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
-import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
 import { ASSET_REGISTRY, getAssetDescriptor, getLocalizedAssetRegistry, type AssetKey } from "@/lib/assets";
 import { MARKET_LANG_COOKIE, resolveLanguage, type Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -117,6 +117,33 @@ function resolveNavItems(
   return [];
 }
 
+function resolveChannelIcon(asset: AssetKey | null): typeof TrendingUp {
+  if (asset === "crypto") {
+    return Bitcoin;
+  }
+  return TrendingUp;
+}
+
+function resolveChannelAccent(asset: AssetKey | null): {
+  trigger: string;
+  iconShell: string;
+  itemActive: string;
+} {
+  if (asset === "crypto") {
+    return {
+      trigger: "border-secondary/80 bg-secondary/35",
+      iconShell: "border-secondary/80 bg-secondary text-secondary-foreground",
+      itemActive: "bg-secondary/50"
+    };
+  }
+
+  return {
+    trigger: "border-primary/30 bg-primary/5",
+    iconShell: "border-primary/20 bg-primary/10 text-primary",
+    itemActive: "bg-primary/5"
+  };
+}
+
 export function SiteHeader(props: SiteHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -132,6 +159,9 @@ export function SiteHeader(props: SiteHeaderProps) {
     (asset) => asset.enabled && (asset.key === "stocks" || asset.key === "crypto")
   );
   const currentChannel = localizedAssets.find((asset) => asset.key === currentAsset) ?? null;
+  const CurrentChannelIcon = resolveChannelIcon(currentChannel?.key ?? currentAsset);
+  const currentChannelAccent = resolveChannelAccent(currentChannel?.key ?? currentAsset);
+  const currentChannelBadge = currentChannel?.shortLabel ?? activeAsset?.shortLabel ?? t("platformHome");
 
   useEffect(() => {
     document.cookie = `${MARKET_LANG_COOKIE}=${currentLang}; Path=/; Max-Age=31536000; SameSite=Lax`;
@@ -143,46 +173,69 @@ export function SiteHeader(props: SiteHeaderProps) {
         <div className="site-header">
           <div className="site-header-head">
             <div className="site-header-leading">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="channel-switcher-trigger">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("channel-switcher-trigger", currentChannelAccent.trigger)}>
+                    <span className={cn("flex size-8 items-center justify-center rounded-lg border", currentChannelAccent.iconShell)}>
+                      <CurrentChannelIcon />
+                    </span>
                     <span className="channel-switcher-copy">
                       <span className="channel-switcher-label">{t("channelSwitcherLabel")}</span>
-                      <span className="channel-switcher-value">{currentChannel?.label ?? t("platformHome")}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="channel-switcher-value">{currentChannel?.label ?? t("platformHome")}</span>
+                        <Badge variant="secondary" className="channel-switcher-badge">
+                          {currentChannelBadge}
+                        </Badge>
+                      </span>
                     </span>
                     <ChevronDown data-icon="inline-end" />
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-2">
-                  <div className="flex flex-col gap-1">
-                    {localizedAssets.map((asset) => (
-                      <Button
-                        key={asset.key}
-                        asChild
-                        variant="ghost"
-                        className={cn(
-                          "h-auto min-h-14 justify-start rounded-xl px-3 py-2 text-left",
-                          asset.key === currentAsset && "bg-muted text-foreground"
-                        )}
-                      >
-                        <Link href={assetHomePath(currentLang, asset.key)}>
-                          <span className="flex min-w-0 flex-1 flex-col gap-1">
-                            <span className="font-medium text-foreground">{asset.label}</span>
-                            <span className="line-clamp-2 text-xs text-muted-foreground">{asset.description}</span>
-                          </span>
-                          {asset.key === currentAsset ? <Check data-icon="inline-end" /> : null}
-                        </Link>
-                      </Button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72 p-2">
+                  <DropdownMenuLabel>{t("channelSwitcherLabel")}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    {localizedAssets.map((asset) => {
+                      const AssetIcon = resolveChannelIcon(asset.key);
+                      const accent = resolveChannelAccent(asset.key);
+                      return (
+                        <DropdownMenuItem
+                          key={asset.key}
+                          asChild
+                          className={cn(
+                            "h-auto min-h-14 rounded-xl px-3 py-2",
+                            asset.key === currentAsset && cn(accent.itemActive, "text-foreground")
+                          )}
+                        >
+                          <Link href={assetHomePath(currentLang, asset.key)}>
+                            <span className={cn("flex size-9 items-center justify-center rounded-lg border", accent.iconShell)}>
+                              <AssetIcon />
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col gap-1">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-medium text-foreground">{asset.label}</span>
+                                <Badge variant="outline" className="channel-menu-badge">
+                                  {asset.shortLabel}
+                                </Badge>
+                              </span>
+                              <span className="line-clamp-2 text-xs text-muted-foreground">{asset.description}</span>
+                            </span>
+                            {asset.key === currentAsset ? <Check data-icon="inline-end" /> : null}
+                          </Link>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Link href={platformHomePath(currentLang)} className="site-header-brandline">
                 <span className="site-header-mark" aria-hidden="true" />
                 <p className="eyebrow">{t("platformTitle")}</p>
                 <span className="site-header-title">{activeAsset?.label ?? t("platformHome")}</span>
-                <Badge variant="outline">{t("platformSubtitle")}</Badge>
+                <Badge variant="outline" className="site-header-subtitle-badge">
+                  {t("platformSubtitle")}
+                </Badge>
               </Link>
             </div>
           </div>

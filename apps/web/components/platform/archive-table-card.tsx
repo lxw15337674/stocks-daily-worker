@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 
 type ArchiveTableCardProps = {
   title: string;
@@ -21,12 +22,14 @@ export function ArchiveTableCard(props: ArchiveTableCardProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {props.toolbar}
-        {props.state === "loading" ? (
-          <p className="empty">{props.loadingMessage}</p>
-        ) : props.state === "empty" ? (
-          <p className="empty">{props.emptyMessage}</p>
-        ) : (
+        {props.state === "ready" ? (
           props.children
+        ) : (
+          <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+            <EmptyHeader>
+              <EmptyTitle>{props.state === "loading" ? props.loadingMessage : props.emptyMessage}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         )}
       </CardContent>
     </Card>

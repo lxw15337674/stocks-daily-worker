@@ -9,6 +9,8 @@ import { assetHomePath, assetInstrumentPath, stocksComparePath } from "@/lib/pla
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -203,9 +205,11 @@ export default async function ComparePage(props: ComparePageProps) {
             <CardTitle>{t("emptyHistoryTitle")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline">
-              <Link href={assetHomePath(lang, "stocks")}>{t("backHome")}</Link>
-            </Button>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <Button asChild variant="outline">
+                <Link href={assetHomePath(lang, "stocks")}>{t("backHome")}</Link>
+              </Button>
+            </Empty>
           </CardContent>
         </Card>
       </main>
@@ -221,10 +225,12 @@ export default async function ComparePage(props: ComparePageProps) {
             <CardTitle>{t("missingReportsTitle")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="meta">{t("missingReportsDescription")}</p>
-            <Button asChild variant="outline">
-              <Link href={assetHomePath(lang, "stocks")}>{t("backHome")}</Link>
-            </Button>
+            <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+              <EmptyDescription>{t("missingReportsDescription")}</EmptyDescription>
+              <Button asChild variant="outline">
+                <Link href={assetHomePath(lang, "stocks")}>{t("backHome")}</Link>
+              </Button>
+            </Empty>
           </CardContent>
         </Card>
       </main>
@@ -281,18 +287,26 @@ export default async function ComparePage(props: ComparePageProps) {
               </div>
 
               <form method="get" action={stocksComparePath(lang)} className="grid w-full max-w-xl gap-3 rounded-xl border bg-background/40 p-4 md:grid-cols-[1fr_1fr_auto]">
-                <div className="space-y-1">
-                  <label htmlFor="compare-date-current" className="text-sm font-medium">
-                    {t("currentReportLabel")}
-                  </label>
-                  <Input id="compare-date-current" name="date" type="date" defaultValue={date} required />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="compare-date-previous" className="text-sm font-medium">
-                    {t("compareReportLabel")}
-                  </label>
-                  <Input id="compare-date-previous" name="compareDate" type="date" defaultValue={compareDate} required />
-                </div>
+                <FieldGroup className="gap-0">
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="compare-date-current">
+                        {t("currentReportLabel")}
+                      </FieldLabel>
+                      <Input id="compare-date-current" name="date" type="date" defaultValue={date} required />
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
+                <FieldGroup className="gap-0">
+                  <Field className="gap-1">
+                    <FieldContent>
+                      <FieldLabel htmlFor="compare-date-previous">
+                        {t("compareReportLabel")}
+                      </FieldLabel>
+                      <Input id="compare-date-previous" name="compareDate" type="date" defaultValue={compareDate} required />
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
                 <div className="flex items-end">
                   <Button type="submit" className="w-full gap-1.5">
                     <ArrowLeftRight className="h-4 w-4" />
@@ -336,7 +350,11 @@ export default async function ComparePage(props: ComparePageProps) {
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
             {watchRows.length === 0 ? (
-              <p className="empty md:col-span-3">{t("watchlistEmpty")}</p>
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8 md:col-span-3">
+                <EmptyHeader>
+                  <EmptyTitle>{t("watchlistEmpty")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               watchRows.map((row) => (
                 <div key={row.key} className="rounded-xl border bg-background/40 p-4">
@@ -414,7 +432,11 @@ export default async function ComparePage(props: ComparePageProps) {
           </CardHeader>
           <CardContent>
             {comparisonRows.length === 0 ? (
-              <p className="empty">{t("noOverlapSamples")}</p>
+              <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>{t("noOverlapSamples")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <div className="overflow-x-auto">
                 <Table className="min-w-[860px]">
@@ -461,7 +483,11 @@ export default async function ComparePage(props: ComparePageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {newlyAdded.length === 0 ? (
-                <p className="empty">{t("noNewSamples")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("noNewSamples")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 newlyAdded.map((row, index) => (
                   <div key={`added-${row.symbol ?? row.company}-${index}`} className="rounded-xl border bg-background/40 p-3">
@@ -484,7 +510,11 @@ export default async function ComparePage(props: ComparePageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {removed.length === 0 ? (
-                <p className="empty">{t("noDroppedSamples")}</p>
+                <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+                  <EmptyHeader>
+                    <EmptyTitle>{t("noDroppedSamples")}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 removed.map((row, index) => (
                   <div key={`removed-${row.symbol ?? row.company}-${index}`} className="rounded-xl border bg-background/40 p-3">
