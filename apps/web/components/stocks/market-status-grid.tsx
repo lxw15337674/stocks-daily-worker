@@ -66,7 +66,7 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               {primary ? (
-                <div className={`rounded-2xl border p-4 ${getMarketChangePanelClass(primary.region, primary.changePct)}`}>
+                <div className={`rounded-2xl border p-4 ${getMarketChangePanelClass(lang, primary.region, primary.changePct)}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -102,7 +102,7 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-foreground">{formatMarketPrice(item.price, item.currency, lang)}</p>
-                        <p className={`mt-1 text-xs font-medium ${getMarketChangeTextClass(item.region, item.changePct)}`}>
+                        <p className={`mt-1 text-xs font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
                           {formatMarketMove(item.changePct)}
                         </p>
                       </div>

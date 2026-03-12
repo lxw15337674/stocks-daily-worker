@@ -35,6 +35,11 @@ type ApiTarget = {
   cookieHeader: string | null;
 };
 
+function isLocalDevHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized.includes("localhost") || normalized.includes("127.0.0.1");
+}
+
 function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
@@ -48,7 +53,11 @@ async function resolveApiTarget(): Promise<ApiTarget> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
   const cookieHeader = requestHeaders.get("cookie");
   if (!host) {
-    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "", cookieHeader };
+    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "/api/v1/stocks", cookieHeader };
+  }
+
+  if (isLocalDevHost(host)) {
+    return { baseUrl: DEFAULT_API_BASE_URL, pathPrefix: "/api/v1/stocks", cookieHeader };
   }
 
   const forwardedProto = requestHeaders.get("x-forwarded-proto");

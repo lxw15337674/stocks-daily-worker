@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getChangeTextClass, getChangeToneBadgeClass } from "@/lib/change-color";
 import type { Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
@@ -66,14 +67,8 @@ function formatSignedPercent(value: number | null | undefined): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function toneClass(tone: FeatureTone): string {
-  if (tone === "positive") {
-    return "border-red-500/30 bg-red-500/10 text-red-300";
-  }
-  if (tone === "negative") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
-  }
-  return "border-border/70 bg-background/50 text-muted-foreground";
+function toneClass(lang: Language, tone: FeatureTone): string {
+  return getChangeToneBadgeClass(lang, tone);
 }
 
 function pickFeaturedStocks(rows: ParsedReportStockRow[], t: TFunction<"stocks">): FeaturedStock[] {
@@ -261,7 +256,7 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClass(item.tone)}`}>
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClass(lang, item.tone)}`}>
                           {item.label}
                         </span>
                         {item.row.businessType ? (
@@ -275,7 +270,7 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
                     </div>
 
                     <div className="text-right">
-                      <p className={`text-lg font-semibold ${item.row.changeValue && item.row.changeValue > 0 ? "text-red-400" : item.row.changeValue && item.row.changeValue < 0 ? "text-emerald-400" : "text-foreground"}`}>
+                      <p className={`text-lg font-semibold ${item.row.changeValue === null ? "text-foreground" : getChangeTextClass(lang, item.row.changeValue)}`}>
                         {item.row.changeText || "-"}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">{item.row.closeText}</p>
@@ -352,6 +347,7 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
               </section>
 
               <ReportStockTable
+                lang={lang}
                 rows={rows}
                 variant="embedded"
                 title={t("home.stockTableTitle")}

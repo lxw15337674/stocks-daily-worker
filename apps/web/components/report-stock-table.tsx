@@ -6,6 +6,8 @@ import { useMemo, useState, type JSX } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getChangeTextClassStrong } from "@/lib/change-color";
+import type { Language } from "@/lib/i18n";
 
 export type ReportStockRow = {
   company: string;
@@ -41,17 +43,12 @@ function compareNullableNumbers(a: number | null, b: number | null, direction: S
   return direction === "asc" ? diff : -diff;
 }
 
-function changeValueClass(value: number | null): string {
-  if (value === null) {
+function changeValueClass(lang: Language, value: number | null): string {
+  if (value === 0) {
     return "text-muted-foreground";
   }
-  if (value > 0) {
-    return "text-red-400 font-semibold";
-  }
-  if (value < 0) {
-    return "text-emerald-400 font-semibold";
-  }
-  return "text-slate-300";
+
+  return getChangeTextClassStrong(lang, value);
 }
 
 function SortIndicator(props: { active: boolean; direction: SortDirection }) {
@@ -95,6 +92,7 @@ function SortableHead(props: {
 }
 
 type ReportStockTableProps = {
+  lang: Language;
   rows: ReportStockRow[];
   variant?: "card" | "embedded";
   title?: string | null;
@@ -109,6 +107,7 @@ type ReportStockTableProps = {
 
 export function ReportStockTable(props: ReportStockTableProps) {
   const {
+    lang,
     rows,
     variant = "card",
     title = "二、股票数据",
@@ -204,7 +203,7 @@ export function ReportStockTable(props: ReportStockTableProps) {
               </TableCell>
               {hasCodeColumn ? <TableCell className="break-words">{row.code || "-"}</TableCell> : null}
               <TableCell className="w-[1%] whitespace-nowrap text-right">{row.closeText}</TableCell>
-              <TableCell className={`w-[1%] whitespace-nowrap text-right ${changeValueClass(row.changeValue)}`}>
+              <TableCell className={`w-[1%] whitespace-nowrap text-right ${changeValueClass(lang, row.changeValue)}`}>
                 {row.changeText}
               </TableCell>
             </TableRow>

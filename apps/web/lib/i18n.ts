@@ -1,4 +1,4 @@
-import { createInstance, type Resource, type TFunction } from "i18next";
+import { createInstance, type Resource, type TFunction, type i18n } from "i18next";
 
 export const SUPPORTED_LANGUAGES = ["zh", "en"] as const;
 export const MARKET_LANG_COOKIE = "market_lang";
@@ -865,6 +865,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       reportRecapNode: "日报复盘节点",
       noItemAiSummary: "该次日报暂无 AI 个股摘要，建议结合当天正文和新闻列表继续查看。",
       recentNewsTitle: "最近新闻",
+      recentNewsSummaryLabel: "相关新闻摘要",
       noRecentNews: "暂无可展示的相关新闻。",
       comparisonSummaryTitle: "对比摘要: {{primary}} vs {{secondary}}",
       overlapSessions: "{{count}} 个重叠交易日",
@@ -1226,6 +1227,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       reportRecapNode: "Report recap node",
       noItemAiSummary: "No AI stock summary was generated for this report. Review the report body and news list for context.",
       recentNewsTitle: "Recent News",
+      recentNewsSummaryLabel: "Related News Summary",
       noRecentNews: "No related news is available.",
       comparisonSummaryTitle: "Comparison Summary: {{primary}} vs {{secondary}}",
       overlapSessions: "{{count}} overlapping sessions",
@@ -1393,9 +1395,18 @@ export function getI18nOptions(language: Language) {
   } as const;
 }
 
+const I18N_INSTANCE_CACHE = new Map<Language, i18n>();
+
 export function createI18nInstance(language: Language) {
+  const resolvedLanguage = resolveLanguage(language);
+  const cached = I18N_INSTANCE_CACHE.get(resolvedLanguage);
+  if (cached) {
+    return cached;
+  }
+
   const instance = createInstance();
-  void instance.init(getI18nOptions(language));
+  instance.init(getI18nOptions(resolvedLanguage), () => {});
+  I18N_INSTANCE_CACHE.set(resolvedLanguage, instance);
   return instance;
 }
 

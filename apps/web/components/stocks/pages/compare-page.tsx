@@ -14,6 +14,7 @@ import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/fie
 import { Input } from "@/components/ui/input";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getChangeTextClass } from "@/lib/change-color";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stocks-report";
 
@@ -60,17 +61,8 @@ function formatNameList(t: TFunction<"stocks", "compare">, names: string[]): str
   return names.join(t("listSeparator"));
 }
 
-function changeTextClass(value: number | null): string {
-  if (value === null) {
-    return "text-muted-foreground";
-  }
-  if (value > 0) {
-    return "text-red-400";
-  }
-  if (value < 0) {
-    return "text-emerald-400";
-  }
-  return "text-muted-foreground";
+function changeTextClass(lang: Language, value: number | null): string {
+  return getChangeTextClass(lang, value);
 }
 
 function pickDistinctDates(items: ReportListItem[]): string[] {
@@ -360,7 +352,7 @@ export default async function ComparePage(props: ComparePageProps) {
                 <div key={row.key} className="rounded-xl border bg-background/40 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant="secondary">{t("deltaPriorityBadge")}</Badge>
-                    <span className={`text-sm font-semibold ${changeTextClass(row.deltaValue)}`}>{formatSignedPct(row.deltaValue)}</span>
+                    <span className={`text-sm font-semibold ${changeTextClass(lang, row.deltaValue)}`}>{formatSignedPct(row.deltaValue)}</span>
                   </div>
                   <div className="mt-2">
                     {renderCompanyCell(row)}
@@ -457,13 +449,13 @@ export default async function ComparePage(props: ComparePageProps) {
                         </TableCell>
                         <TableCell>
                           <div className="whitespace-nowrap">{row.currentCloseText}</div>
-                          <div className={`text-xs ${changeTextClass(row.currentChangeValue)}`}>{row.currentChangeText}</div>
+                          <div className={`text-xs ${changeTextClass(lang, row.currentChangeValue)}`}>{row.currentChangeText}</div>
                         </TableCell>
                         <TableCell>
                           <div className="whitespace-nowrap">{row.previousCloseText}</div>
-                          <div className={`text-xs ${changeTextClass(row.previousChangeValue)}`}>{row.previousChangeText}</div>
+                          <div className={`text-xs ${changeTextClass(lang, row.previousChangeValue)}`}>{row.previousChangeText}</div>
                         </TableCell>
-                        <TableCell className={`text-right font-semibold ${changeTextClass(row.deltaValue)}`}>{formatSignedPct(row.deltaValue)}</TableCell>
+                        <TableCell className={`text-right font-semibold ${changeTextClass(lang, row.deltaValue)}`}>{formatSignedPct(row.deltaValue)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -493,7 +485,7 @@ export default async function ComparePage(props: ComparePageProps) {
                   <div key={`added-${row.symbol ?? row.company}-${index}`} className="rounded-xl border bg-background/40 p-3">
                     {renderCompanyCell(row)}
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {row.closeText} · <span className={changeTextClass(row.changeValue)}>{row.changeText}</span>
+                      {row.closeText} · <span className={changeTextClass(lang, row.changeValue)}>{row.changeText}</span>
                     </div>
                   </div>
                 ))
@@ -520,7 +512,7 @@ export default async function ComparePage(props: ComparePageProps) {
                   <div key={`removed-${row.symbol ?? row.company}-${index}`} className="rounded-xl border bg-background/40 p-3">
                     {renderCompanyCell(row)}
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {row.closeText} · <span className={changeTextClass(row.changeValue)}>{row.changeText}</span>
+                      {row.closeText} · <span className={changeTextClass(lang, row.changeValue)}>{row.changeText}</span>
                     </div>
                   </div>
                 ))

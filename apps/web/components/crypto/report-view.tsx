@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { useTranslation } from "react-i18next";
 
 import { HeroPanel } from "@/components/platform/hero-panel";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
@@ -10,9 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getChangeTextClass } from "@/lib/change-color";
 import type { CoinItem, CoinNewsItem, CryptoMacroSnapshot, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
-import type { Language } from "@/lib/i18n";
+import { getFixedT, type Language } from "@/lib/i18n";
 import { assetEventPath, assetInstrumentPath } from "@/lib/platform-routes";
 
 type ReportViewProps = {
@@ -73,7 +71,7 @@ function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string)
 
 export function ReportView(props: ReportViewProps) {
   const { lang, report, coins, macro } = props;
-  const { t } = useTranslation("common");
+  const t = getFixedT(lang, "common");
   const coinByCode = new Map(coins.map((coin) => [coin.code, coin]));
   const focusItems = [...report.items]
     .sort((a, b) => Math.abs(b.change24hPct) - Math.abs(a.change24hPct) || b.quoteVolume24hUsdt - a.quoteVolume24hUsdt)
@@ -186,7 +184,7 @@ export function ReportView(props: ReportViewProps) {
                       </TableCell>
                       <TableCell>{item.code}</TableCell>
                       <TableCell className="text-right">{formatPrice(item.priceUsdt, lang)}</TableCell>
-                      <TableCell className={`text-right font-semibold ${item.change24hPct > 0 ? "text-red-400" : item.change24hPct < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                      <TableCell className={`text-right font-semibold ${getChangeTextClass(lang, item.change24hPct)}`}>
                         {formatSignedPercent(item.change24hPct)}
                       </TableCell>
                       <TableCell className="text-right">{formatCompactCurrency(item.quoteVolume24hUsdt, lang)}</TableCell>
@@ -214,7 +212,7 @@ export function ReportView(props: ReportViewProps) {
                     <p className="text-sm font-medium text-foreground">{getCoinName(coin, lang)}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{item.code}</p>
                   </div>
-                  <p className={`text-lg font-semibold ${item.change24hPct > 0 ? "text-red-400" : item.change24hPct < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                  <p className={`text-lg font-semibold ${getChangeTextClass(lang, item.change24hPct)}`}>
                     {formatSignedPercent(item.change24hPct)}
                   </p>
                 </div>

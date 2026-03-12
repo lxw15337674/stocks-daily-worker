@@ -8,6 +8,7 @@
     "cf:d1:create:stocks": "wrangler d1 create china-stocks-daily --config apps/api/wrangler.toml",
     "cf:d1:create:crypto": "wrangler d1 create crypto-daily --config apps/api/wrangler.toml",
     "dev": "pnpm -r --parallel --filter @china-stocks/api --filter @china-stocks/web dev",
+    "dev:all": "pnpm run dev",
     "dev:api": "wrangler dev --config apps/api/wrangler.toml",
     "dev:web": "pnpm --filter @china-stocks/web dev",
     "build": "pnpm -r --if-present build",

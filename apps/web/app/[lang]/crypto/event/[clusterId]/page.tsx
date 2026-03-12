@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 
-import { EventPageClient } from "@/components/crypto/event-page-client";
+import { CryptoEventPageContent } from "@/components/crypto/event-page";
 import type { Language } from "@/lib/i18n";
 
 export default async function CryptoEventPage(props: {
@@ -14,5 +14,5 @@ export default async function CryptoEventPage(props: {
     notFound();
   }
 
-  return <EventPageClient lang={lang} clusterId={parsed} />;
+  return <CryptoEventPageContent lang={lang} clusterId={parsed} />;
 }

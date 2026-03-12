@@ -6,6 +6,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { pickBestCompareTarget } from "@/lib/compare-target";
+import { getChangeTextClass } from "@/lib/change-color";
 import type { Language } from "@/lib/i18n";
 import { assetInstrumentPath } from "@/lib/platform-routes";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
@@ -32,17 +33,8 @@ type MoversGroupCopy = {
   }>;
 };
 
-function metricTextClass(value: number | null): string {
-  if (value === null) {
-    return "text-muted-foreground";
-  }
-  if (value > 0) {
-    return "text-red-400";
-  }
-  if (value < 0) {
-    return "text-emerald-400";
-  }
-  return "text-muted-foreground";
+function metricTextClass(lang: Language, value: number | null): string {
+  return getChangeTextClass(lang, value);
 }
 
 function formatChange(value: string): string {
@@ -280,7 +272,7 @@ function RankGridCard(props: {
                   </div>
 
                   <div className="text-right">
-                    <p className={`text-sm font-semibold ${metricTextClass(primaryMetricValue)}`}>
+                    <p className={`text-sm font-semibold ${metricTextClass(lang, primaryMetricValue)}`}>
                       {getPrimaryMetricText(row, section.metric)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 
-import { ReportDatePageClient } from "@/components/crypto/report-date-page-client";
+import { CryptoReportDatePageContent } from "@/components/crypto/report-date-page";
 import type { Language } from "@/lib/i18n";
 
 export default async function CryptoReportDatePage(props: {
@@ -14,5 +14,5 @@ export default async function CryptoReportDatePage(props: {
     notFound();
   }
 
-  return <ReportDatePageClient lang={lang} date={date} />;
+  return <CryptoReportDatePageContent lang={lang} date={date} />;
 }

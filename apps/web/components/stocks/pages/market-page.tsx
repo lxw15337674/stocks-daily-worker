@@ -218,7 +218,7 @@ export default async function MarketPage(props: MarketPageProps) {
                         <TableCell className="whitespace-nowrap text-right">
                           {formatMarketPrice(item.price, item.currency, lang)}
                         </TableCell>
-                        <TableCell className={`whitespace-nowrap text-right font-medium ${getMarketChangeTextClass(item.region, item.changePct)}`}>
+                        <TableCell className={`whitespace-nowrap text-right font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
                           {formatMarketMove(item.changePct)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right text-muted-foreground">

@@ -1,13 +1,9 @@
-"use client";
-
-import { useTranslation } from "react-i18next";
-
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import type { CoinNewsItem, MarketNewsItem } from "@/lib/crypto/types";
 import { formatDateTime } from "@/lib/crypto/format";
-import type { Language } from "@/lib/i18n";
+import { getFixedT, type Language } from "@/lib/i18n";
 
 type NewsItem = MarketNewsItem | CoinNewsItem;
 
@@ -56,7 +52,7 @@ function humanizeStance(value: NewsItem["stance"], t: (key: string) => string): 
 
 export function NewsSectionCard(props: Props) {
   const { lang, title, emptyText, items } = props;
-  const { t } = useTranslation("common");
+  const t = getFixedT(lang, "common");
 
   return (
     <Card>

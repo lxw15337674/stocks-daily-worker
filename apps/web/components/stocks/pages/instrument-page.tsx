@@ -26,6 +26,7 @@ import {
   type StockDetailResult,
   type StockHistoryPoint
 } from "@/lib/api";
+import { getChangeTextClass } from "@/lib/change-color";
 import { toReadableDate } from "@/lib/date";
 import { assetHomePath, assetInstrumentPath } from "@/lib/platform-routes";
 import {
@@ -107,14 +108,10 @@ function formatPublishedAt(value: string, lang: Language): string {
   }).format(date);
 }
 
-function changeTextClass(value: number): string {
-  if (value > 0) {
-    return "text-red-400";
-  }
-  if (value < 0) {
-    return "text-emerald-400";
-  }
-  return "text-muted-foreground";
+function resolveCurrentLanguageText(text: LocalizedText, lang: Language): string | null {
+  const value = lang === "zh" ? text.zh : text.en;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function buildComparisonRows(primary: StockHistoryPoint[], secondary: StockHistoryPoint[]): ComparisonRow[] {
@@ -287,6 +284,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
   if (!detail) {
     notFound();
   }
+  const recentNewsSummary = resolveCurrentLanguageText(detail.latestAiSummary, lang);
 
   let poolRows: RankedPoolRow[] = [];
   if (detail.latestReportDateEt) {
@@ -404,7 +402,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
             title={t("latestCloseTitle")}
             value={detail.latestQuote ? formatPrice(detail.latestQuote.close, detail.latestQuote.currency) : t("notAvailable")}
             description={
-              <span className={detail.latestQuote ? `font-medium ${changeTextClass(detail.latestQuote.changePct)}` : "text-muted-foreground"}>
+              <span className={detail.latestQuote ? `font-medium ${getChangeTextClass(lang, detail.latestQuote.changePct)}` : "text-muted-foreground"}>
                 {detail.latestQuote ? formatSignedPct(detail.latestQuote.changePct) : t("noChangeData")}
               </span>
             }
@@ -466,11 +464,9 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                     <p className="text-sm text-muted-foreground">{item.label}</p>
                     <p
                       className={`mt-2 text-2xl font-semibold ${
-                        item.tone === "positive"
-                          ? "text-red-400"
-                          : item.tone === "negative"
-                            ? "text-emerald-400"
-                            : "text-foreground"
+                        item.tone === "positive" || item.tone === "negative"
+                          ? getChangeTextClass(lang, item.tone === "positive" ? 1 : -1)
+                          : "text-foreground"
                       }`}
                     >
                       {item.value}
@@ -552,7 +548,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                         <p className="text-sm font-medium">
                           {detail.latestQuote ? formatPrice(item.close, detail.latestQuote.currency) : item.close.toFixed(2)}
                         </p>
-                        <p className={`mt-1 text-xs font-medium ${changeTextClass(item.changePct)}`}>
+                        <p className={`mt-1 text-xs font-medium ${getChangeTextClass(lang, item.changePct)}`}>
                           {formatSignedPct(item.changePct)}
                         </p>
                       </div>
@@ -583,6 +579,14 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
               <Newspaper className="h-4 w-4" />
               {t("recentNewsTitle")}
             </CardTitle>
+            {recentNewsSummary ? (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                  {t("recentNewsSummaryLabel")}
+                </p>
+                <p className="text-sm leading-6 text-foreground/90">{recentNewsSummary}</p>
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
             {detail.recentNews.length === 0 ? (
@@ -625,7 +629,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                     {t("periodReturnLabel", { symbol: detail.stock.symbol })}
                   </p>
                   <p
-                    className={`mt-2 text-2xl font-semibold ${comparisonWindow ? changeTextClass(comparisonWindow.returnPct) : "text-muted-foreground"}`}
+                    className={`mt-2 text-2xl font-semibold ${comparisonWindow ? getChangeTextClass(lang, comparisonWindow.returnPct) : "text-muted-foreground"}`}
                   >
                     {comparisonWindow ? formatSignedPct(comparisonWindow.returnPct) : t("notAvailable")}
                   </p>
@@ -635,7 +639,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                     {t("periodReturnLabel", { symbol: compareTarget.stock.symbol })}
                   </p>
                   <p
-                    className={`mt-2 text-2xl font-semibold ${secondaryWindow ? changeTextClass(secondaryWindow.returnPct) : "text-muted-foreground"}`}
+                    className={`mt-2 text-2xl font-semibold ${secondaryWindow ? getChangeTextClass(lang, secondaryWindow.returnPct) : "text-muted-foreground"}`}
                   >
                     {secondaryWindow ? formatSignedPct(secondaryWindow.returnPct) : t("notAvailable")}
                   </p>
@@ -643,7 +647,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                 <div className="rounded-xl border bg-background/40 p-4">
                   <p className="text-sm text-muted-foreground">{t("relativeOutperformanceLabel")}</p>
                   <p
-                    className={`mt-2 text-2xl font-semibold ${relativeSpread !== null ? changeTextClass(relativeSpread) : "text-muted-foreground"}`}
+                    className={`mt-2 text-2xl font-semibold ${relativeSpread !== null ? getChangeTextClass(lang, relativeSpread) : "text-muted-foreground"}`}
                   >
                     {relativeSpread !== null ? formatSignedPct(relativeSpread) : t("notAvailable")}
                   </p>
@@ -673,17 +677,17 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                           <TableCell>{item.reportDateEt}</TableCell>
                           <TableCell>
                             <div className="whitespace-nowrap">{formatPrice(item.primary.close, item.primary.currency)}</div>
-                            <div className={`text-xs ${changeTextClass(item.primary.changePct)}`}>
+                            <div className={`text-xs ${getChangeTextClass(lang, item.primary.changePct)}`}>
                               {formatSignedPct(item.primary.changePct)}
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="whitespace-nowrap">{formatPrice(item.secondary.close, item.secondary.currency)}</div>
-                            <div className={`text-xs ${changeTextClass(item.secondary.changePct)}`}>
+                            <div className={`text-xs ${getChangeTextClass(lang, item.secondary.changePct)}`}>
                               {formatSignedPct(item.secondary.changePct)}
                             </div>
                           </TableCell>
-                          <TableCell className={changeTextClass(item.spreadPct)}>
+                          <TableCell className={getChangeTextClass(lang, item.spreadPct)}>
                             {formatSignedPct(item.spreadPct)}
                           </TableCell>
                         </TableRow>
@@ -739,7 +743,7 @@ export default async function StockDetailPage(props: StockDetailPageProps) {
                         <TableCell className="whitespace-nowrap text-right">
                           {formatPrice(item.previousClose, item.currency)}
                         </TableCell>
-                        <TableCell className={`whitespace-nowrap text-right font-medium ${changeTextClass(item.changePct)}`}>
+                        <TableCell className={`whitespace-nowrap text-right font-medium ${getChangeTextClass(lang, item.changePct)}`}>
                           {item.changePct > 0 ? (
                             <TrendingUp className="mr-1 inline h-3.5 w-3.5" />
                           ) : item.changePct < 0 ? (

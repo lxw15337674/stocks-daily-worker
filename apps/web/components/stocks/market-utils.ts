@@ -1,4 +1,5 @@
 import type { MarketAiSummary, MarketIndexLatestResponse, MarketIndexLiveItem, MarketRegion } from "@china-stocks/contracts";
+import { getChangePanelClass, getChangeTextClass } from "@/lib/change-color";
 import type { Language } from "@/lib/i18n";
 
 export const MARKET_REGION_ORDER: MarketRegion[] = ["cn", "hk", "us"];
@@ -52,32 +53,12 @@ export function formatMarketTimestamp(value: string | null, lang: Language): str
   }).format(date);
 }
 
-export function getMarketChangeTextClass(region: MarketRegion, value: number | null): string {
-  if (value === null || value === 0) {
-    return "text-muted-foreground";
-  }
-
-  if (region === "us") {
-    return value > 0 ? "text-emerald-400" : "text-red-400";
-  }
-
-  return value > 0 ? "text-red-400" : "text-emerald-400";
+export function getMarketChangeTextClass(lang: Language, _region: MarketRegion, value: number | null): string {
+  return getChangeTextClass(lang, value);
 }
 
-export function getMarketChangePanelClass(region: MarketRegion, value: number | null): string {
-  if (value === null || value === 0) {
-    return "border-border/70 bg-background/50 text-muted-foreground";
-  }
-
-  if (region === "us") {
-    return value > 0
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-      : "border-red-500/30 bg-red-500/10 text-red-200";
-  }
-
-  return value > 0
-    ? "border-red-500/30 bg-red-500/10 text-red-200"
-    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+export function getMarketChangePanelClass(lang: Language, _region: MarketRegion, value: number | null): string {
+  return getChangePanelClass(lang, value);
 }
 
 export function pickPrimaryMarketItem(items: MarketIndexLiveItem[], primaryIndexKey: string): MarketIndexLiveItem | null {

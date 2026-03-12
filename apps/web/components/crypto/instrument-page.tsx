@@ -1,27 +1,25 @@
-"use client";
-
 import Link from "next/link";
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 
-import { ReportDatePicker } from "@/components/report-date-picker";
+import { NewsSectionCard } from "@/components/crypto/news-section-card";
+import { CryptoInstrumentDateForm } from "@/components/crypto/instrument-date-form";
 import { HeroPanel } from "@/components/platform/hero-panel";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
 import { StatusCard } from "@/components/platform/status-card";
-import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchCoinDetailClient, fetchCoinNewsClient, fetchMacroSnapshotClient } from "@/lib/crypto/client-api";
-import type { CoinDetail, CoinNewsItem, CryptoMacroSnapshot } from "@/lib/crypto/types";
+import { getChangeTextClass } from "@/lib/change-color";
+import { fetchCoinDetail, fetchCoinNews, fetchMacroSnapshot } from "@/lib/crypto/api";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
-import type { Language } from "@/lib/i18n";
+import { isValidReportDate } from "@/lib/date";
+import { getFixedT, type Language } from "@/lib/i18n";
 import { assetEventPath } from "@/lib/platform-routes";
 
-type Props = {
+type CryptoInstrumentPageProps = {
   lang: Language;
   code: string;
+  searchParams: Promise<{ date?: string }>;
 };
 
 function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string) => string): string {
@@ -38,66 +36,32 @@ function formatOptionalSignedPercent(value: number | null): string {
   return value === null ? "-" : formatSignedPercent(value);
 }
 
-export function InstrumentPageClient(props: Props) {
-  const { lang, code } = props;
-  const { t } = useTranslation("common");
-  const [detail, setDetail] = useState<CoinDetail | null | undefined>(undefined);
-  const [macro, setMacro] = useState<CryptoMacroSnapshot | null>(null);
-  const [newsItems, setNewsItems] = useState<CoinNewsItem[]>([]);
-  const [selectedReportDate, setSelectedReportDate] = useState<string | null>(null);
-  const [newsLoading, setNewsLoading] = useState(true);
-
-  const loadDetail = useEffectEvent(async () => {
-    const nextDetail = await fetchCoinDetailClient(code);
-    const initialReportDate = nextDetail?.history[0]?.reportDate ?? null;
-    startTransition(() => {
-      setDetail(nextDetail);
-      setMacro(null);
-      setSelectedReportDate(initialReportDate);
-      setNewsItems([]);
-      setNewsLoading(true);
-    });
-  });
-
-  const loadNewsForDate = useEffectEvent(async (reportDate: string | null) => {
-    setNewsLoading(true);
-    const [nextNewsItems, nextMacro] = await Promise.all([
-      fetchCoinNewsClient(code, 8, 72, reportDate),
-      fetchMacroSnapshotClient(reportDate)
-    ]);
-    startTransition(() => {
-      setNewsItems(nextNewsItems);
-      setMacro(nextMacro);
-      setNewsLoading(false);
-    });
-  });
-
-  useEffect(() => {
-    void loadDetail();
-  }, [loadDetail]);
-
-  useEffect(() => {
-    if (detail === undefined || detail === null) {
-      return;
-    }
-    if (!selectedReportDate) {
-      return;
-    }
-    void loadNewsForDate(selectedReportDate);
-  }, [detail, selectedReportDate, loadNewsForDate]);
-
-  if (detail === undefined) {
-    return <StatusCard title={code.toUpperCase()} body={t("loading")} />;
-  }
+export async function CryptoInstrumentPageContent(props: CryptoInstrumentPageProps) {
+  const { code, lang } = props;
+  const t = getFixedT(lang, "common");
+  const { date: rawDate } = await props.searchParams;
+  const detail = await fetchCoinDetail(code);
 
   if (!detail) {
     return <StatusCard title={code.toUpperCase()} body={t("noData")} />;
   }
 
+  const requestedDate = rawDate?.trim() ?? "";
+  const defaultReportDate = detail.history[0]?.reportDate ?? null;
+  const selectedReportDate =
+    requestedDate && isValidReportDate(requestedDate)
+      ? requestedDate
+      : defaultReportDate;
+
+  const [newsItems, macro] = selectedReportDate
+    ? await Promise.all([
+        fetchCoinNews(code, 8, 72, selectedReportDate),
+        fetchMacroSnapshot(selectedReportDate)
+      ])
+    : [[], null];
+
   const name = lang === "zh" ? detail.coin.nameZh : detail.coin.nameEn;
   const corePosition = lang === "zh" ? detail.coin.corePositionZh : detail.coin.corePositionEn;
-  const availableDates = detail.history.map((item) => item.reportDate).filter((value): value is string => !!value);
-  const defaultReportDate = availableDates[0] ?? null;
   const eventTimelineByDate = new Map<string, typeof detail.eventTimeline>();
   for (const item of detail.eventTimeline) {
     const bucket = eventTimelineByDate.get(item.reportDate) ?? [];
@@ -129,11 +93,7 @@ export function InstrumentPageClient(props: Props) {
           title={t("tableChange24h")}
           value={detail.latestSnapshot ? formatSignedPercent(detail.latestSnapshot.change24hPct) : t("noData")}
           valueClassName={`text-2xl font-semibold ${
-            detail.latestSnapshot && detail.latestSnapshot.change24hPct > 0
-              ? "text-red-400"
-              : detail.latestSnapshot && detail.latestSnapshot.change24hPct < 0
-                ? "text-emerald-400"
-                : "text-muted-foreground"
+            detail.latestSnapshot ? getChangeTextClass(lang, detail.latestSnapshot.change24hPct) : "text-muted-foreground"
           }`}
         />
         <MetricCard
@@ -290,7 +250,7 @@ export function InstrumentPageClient(props: Props) {
                           )}
                         </TableCell>
                         <TableCell className="text-right">{formatPrice(item.priceUsdt, lang)}</TableCell>
-                        <TableCell className={`text-right font-semibold ${item.change24hPct > 0 ? "text-red-400" : item.change24hPct < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        <TableCell className={`text-right font-semibold ${getChangeTextClass(lang, item.change24hPct)}`}>
                           {formatSignedPercent(item.change24hPct)}
                         </TableCell>
                         <TableCell className="text-right">{formatCompactCurrency(item.quoteVolume24hUsdt, lang)}</TableCell>
@@ -306,20 +266,20 @@ export function InstrumentPageClient(props: Props) {
         </CardContent>
       </Card>
 
-      {defaultReportDate ? (
+      {selectedReportDate ? (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>{t("crypto.dateScopedNewsLabel")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <ReportDatePicker
-              value={selectedReportDate ?? defaultReportDate}
-              onChange={(nextDate) => {
-                setSelectedReportDate(nextDate);
-              }}
+            <CryptoInstrumentDateForm
+              value={selectedReportDate}
+              label={t("reportDate")}
+              submitLabel={t("viewReport")}
+              invalidDateError={t("forms.invalidDateError")}
             />
             <p className="text-xs text-muted-foreground">
-              {t("reportDate")}: {selectedReportDate ?? defaultReportDate}
+              {t("reportDate")}: {selectedReportDate}
             </p>
           </CardContent>
         </Card>
@@ -332,7 +292,7 @@ export function InstrumentPageClient(props: Props) {
             ? `${t("crypto.coinNewsTitle")} · ${selectedReportDate}`
             : t("crypto.coinNewsTitle")
         }
-        emptyText={newsLoading ? t("loading") : t("crypto.noCoinNews")}
+        emptyText={t("crypto.noCoinNews")}
         items={newsItems}
       />
     </main>

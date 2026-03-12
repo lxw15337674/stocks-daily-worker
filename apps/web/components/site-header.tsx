@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, Bitcoin, Check, ChevronDown, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bitcoin, Check, ChevronDown, Languages, LayoutGrid, Newspaper, Settings2, TrendingUp } from "lucide-react";
 import { useTranslation, type UseTranslationResponse } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
 import { ASSET_REGISTRY, getAssetDescriptor, getLocalizedAssetRegistry, type AssetKey } from "@/lib/assets";
-import { MARKET_LANG_COOKIE, resolveLanguage, type Language } from "@/lib/i18n";
+import { MARKET_LANG_COOKIE, SUPPORTED_LANGUAGES, resolveLanguage, type Language } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
   assetArchivePath,
@@ -144,24 +145,37 @@ function resolveChannelAccent(asset: AssetKey | null): {
   };
 }
 
+function getLanguageLabel(language: Language): string {
+  return language === "zh" ? "中文" : "English";
+}
+
 export function SiteHeader(props: SiteHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentLang = resolveLanguage(props.lang);
   const { t } = useTranslation("common");
   const currentAsset = resolveAsset(pathname || `/${currentLang}`);
-  const alternateLang = currentLang === "zh" ? "en" : "zh";
-  const alternatePath = switchLanguagePath(pathname || `/${currentLang}`, currentLang, alternateLang);
-  const alternateHref = searchParams?.toString() ? `${alternatePath}?${searchParams.toString()}` : alternatePath;
   const navItems = resolveNavItems(currentLang, currentAsset, pathname || "", t);
   const activeAsset = getAssetDescriptor(currentAsset, currentLang);
   const localizedAssets = getLocalizedAssetRegistry(currentLang).filter(
     (asset) => asset.enabled && (asset.key === "stocks" || asset.key === "crypto")
   );
+  const languageOptions = SUPPORTED_LANGUAGES.map((language) => {
+    const targetPath = switchLanguagePath(pathname || `/${currentLang}`, currentLang, language);
+    const href = searchParams?.toString() ? `${targetPath}?${searchParams.toString()}` : targetPath;
+
+    return {
+      language,
+      href,
+      label: getLanguageLabel(language)
+    };
+  });
   const currentChannel = localizedAssets.find((asset) => asset.key === currentAsset) ?? null;
   const CurrentChannelIcon = resolveChannelIcon(currentChannel?.key ?? currentAsset);
   const currentChannelAccent = resolveChannelAccent(currentChannel?.key ?? currentAsset);
   const currentChannelBadge = currentChannel?.shortLabel ?? activeAsset?.shortLabel ?? t("platformHome");
+  const showCurrentChannelBadge =
+    currentChannel != null && currentChannel.shortLabel.trim().toLocaleLowerCase() !== currentChannel.label.trim().toLocaleLowerCase();
 
   useEffect(() => {
     document.cookie = `${MARKET_LANG_COOKIE}=${currentLang}; Path=/; Max-Age=31536000; SameSite=Lax`;
@@ -183,27 +197,30 @@ export function SiteHeader(props: SiteHeaderProps) {
                       <span className="channel-switcher-label">{t("channelSwitcherLabel")}</span>
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="channel-switcher-value">{currentChannel?.label ?? t("platformHome")}</span>
-                        <Badge variant="secondary" className="channel-switcher-badge">
-                          {currentChannelBadge}
-                        </Badge>
+                        {showCurrentChannelBadge ? (
+                          <Badge variant="secondary" className="channel-switcher-badge">
+                            {currentChannelBadge}
+                          </Badge>
+                        ) : null}
                       </span>
                     </span>
                     <ChevronDown data-icon="inline-end" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-72 p-2">
+                <DropdownMenuContent align="start" sideOffset={10} collisionPadding={12} className="channel-switcher-menu">
                   <DropdownMenuLabel>{t("channelSwitcherLabel")}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
+                  <DropdownMenuGroup className="channel-switcher-menu-group">
                     {localizedAssets.map((asset) => {
                       const AssetIcon = resolveChannelIcon(asset.key);
                       const accent = resolveChannelAccent(asset.key);
+                      const showAssetBadge = asset.shortLabel.trim().toLocaleLowerCase() !== asset.label.trim().toLocaleLowerCase();
                       return (
                         <DropdownMenuItem
                           key={asset.key}
                           asChild
                           className={cn(
-                            "h-auto min-h-14 rounded-xl px-3 py-2",
+                            "channel-switcher-menu-item",
                             asset.key === currentAsset && cn(accent.itemActive, "text-foreground")
                           )}
                         >
@@ -214,9 +231,11 @@ export function SiteHeader(props: SiteHeaderProps) {
                             <span className="flex min-w-0 flex-1 flex-col gap-1">
                               <span className="flex min-w-0 items-center gap-2">
                                 <span className="truncate font-medium text-foreground">{asset.label}</span>
-                                <Badge variant="outline" className="channel-menu-badge">
-                                  {asset.shortLabel}
-                                </Badge>
+                                {showAssetBadge ? (
+                                  <Badge variant="outline" className="channel-menu-badge">
+                                    {asset.shortLabel}
+                                  </Badge>
+                                ) : null}
                               </span>
                               <span className="line-clamp-2 text-xs text-muted-foreground">{asset.description}</span>
                             </span>
@@ -229,14 +248,6 @@ export function SiteHeader(props: SiteHeaderProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Link href={platformHomePath(currentLang)} className="site-header-brandline">
-                <span className="site-header-mark" aria-hidden="true" />
-                <p className="eyebrow">{t("platformTitle")}</p>
-                <span className="site-header-title">{activeAsset?.label ?? t("platformHome")}</span>
-                <Badge variant="outline" className="site-header-subtitle-badge">
-                  {t("platformSubtitle")}
-                </Badge>
-              </Link>
             </div>
           </div>
 
@@ -257,9 +268,37 @@ export function SiteHeader(props: SiteHeaderProps) {
                   );
                 })}
                 <NavigationMenuItem>
-                  <NavigationMenuLink asChild className="site-nav-cta">
-                    <Link href={alternateHref}>{t("switchLanguage")}</Link>
-                  </NavigationMenuLink>
+                  <ThemeToggle lang={currentLang} />
+                </NavigationMenuItem>
+                <NavigationMenuItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="site-language-trigger">
+                        <Languages className="h-3.5 w-3.5" />
+                        {getLanguageLabel(currentLang)}
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      sideOffset={10}
+                      collisionPadding={12}
+                      className="site-language-menu"
+                    >
+                      <DropdownMenuLabel>Language</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        {languageOptions.map((item) => (
+                          <DropdownMenuItem key={item.language} asChild className="site-language-menu-item w-full">
+                            <Link href={item.href}>
+                              <span className="font-medium text-foreground">{item.label}</span>
+                              {item.language === currentLang ? <Check className="ml-auto h-4 w-4" /> : null}
+                            </Link>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </NavigationMenuItem>
               </NavigationMenuList>
             </NavigationMenu>

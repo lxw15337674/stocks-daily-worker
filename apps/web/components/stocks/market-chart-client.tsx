@@ -25,7 +25,13 @@ type ChartRow = {
 };
 
 const RANGE_OPTIONS: MarketIndexRange[] = ["1m", "3m", "1y"];
-const LINE_COLORS: string[] = ["#f97316", "#38bdf8", "#f43f5e", "#22c55e", "#a855f7", "#eab308", "#14b8a6", "#fb7185"];
+const LINE_COLORS: string[] = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))"
+];
 
 function formatAxisDate(value: string, lang: "zh" | "en"): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -184,7 +190,7 @@ export function MarketChartClient(props: MarketChartClientProps) {
         <div className="h-[360px] rounded-2xl border border-border/70 bg-background/40 p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 12, right: 18, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="rgba(148,163,184,0.18)" vertical={false} />
+              <CartesianGrid stroke="hsl(var(--border) / 0.7)" vertical={false} />
               <XAxis dataKey="label" minTickGap={24} tick={{ fill: "currentColor", fontSize: 12 }} tickLine={false} axisLine={false} />
               <YAxis
                 domain={["dataMin - 2", "dataMax + 2"]}
@@ -201,8 +207,8 @@ export function MarketChartClient(props: MarketChartClientProps) {
                 ]}
                 labelFormatter={(value) => String(value ?? "")}
                 contentStyle={{
-                  background: "rgba(15, 23, 42, 0.92)",
-                  border: "1px solid rgba(148, 163, 184, 0.25)",
+                  background: "hsl(var(--popover) / 0.96)",
+                  border: "1px solid hsl(var(--border) / 0.9)",
                   borderRadius: 14
                 }}
               />

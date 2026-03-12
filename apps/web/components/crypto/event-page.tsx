@@ -1,21 +1,17 @@
-"use client";
-
 import Link from "next/link";
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusCard } from "@/components/platform/status-card";
-import { fetchCoinsClient, fetchNewsEventDetailClient } from "@/lib/crypto/client-api";
+import { getChangeTextClass } from "@/lib/change-color";
+import { fetchCoins, fetchNewsEventDetail } from "@/lib/crypto/api";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
-import type { CoinItem, NewsEventDetail } from "@/lib/crypto/types";
-import type { Language } from "@/lib/i18n";
+import { getFixedT, type Language } from "@/lib/i18n";
 import { assetArchivePath, assetInstrumentPath } from "@/lib/platform-routes";
 
-type Props = {
+type CryptoEventPageProps = {
   lang: Language;
   clusterId: number;
 };
@@ -30,38 +26,11 @@ function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string)
   return t("crypto.stanceNeutral");
 }
 
-export function EventPageClient(props: Props) {
-  const { lang, clusterId } = props;
-  const { t } = useTranslation("common");
-  const [detail, setDetail] = useState<NewsEventDetail | null | undefined>(undefined);
-  const [coins, setCoins] = useState<CoinItem[]>([]);
+export async function CryptoEventPageContent(props: CryptoEventPageProps) {
+  const { clusterId, lang } = props;
+  const t = getFixedT(lang, "common");
 
-  const loadEvent = useEffectEvent(async () => {
-    try {
-      const [nextDetail, nextCoins] = await Promise.all([fetchNewsEventDetailClient(clusterId), fetchCoinsClient()]);
-      startTransition(() => {
-        setDetail(nextDetail);
-        setCoins(nextCoins);
-      });
-    } catch {
-      startTransition(() => {
-        setDetail(null);
-        setCoins([]);
-      });
-    }
-  });
-
-  useEffect(() => {
-    startTransition(() => {
-      setDetail(undefined);
-      setCoins([]);
-    });
-    void loadEvent();
-  }, [clusterId, loadEvent]);
-
-  if (detail === undefined) {
-    return <StatusCard title={t("crypto.eventDetailTitle")} body={t("loading")} />;
-  }
+  const [detail, coins] = await Promise.all([fetchNewsEventDetail(clusterId), fetchCoins()]);
 
   if (!detail) {
     return <StatusCard title={t("crypto.eventDetailTitle")} body={t("crypto.eventNotFound")} />;
@@ -160,7 +129,7 @@ export function EventPageClient(props: Props) {
                           </Link>
                         </TableCell>
                         <TableCell className="text-right">{formatPrice(item.priceUsdt, lang)}</TableCell>
-                        <TableCell className={`text-right font-semibold ${item.change24hPct > 0 ? "text-red-400" : item.change24hPct < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        <TableCell className={`text-right font-semibold ${getChangeTextClass(lang, item.change24hPct)}`}>
                           {formatSignedPercent(item.change24hPct)}
                         </TableCell>
                         <TableCell className="text-right">{formatCompactCurrency(item.quoteVolume24hUsdt, lang)}</TableCell>

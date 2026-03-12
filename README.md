@@ -60,14 +60,20 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-6. Deploy:
+6. Local full stack dev:
+
+```bash
+pnpm dev:all
+```
+
+7. Deploy:
 
 ```bash
 pnpm deploy:api
 pnpm deploy:web
 ```
 
-7. Verify:
+8. Verify:
 
 ```bash
 curl https://<your-api-worker>.workers.dev/api/v1/health

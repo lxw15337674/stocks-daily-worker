@@ -7,5 +7,5 @@ export default async function LocalizedStockInstrumentPage(props: {
 }) {
   const { lang, symbol } = await props.params;
 
-  return <StockDetailPage lang={lang} params={Promise.resolve({ symbol })} searchParams={props.searchParams} />;
+  return StockDetailPage({ lang, params: Promise.resolve({ symbol }), searchParams: props.searchParams });
 }
