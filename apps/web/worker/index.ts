@@ -156,21 +156,16 @@ function shouldUseServiceBinding(requestUrl: URL, env: Env): boolean {
     return false;
   }
 
-  if (!isLocalDevHost(requestUrl.hostname)) {
-    return true;
-  }
-
-  const fallbackApiUrl = new URL(resolveFallbackApiBaseUrl(env));
-  return isLocalDevHost(fallbackApiUrl.hostname);
+  return true;
 }
 
 async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
-  if (response.status !== 503) {
+  if (response.status < 500) {
     return false;
   }
 
   const body = await response.clone().text();
-  return body.includes("local dev session");
+  return response.status === 502 || response.status === 503 || response.status === 504 || body.includes("local dev session");
 }
 
 function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note?: string, sessionCookie?: string): Response {

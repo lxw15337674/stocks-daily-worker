@@ -51,13 +51,13 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
     (lang === "zh" ? summary?.summaryZh : summary?.summaryEn) ?? summary?.summaryZh ?? summary?.summaryEn ?? null;
 
   const grid = (
-    <div className={compact ? "grid gap-4 xl:grid-cols-3" : "grid gap-4 lg:grid-cols-3"}>
+    <div className={compact ? "grid gap-4 lg:grid-cols-2 2xl:grid-cols-3" : "grid gap-4 lg:grid-cols-3"}>
       {(latest?.regions ?? []).map((regionGroup) => {
         const primary = pickPrimaryMarketItem(regionGroup.items, regionGroup.primaryIndexKey);
         const secondary = regionGroup.items.filter((item) => item.indexKey !== primary?.indexKey);
 
         return (
-          <Card key={regionGroup.region}>
+          <Card key={regionGroup.region} className={compact ? "h-full" : undefined}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-lg">{resolveRegionLabel(lang, regionGroup.region)}</CardTitle>
@@ -68,19 +68,19 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
               {primary ? (
                 <div className={`rounded-2xl border p-4 ${getMarketChangePanelClass(lang, primary.region, primary.changePct)}`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{lang === "zh" ? primary.nameZh : primary.nameEn}</p>
+                        <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? primary.nameZh : primary.nameEn}</p>
                         <Badge variant="secondary">{t("primaryLabel")}</Badge>
                       </div>
                       <p className="mt-1 text-xs opacity-80">{primary.symbol}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xl font-semibold">{formatMarketMove(primary.changePct)}</p>
-                      <p className="mt-1 text-xs opacity-80">{formatMarketPrice(primary.price, primary.currency, lang)}</p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-2xl font-semibold leading-none">{formatMarketMove(primary.changePct)}</p>
+                      <p className="mt-1 text-sm opacity-80">{formatMarketPrice(primary.price, primary.currency, lang)}</p>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs opacity-80">
+                  <p className="mt-3 text-xs leading-5 opacity-80">
                     {t("updatedAtLabel")}: {formatMarketTimestamp(primary.quoteTimestamp, lang)}
                   </p>
                 </div>
@@ -95,13 +95,13 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
               {secondary.length > 0 ? (
                 <div className="space-y-2">
                   {secondary.map((item) => (
-                    <div key={item.indexKey} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/45 px-3 py-2.5">
+                    <div key={item.indexKey} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-xl border border-border/70 bg-background/45 px-3 py-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{lang === "zh" ? item.nameZh : item.nameEn}</p>
+                        <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? item.nameZh : item.nameEn}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{item.symbol}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm text-foreground">{formatMarketPrice(item.price, item.currency, lang)}</p>
+                      <div className="shrink-0 text-right">
+                        <p className="whitespace-nowrap text-sm font-medium text-foreground">{formatMarketPrice(item.price, item.currency, lang)}</p>
                         <p className={`mt-1 text-xs font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
                           {formatMarketMove(item.changePct)}
                         </p>

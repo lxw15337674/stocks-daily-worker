@@ -54,11 +54,25 @@ Then update `apps/api/wrangler.toml` with the returned `database_id` values.
 pnpm dev:api
 ```
 
+The local API worker uses the same `apps/api/wrangler.toml` as deploys, and `wrangler dev` reads local D1 by default.
+
+On a fresh local D1, the API now lazily creates the required tables on first access. A minimal warm-up flow is:
+
+```bash
+curl http://127.0.0.1:8787/api/v1/stocks
+curl http://127.0.0.1:8787/api/v1/crypto/coins
+curl http://127.0.0.1:8787/api/v1/crypto/news/market/latest
+```
+
+That initializes the stock pool, crypto coin seed data, and crypto news tables in the local D1 files without touching the remote databases.
+
 5. Local web dev:
 
 ```bash
 pnpm dev:web
 ```
+
+When the local API dev session is available, the web worker will prefer the local `MARKETS_API` binding first and only fall back to `MARKETS_API_BASE_URL` if that local API session is unavailable.
 
 6. Local full stack dev:
 
@@ -131,6 +145,8 @@ binding = "CRYPTO_DB"
 database_name = "crypto-daily"
 database_id = "<crypto-d1-database-id>"
 ```
+
+`pnpm dev:api` and deploys now share this single Wrangler file. Per Cloudflare's default behavior, local `wrangler dev` uses local D1 storage unless you explicitly opt into remote development.
 
 When the stock DB is configured, each stock run stores:
 - structured market overview metadata (`report_runs`)

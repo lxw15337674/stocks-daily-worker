@@ -90,63 +90,13 @@ export default async function MarketPage(props: MarketPageProps) {
           </CardHeader>
         </Card>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Globe2 className="h-4 w-4" />
-                <CardTitle className="text-lg">{t("summaryTitle")}</CardTitle>
-              </div>
-              <p className="meta">{t("summaryDescription")}</p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <form action={stocksMarketPath(lang)} method="get" className="flex flex-wrap items-end gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
-                <input type="hidden" name="range" value={initialRange} />
-                <input type="hidden" name="indexKeys" value={selectedIndexKeys.join(",")} />
-                <FieldGroup className="min-w-[220px] flex-1 gap-0">
-                  <Field className="gap-1">
-                    <FieldContent>
-                      <FieldLabel htmlFor="market-summary-date" className="text-xs text-muted-foreground">
-                        {t("summaryArchiveLabel")}
-                      </FieldLabel>
-                      <Input id="market-summary-date" type="date" name="summaryDate" defaultValue={summaryDateValue} />
-                    </FieldContent>
-                  </Field>
-                </FieldGroup>
-                <Button type="submit" size="sm">
-                  {t("summaryArchiveApply")}
-                </Button>
-                <Button asChild variant="ghost" size="sm">
-                  <Link href={latestSummaryHref}>{t("summaryArchiveLatest")}</Link>
-                </Button>
-              </form>
-
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
-                <p className="leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
-              </div>
-              {requestedSummaryDate && !summary ? (
-                <p className="text-sm text-muted-foreground">{t("summaryMissingForDate", { date: requestedSummaryDate })}</p>
-              ) : null}
-              {summary ? (
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span className="rounded-full border border-border/70 px-2.5 py-1">
-                    {commonT("reportDate")}: {summary.summaryDate}
-                  </span>
-                  <span className="rounded-full border border-border/70 px-2.5 py-1">
-                    {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
-                  </span>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Newspaper className="h-4 w-4" />
-                <CardTitle className="text-lg">{t("latestTitle")}</CardTitle>
-              </div>
-              <p className="meta">{t("latestDescription")}</p>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Newspaper className="h-4 w-4" />
+              <CardTitle className="text-lg">{t("latestTitle")}</CardTitle>
+            </div>
+            <p className="meta">{t("latestDescription")}</p>
           </CardHeader>
           <CardContent>
             {hasMarketContent(latest, summary) ? (
@@ -160,7 +110,55 @@ export default async function MarketPage(props: MarketPageProps) {
             )}
           </CardContent>
         </Card>
-        </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Globe2 className="h-4 w-4" />
+              <CardTitle className="text-lg">{t("summaryTitle")}</CardTitle>
+            </div>
+            <p className="meta">{t("summaryDescription")}</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form action={stocksMarketPath(lang)} method="get" className="flex flex-wrap items-end gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
+              <input type="hidden" name="range" value={initialRange} />
+              <input type="hidden" name="indexKeys" value={selectedIndexKeys.join(",")} />
+              <FieldGroup className="min-w-[220px] flex-1 gap-0">
+                <Field className="gap-1">
+                  <FieldContent>
+                    <FieldLabel htmlFor="market-summary-date" className="text-xs text-muted-foreground">
+                      {t("summaryArchiveLabel")}
+                    </FieldLabel>
+                    <Input id="market-summary-date" type="date" name="summaryDate" defaultValue={summaryDateValue} />
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+              <Button type="submit" size="sm">
+                {t("summaryArchiveApply")}
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href={latestSummaryHref}>{t("summaryArchiveLatest")}</Link>
+              </Button>
+            </form>
+
+            <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+              <p className="leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
+            </div>
+            {requestedSummaryDate && !summary ? (
+              <p className="text-sm text-muted-foreground">{t("summaryMissingForDate", { date: requestedSummaryDate })}</p>
+            ) : null}
+            {summary ? (
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border border-border/70 px-2.5 py-1">
+                  {commonT("reportDate")}: {summary.summaryDate}
+                </span>
+                <span className="rounded-full border border-border/70 px-2.5 py-1">
+                  {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
+                </span>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-3">

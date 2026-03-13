@@ -446,6 +446,8 @@ app.get("/news/report/:date", async (c) => {
     });
   }
 
+  await ensureD1Schema(c.env.DB);
+
   if (reportDate === formatDate(new Date())) {
     await refreshCryptoMacroSnapshot(c.env);
   }

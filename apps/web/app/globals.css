@@ -343,7 +343,7 @@
   }
 
   .home-content-stack {
-    @apply space-y-5;
+    @apply flex flex-col gap-5;
   }
 
   .home-tabs-list {
@@ -409,10 +409,6 @@
 
     .site-header-actions {
       @apply flex-nowrap justify-end;
-    }
-
-    .home-tabs-bar {
-      @apply flex-row items-center justify-between;
     }
 
     .home-tabs-toolbar {

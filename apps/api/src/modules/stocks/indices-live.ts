@@ -1,8 +1,15 @@
 import type { MarketIndexHistoryResponse, MarketIndexLatestResponse, MarketIndexRange, MarketIndexSnapshot } from "@china-stocks/contracts";
-import { compareSnapshots, fetchLatestMarketSnapshots, fetchMarketIndexHistorySeries, REGION_ORDER, resolveRequestedIndices, TRACKED_MARKET_INDICES } from "./indices-core";
+import {
+  compareSnapshots,
+  fetchLatestMarketSnapshots,
+  fetchMarketIndexHistorySeries,
+  REGION_ORDER,
+  resolveRequestedIndices,
+  TRACKED_MARKET_INDICES
+} from "./indices-core.ts";
 
-export { REGION_ORDER, TRACKED_MARKET_INDICES } from "./indices-core";
-export type { TrackedMarketIndex } from "./indices-core";
+export { REGION_ORDER, TRACKED_MARKET_INDICES } from "./indices-core.ts";
+export type { TrackedMarketIndex } from "./indices-core.ts";
 
 export async function getLiveMarketIndicesLatest(): Promise<MarketIndexLatestResponse> {
   const items = await fetchLatestMarketSnapshots();

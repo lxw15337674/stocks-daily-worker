@@ -465,6 +465,12 @@ export function getCryptoNewsSchemaStatements(): string[] {
   ];
 }
 
+async function ensureCryptoNewsSchema(db: D1Database): Promise<void> {
+  for (const statement of getCryptoNewsSchemaStatements()) {
+    await db.prepare(statement).run();
+  }
+}
+
 async function hydrateCuratedSummaries(env: CryptoNewsEnv, curatedRows: CuratedNewsRecord[]): Promise<CuratedNewsRecord[]> {
   return mapWithConcurrency(curatedRows, DEEP_SUMMARY_CONCURRENCY, async (row: CuratedNewsRecord) => {
     if (!shouldDeepReadForSummary(row)) {
@@ -497,6 +503,8 @@ export async function runHourlyNewsIngestion(env: CryptoNewsEnv, coins: CoinSeed
     throw new Error("DB binding is required for crypto news ingestion.");
   }
 
+  await ensureCryptoNewsSchema(env.DB);
+
   const candidates = await collectNewsCandidates(coins);
   const dedupedCandidates = dedupeCandidates(candidates);
   const rawRows = await persistRawCandidates(env.DB, dedupedCandidates);
@@ -528,6 +536,8 @@ export async function listMarketNews(
     topic?: string | null;
   }
 ): Promise<MarketNewsItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const since = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
   return listMarketNewsForWindow(db, {
     limit: options.limit,
@@ -636,6 +646,8 @@ export async function listCoinNews(
     reportDate?: string | null;
   }
 ): Promise<CoinNewsItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   if (options.reportDate) {
     const { startIso, endIso } = getReportDateWindow(options.reportDate);
     return listCoinNewsForWindow(db, coinCode, {
@@ -728,6 +740,8 @@ export async function listRecentNewsClusters(
     hours: number;
   }
 ): Promise<NewsClusterListItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const since = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
   return listRecentNewsClustersForWindow(db, {
     limit: options.limit,
@@ -778,6 +792,8 @@ async function listRecentNewsClustersForWindow(
 }
 
 export async function getReportDateNewsSnapshot(db: D1Database, reportDate: string): Promise<ReportDateNewsSnapshot> {
+  await ensureCryptoNewsSchema(db);
+
   const { startIso, endIso } = getReportDateWindow(reportDate);
   const [macro, marketNews, clusters, coinNewsByCode] = await Promise.all([
     getReportDateCryptoMacroSnapshot(db, reportDate),
@@ -809,6 +825,8 @@ export async function getReportDateNewsSnapshot(db: D1Database, reportDate: stri
 }
 
 export async function getNewsEventDetail(db: D1Database, clusterId: number): Promise<NewsEventDetail | null> {
+  await ensureCryptoNewsSchema(db);
+
   const base = await getClusterBaseRecord(db, clusterId);
   if (!base) {
     return null;
@@ -875,6 +893,8 @@ export async function listCoinEventTimeline(
     limit: number;
   }
 ): Promise<CoinEventTimelineItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const normalizedCode = coinCode.trim().toUpperCase();
   if (!normalizedCode) {
     return [];
@@ -915,6 +935,8 @@ export async function listCryptoNewsAdminClusters(
     coinCode: string | null;
   }
 ): Promise<CryptoNewsAdminClusterListItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const normalizedQuery = options.query?.trim() ?? "";
   const normalizedCoinCode = options.coinCode?.trim().toUpperCase() ?? "";
   const orm = drizzle(db);
@@ -1037,6 +1059,8 @@ export async function setCryptoNewsClusterRepresentative(
   clusterId: number,
   newsItemId: number
 ): Promise<CryptoNewsAdminClusterDetail | null> {
+  await ensureCryptoNewsSchema(db);
+
   const orm = drizzle(db);
   const clusterRows = await orm
     .select({
@@ -1576,6 +1600,8 @@ function calculateReturnPct(basePrice: number | null, price: number | null): num
 }
 
 export async function getCryptoNewsAdminOverview(db: D1Database): Promise<CryptoNewsAdminOverview> {
+  await ensureCryptoNewsSchema(db);
+
   const orm = drizzle(db);
   const [rawCountRows, latestRawRows, itemCountRows, latestItemRows] = await Promise.all([
     orm
@@ -1630,6 +1656,8 @@ export async function listCryptoNewsAdminRaw(
     status?: string | null;
   }
 ): Promise<CryptoNewsAdminRawItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const normalizedStatus = sanitizeAdminRawStatus(options.status ?? "");
   const orm = drizzle(db);
   const baseQuery = orm
@@ -1667,6 +1695,8 @@ export async function listCryptoNewsAdminItems(
     displayOnly?: boolean;
   }
 ): Promise<CryptoNewsAdminCuratedItem[]> {
+  await ensureCryptoNewsSchema(db);
+
   const orm = drizzle(db);
   const baseQuery = orm
     .select({
@@ -1725,6 +1755,8 @@ export async function reprocessCryptoNews(
   if (!env.DB) {
     throw new Error("DB binding is required for crypto news reprocessing.");
   }
+
+  await ensureCryptoNewsSchema(env.DB);
 
   const since = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
   const orm = drizzle(env.DB);

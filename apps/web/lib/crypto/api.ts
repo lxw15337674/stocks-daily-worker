@@ -1,6 +1,8 @@
 import "server-only";
 
 import { headers } from "next/headers";
+import { resolveApiTargetFromHeaders } from "@/lib/api-target";
+import type { ApiTarget } from "@/lib/api-target";
 
 import type {
   CoinDetail,
@@ -16,20 +18,6 @@ import type {
 } from "@/lib/crypto/types";
 
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
-type ApiTarget = {
-  baseUrl: string;
-  pathPrefix: string;
-  cookieHeader: string | null;
-};
-
-function isLocalDevHost(host: string): boolean {
-  const normalized = host.trim().toLowerCase();
-  return normalized.includes("localhost") || normalized.includes("127.0.0.1");
-}
-
-function stripTrailingSlashes(url: string): string {
-  return url.replace(/\/+$/, "");
-}
 
 function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
@@ -37,33 +25,13 @@ function joinApiUrl(target: ApiTarget, path: string): string {
 
 async function resolveApiTarget(): Promise<ApiTarget> {
   const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const cookieHeader = requestHeaders.get("cookie");
-
-  if (!host) {
-    return {
-      baseUrl: DEFAULT_API_BASE_URL,
-      pathPrefix: "/api/v1/crypto",
-      cookieHeader
-    };
-  }
-
-  if (isLocalDevHost(host)) {
-    return {
-      baseUrl: DEFAULT_API_BASE_URL,
-      pathPrefix: "/api/v1/crypto",
-      cookieHeader
-    };
-  }
-
-  const forwardedProto = requestHeaders.get("x-forwarded-proto");
-  const protocol = forwardedProto?.split(",")[0]?.trim() || "https";
-
-  return {
-    baseUrl: stripTrailingSlashes(`${protocol}://${host}`),
-    pathPrefix: "/api/crypto",
-    cookieHeader
-  };
+  return resolveApiTargetFromHeaders({
+    defaultBaseUrl: DEFAULT_API_BASE_URL,
+    defaultPathPrefix: "/api/v1/crypto",
+    proxyPathPrefix: "/api/crypto",
+    headers: requestHeaders,
+    remoteProtocolFallback: "https"
+  });
 }
 
 function buildApiRequestHeaders(target: ApiTarget, accept: string): Headers {

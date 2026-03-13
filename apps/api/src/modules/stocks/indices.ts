@@ -15,12 +15,12 @@ import {
   fetchLatestMarketSnapshots,
   REGION_ORDER,
   TRACKED_MARKET_INDICES
-} from "./indices-core";
+} from "./indices-core.ts";
 import {
   getLiveMarketIndicesHistory as getLiveMarketIndicesHistoryCore,
   getLiveMarketIndicesLatest as getLiveMarketIndicesLatestCore
-} from "./indices-live";
-import { marketAiSummaries, marketIndexSnapshots } from "./schema";
+} from "./indices-live.ts";
+import { marketAiSummaries, marketIndexSnapshots } from "./schema.ts";
 
 interface Env {
   DB?: D1Database;

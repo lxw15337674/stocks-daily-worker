@@ -30,8 +30,8 @@ import {
   getLiveMarketIndicesLatest,
   runMarketIndicesAdminSync,
   runMarketIndicesScheduledSync
-} from "./indices";
-import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./schema";
+} from "./indices.ts";
+import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./schema.ts";
 
 interface Env {
   DB?: D1Database;
