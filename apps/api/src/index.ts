@@ -1,5 +1,6 @@
-import stocksModule from "./modules/stocks/app";
-import cryptoModule from "./modules/crypto/app";
+import stocksModule from "./modules/stocks/app.ts";
+import cryptoModule from "./modules/crypto/app.ts";
+import { readSchedulerStatus, toScheduledForIso, trackSchedulerRun, type SchedulerStatusBucket } from "./scheduler-status.ts";
 
 type WorkersAiBinding = {
   run(model: string, input: unknown): Promise<unknown>;
@@ -21,6 +22,7 @@ interface Env {
   CRYPTO_DB?: D1Database;
   CRYPTO_ADMIN_TOKEN?: string;
   CRYPTO_AI?: WorkersAiBinding;
+  SCHEDULER_STATUS_BUCKET?: SchedulerStatusBucket;
 }
 
 type FetchHandler = (request: Request, env: unknown) => Promise<Response>;
@@ -69,7 +71,8 @@ function toStocksEnv(env: Env) {
     NEWS_BODY_TIMEOUT_MS: env.STOCKS_NEWS_BODY_TIMEOUT_MS,
     NEWS_BODY_MAX_CHARS: env.STOCKS_NEWS_BODY_MAX_CHARS,
     AI_GATEWAY_BASE_URL: env.STOCKS_AI_GATEWAY_BASE_URL,
-    AI_API_KEY: env.STOCKS_AI_API_KEY
+    AI_API_KEY: env.STOCKS_AI_API_KEY,
+    STATUS_BUCKET: env.SCHEDULER_STATUS_BUCKET
   };
 }
 
@@ -77,8 +80,41 @@ function toCryptoEnv(env: Env) {
   return {
     DB: env.CRYPTO_DB,
     ADMIN_TOKEN: env.CRYPTO_ADMIN_TOKEN,
-    AI: env.CRYPTO_AI
+    AI: env.CRYPTO_AI,
+    STATUS_BUCKET: env.SCHEDULER_STATUS_BUCKET
   };
+}
+
+type ScheduledJobConfig = {
+  cron: string;
+  jobKey: "stocks_daily_report" | "market_indices_summary" | "crypto_news_ingestion" | "crypto_daily_report";
+  handler: ScheduledHandler;
+  env: unknown;
+};
+
+function parsePositiveInteger(raw: string | null, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+async function runScheduledJob(event: ScheduledController, env: Env, config: ScheduledJobConfig): Promise<void> {
+  await trackSchedulerRun(
+    env.SCHEDULER_STATUS_BUCKET,
+    {
+      jobKey: config.jobKey,
+      triggerType: "cron",
+      triggerLabel: config.cron,
+      scheduledFor: toScheduledForIso(event.scheduledTime)
+    },
+    async () => {
+      await config.handler(event, config.env);
+      return null;
+    }
+  );
 }
 
 async function dispatchModule(request: Request, pathname: string, handler: FetchHandler, env: unknown): Promise<Response> {
@@ -107,6 +143,7 @@ export default {
         routes: {
           health: "/api/v1/health",
           assets: "/api/v1/assets",
+          status: "/api/v1/status/scheduler",
           stocks: "/api/v1/stocks/*",
           crypto: "/api/v1/crypto/*"
         }
@@ -123,6 +160,11 @@ export default {
 
     if (pathname === "/api/v1/assets") {
       return createJsonResponse({ items: ASSET_ITEMS });
+    }
+
+    if (pathname === "/api/v1/status/scheduler") {
+      const recentLimit = parsePositiveInteger(url.searchParams.get("limit"), 20, 1, 100);
+      return createJsonResponse(await readSchedulerStatus(env.SCHEDULER_STATUS_BUCKET, recentLimit));
     }
 
     if (pathname.startsWith("/api/v1/stocks")) {
@@ -147,22 +189,42 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
     if (event.cron === STOCKS_CRON) {
-      await (stocksModule.scheduled as ScheduledHandler)(event, toStocksEnv(env));
+      await runScheduledJob(event, env, {
+        cron: STOCKS_CRON,
+        jobKey: "stocks_daily_report",
+        handler: stocksModule.scheduled as ScheduledHandler,
+        env: toStocksEnv(env)
+      });
       return;
     }
 
     if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST || event.cron === MARKET_INDICES_SUMMARY_CRON_STD) {
-      await (stocksModule.scheduled as ScheduledHandler)(event, toStocksEnv(env));
+      await runScheduledJob(event, env, {
+        cron: event.cron,
+        jobKey: "market_indices_summary",
+        handler: stocksModule.scheduled as ScheduledHandler,
+        env: toStocksEnv(env)
+      });
       return;
     }
 
     if (event.cron === CRYPTO_NEWS_CRON) {
-      await (cryptoModule.scheduled as ScheduledHandler)(event, toCryptoEnv(env));
+      await runScheduledJob(event, env, {
+        cron: CRYPTO_NEWS_CRON,
+        jobKey: "crypto_news_ingestion",
+        handler: cryptoModule.scheduled as ScheduledHandler,
+        env: toCryptoEnv(env)
+      });
       return;
     }
 
     if (event.cron === CRYPTO_CRON) {
-      await (cryptoModule.scheduled as ScheduledHandler)(event, toCryptoEnv(env));
+      await runScheduledJob(event, env, {
+        cron: CRYPTO_CRON,
+        jobKey: "crypto_daily_report",
+        handler: cryptoModule.scheduled as ScheduledHandler,
+        env: toCryptoEnv(env)
+      });
       return;
     }
 

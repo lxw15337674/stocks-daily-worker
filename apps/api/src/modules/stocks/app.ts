@@ -31,6 +31,7 @@ import {
   runMarketIndicesAdminSync,
   runMarketIndicesScheduledSync
 } from "./indices.ts";
+import { trackSchedulerRun, type SchedulerStatusBucket } from "../../scheduler-status.ts";
 import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./schema.ts";
 
 interface Env {
@@ -47,6 +48,7 @@ interface Env {
   // Backward-compatible aliases.
   AI_GATEWAY_BASE_URL?: string;
   AI_API_KEY?: string;
+  STATUS_BUCKET?: SchedulerStatusBucket;
 }
 
 type Stock = {
@@ -539,7 +541,22 @@ app.get(
       return new Response(authError.message, { status: authError.status });
     }
 
-    const payload = await runMarketIndicesAdminSync(c.env);
+    const payload = await trackSchedulerRun(
+      c.env.STATUS_BUCKET,
+      {
+        jobKey: "market_indices_summary",
+        triggerType: "manual",
+        triggerLabel: "stocks:/indices/admin/run",
+        onSuccess: (result) => ({
+          message: "Market indices sync completed.",
+          metadata: {
+            summaryDate: result.summaryDate,
+            snapshotCount: result.snapshotCount
+          }
+        })
+      },
+      () => runMarketIndicesAdminSync(c.env)
+    );
     return c.json<MarketIndicesAdminRunResponse>(payload);
   }
 );
@@ -591,7 +608,23 @@ app.get(
       return new Response(authError.message, { status: authError.status });
     }
 
-    const result = await generateAndPersistReport(c.env);
+    const result = await trackSchedulerRun(
+      c.env.STATUS_BUCKET,
+      {
+        jobKey: "stocks_daily_report",
+        triggerType: "manual",
+        triggerLabel: "stocks:/run",
+        onSuccess: (payload) => ({
+          message: "Stocks report generated.",
+          metadata: {
+            reportDateEt: payload.reportDateEt,
+            sampleSize: payload.sampleSize,
+            validQuoteCount: payload.validQuoteCount
+          }
+        })
+      },
+      () => generateAndPersistReport(c.env)
+    );
     return c.json(result);
   }
 );

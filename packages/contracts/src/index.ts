@@ -225,3 +225,47 @@ export type MarketIndicesAdminRunResponse = {
   snapshotCount: number;
   summary: MarketAiSummary;
 };
+
+export const SCHEDULER_JOB_KEYS = [
+  "stocks_daily_report",
+  "market_indices_summary",
+  "crypto_news_ingestion",
+  "crypto_daily_report"
+] as const;
+
+export type SchedulerJobKey = (typeof SCHEDULER_JOB_KEYS)[number];
+
+export const SCHEDULER_RUN_STATUSES = ["running", "success", "failed", "skipped"] as const;
+export type SchedulerRunStatus = (typeof SCHEDULER_RUN_STATUSES)[number];
+
+export const SCHEDULER_TRIGGER_TYPES = ["cron", "manual"] as const;
+export type SchedulerTriggerType = (typeof SCHEDULER_TRIGGER_TYPES)[number];
+
+export type SchedulerRunMetadataValue = string | number | boolean | null;
+export type SchedulerRunMetadata = Record<string, SchedulerRunMetadataValue>;
+
+export type SchedulerRunRecord = {
+  attemptId: string;
+  jobKey: SchedulerJobKey;
+  triggerType: SchedulerTriggerType;
+  triggerLabel: string | null;
+  scheduledFor: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  status: SchedulerRunStatus;
+  message: string | null;
+  errorMessage: string | null;
+  metadata: SchedulerRunMetadata | null;
+};
+
+export type SchedulerJobStatus = {
+  jobKey: SchedulerJobKey;
+  latest: SchedulerRunRecord | null;
+};
+
+export type SchedulerStatusResponse = {
+  generatedAt: string;
+  jobs: SchedulerJobStatus[];
+  recentRuns: SchedulerRunRecord[];
+};

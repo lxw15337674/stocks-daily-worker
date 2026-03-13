@@ -15,7 +15,7 @@ import {
   reprocessCryptoNews,
   setCryptoNewsClusterRepresentative,
   runHourlyNewsIngestion
-} from "./news";
+} from "./news.ts";
 import {
   createEmptyCryptoMacroSnapshot,
   getCryptoMacroAdminOverview,
@@ -23,11 +23,13 @@ import {
   getLatestCryptoMacroSnapshot,
   getReportDateCryptoMacroSnapshot,
   refreshCryptoMacroSnapshot
-} from "./macro";
+} from "./macro.ts";
+import { trackSchedulerRun, type SchedulerStatusBucket } from "../../scheduler-status.ts";
 
 interface Env {
   DB?: D1Database;
   ADMIN_TOKEN?: string;
+  STATUS_BUCKET?: SchedulerStatusBucket;
   AI?: {
     run(model: string, input: unknown): Promise<unknown>;
   };
@@ -464,7 +466,18 @@ app.get("/news/admin/run", async (c) => {
     return c.json({ message: "DB binding is required." }, 500);
   }
 
-  const result = await runHourlyNewsIngestion(c.env, COINS);
+  const result = await trackSchedulerRun(
+    c.env.STATUS_BUCKET,
+    {
+      jobKey: "crypto_news_ingestion",
+      triggerType: "manual",
+      triggerLabel: "crypto:/news/admin/run",
+      onSuccess: () => ({
+        message: "Crypto news ingestion completed."
+      })
+    },
+    () => runHourlyNewsIngestion(c.env, COINS)
+  );
   return c.json({
     ok: true,
     ...result
@@ -597,7 +610,22 @@ app.get("/run", async (c) => {
     return c.json({ message: "DB binding is required." }, 500);
   }
 
-  const report = await generateAndPersistReport(c.env);
+  const report = await trackSchedulerRun(
+    c.env.STATUS_BUCKET,
+    {
+      jobKey: "crypto_daily_report",
+      triggerType: "manual",
+      triggerLabel: "crypto:/run",
+      onSuccess: (result) => ({
+        message: "Crypto daily report generated.",
+        metadata: {
+          reportDate: result.reportDate,
+          itemCount: result.items.length
+        }
+      })
+    },
+    () => generateAndPersistReport(c.env)
+  );
   return c.json(report);
 });
 

@@ -94,6 +94,11 @@ function resolveApiTarget(pathname: string): ApiRouteTarget | null {
     return { upstreamPath: `/api/v1/crypto${subPath}` };
   }
 
+  if (pathname.startsWith("/api/status/")) {
+    const subPath = pathname.slice("/api".length) || "/";
+    return { upstreamPath: `/api/v1${subPath}` };
+  }
+
   if (pathname.startsWith("/api/")) {
     const subPath = pathname.slice("/api".length) || "/";
     return { upstreamPath: `/api/v1/stocks${subPath}` };

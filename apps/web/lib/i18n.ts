@@ -23,6 +23,7 @@ type CommonBaseCopy = {
   stocksCompare: string;
   stocksMarket: string;
   stocksAdmin: string;
+  platformStatus: string;
   siteTitle: string;
   siteSubtitle: string;
   navHome: string;
@@ -323,6 +324,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     stocksCompare: "股票对比",
     stocksMarket: "全球指数",
     stocksAdmin: "股票管理",
+    platformStatus: "系统状态",
     siteTitle: "加密货币日报",
     siteSubtitle: "固定 Top 10 币种，结构化日报，币安行情驱动",
     navHome: "日报首页",
@@ -462,6 +464,7 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     stocksCompare: "Stocks Compare",
     stocksMarket: "Global Indices",
     stocksAdmin: "Stocks Admin",
+    platformStatus: "System Status",
     siteTitle: "Crypto Daily",
     siteSubtitle: "Fixed Top 10 coverage with structured reports powered by Binance market data",
     navHome: "Daily Report",

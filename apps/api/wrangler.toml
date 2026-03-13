@@ -16,6 +16,10 @@ binding = "CRYPTO_DB"
 database_name = "crypto-daily"
 database_id = "21a1a3a0-bd0b-44a7-88e1-272430fe8ca0"
 
+[[r2_buckets]]
+binding = "SCHEDULER_STATUS_BUCKET"
+bucket_name = "china-stocks-daily-scheduler-status"
+
 [ai]
 binding = "CRYPTO_AI"
 

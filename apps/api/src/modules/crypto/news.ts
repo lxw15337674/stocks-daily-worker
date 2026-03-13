@@ -2,7 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { and, asc, count, desc, eq, gte, inArray, like, lt, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { parseHTML } from "linkedom";
-import { getReportDateCryptoMacroSnapshot, type CryptoMacroSnapshot } from "./macro";
+import { getReportDateCryptoMacroSnapshot, type CryptoMacroSnapshot } from "./macro.ts";
 import {
   cryptoNewsClusterMembers,
   cryptoNewsClusters,
@@ -12,7 +12,7 @@ import {
   cryptoNewsRaw,
   dailyCoinSnapshots,
   dailyReports
-} from "./schema";
+} from "./schema.ts";
 
 export interface CryptoNewsEnv {
   DB?: D1Database;

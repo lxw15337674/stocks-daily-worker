@@ -5,6 +5,10 @@ export function platformHomePath(lang: Language): string {
   return `/${lang}`;
 }
 
+export function platformStatusPath(lang: Language): string {
+  return `${platformHomePath(lang)}/status`;
+}
+
 export function assetHomePath(lang: Language, asset: AssetKey): string {
   return `/${lang}/${asset}`;
 }
