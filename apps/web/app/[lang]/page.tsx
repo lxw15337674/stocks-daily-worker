@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { HeroPanel } from "@/components/platform/hero-panel";
@@ -8,6 +9,14 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { getLocalizedAssetRegistry } from "@/lib/assets";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
+import { buildPlatformMetadata } from "@/lib/route-metadata";
+
+export async function generateMetadata(props: {
+  params: Promise<{ lang: Language }>;
+}): Promise<Metadata> {
+  const { lang } = await props.params;
+  return buildPlatformMetadata(lang);
+}
 
 export default async function PlatformHomePage(props: {
   params: Promise<{ lang: Language }>;

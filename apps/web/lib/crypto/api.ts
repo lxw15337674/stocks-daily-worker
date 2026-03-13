@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 
 import { headers } from "next/headers";
 import { resolveApiTargetFromHeaders } from "@/lib/api-target";
@@ -16,6 +17,7 @@ import type {
   ReportDateNewsSnapshot,
   ReportListItem
 } from "@/lib/crypto/types";
+import type { IntelligenceWallResponse } from "@china-stocks/contracts";
 
 const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
 
@@ -23,7 +25,7 @@ function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-async function resolveApiTarget(): Promise<ApiTarget> {
+const resolveApiTarget = cache(async (): Promise<ApiTarget> => {
   const requestHeaders = await headers();
   return resolveApiTargetFromHeaders({
     defaultBaseUrl: DEFAULT_API_BASE_URL,
@@ -32,22 +34,28 @@ async function resolveApiTarget(): Promise<ApiTarget> {
     headers: requestHeaders,
     remoteProtocolFallback: "https"
   });
-}
+});
 
-function buildApiRequestHeaders(target: ApiTarget, accept: string): Headers {
+type FetchJsonOptions = {
+  revalidate?: number;
+  includeCookies?: boolean;
+};
+
+function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
   const requestHeaders = new Headers({ accept });
-  if (target.cookieHeader) {
+  if (includeCookies && target.cookieHeader) {
     requestHeaders.set("cookie", target.cookieHeader);
   }
   return requestHeaders;
 }
 
-async function fetchJson<T>(path: string): Promise<T | null> {
+async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
   const target = await resolveApiTarget();
   const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
-    cache: "no-store",
-    headers: buildApiRequestHeaders(target, "application/json")
+    next: options.revalidate ? { revalidate: options.revalidate } : undefined,
+    cache: options.revalidate ? undefined : "no-store",
+    headers: buildApiRequestHeaders(target, "application/json", options.includeCookies)
   });
 
   if (!response.ok) {
@@ -58,12 +66,12 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 }
 
 export async function fetchCoins(): Promise<CoinItem[]> {
-  const result = await fetchJson<{ items: CoinItem[] }>("/coins");
+  const result = await fetchJson<{ items: CoinItem[] }>("/coins", { revalidate: 3600 });
   return result?.items ?? [];
 }
 
 export async function fetchLatestReport(): Promise<DailyReport | null> {
-  return fetchJson<DailyReport>("/latest");
+  return fetchJson<DailyReport>("/latest", { revalidate: 300 });
 }
 
 export async function fetchReportByDate(date: string): Promise<DailyReport | null> {
@@ -72,12 +80,12 @@ export async function fetchReportByDate(date: string): Promise<DailyReport | nul
     return null;
   }
 
-  return fetchJson<DailyReport>(`/report/${encodeURIComponent(normalizedDate)}`);
+  return fetchJson<DailyReport>(`/report/${encodeURIComponent(normalizedDate)}`, { revalidate: 1800 });
 }
 
 export async function fetchReports(limit = 30): Promise<ReportListItem[]> {
   const normalizedLimit = Math.max(1, Math.min(limit, 120));
-  const result = await fetchJson<{ items: ReportListItem[] }>(`/reports?limit=${normalizedLimit}`);
+  const result = await fetchJson<{ items: ReportListItem[] }>(`/reports?limit=${normalizedLimit}`, { revalidate: 300 });
   return result?.items ?? [];
 }
 
@@ -87,23 +95,24 @@ export async function fetchCoinDetail(code: string): Promise<CoinDetail | null> 
     return null;
   }
 
-  return fetchJson<CoinDetail>(`/coin/${encodeURIComponent(normalizedCode)}`);
+  return fetchJson<CoinDetail>(`/coin/${encodeURIComponent(normalizedCode)}`, { revalidate: 300 });
 }
 
 export async function fetchMacroSnapshot(reportDate?: string | null): Promise<CryptoMacroSnapshot | null> {
   const normalizedDate = reportDate?.trim();
   if (normalizedDate) {
-    return fetchJson<CryptoMacroSnapshot>(`/macro/report/${encodeURIComponent(normalizedDate)}`);
+    return fetchJson<CryptoMacroSnapshot>(`/macro/report/${encodeURIComponent(normalizedDate)}`, { revalidate: 1800 });
   }
 
-  return fetchJson<CryptoMacroSnapshot>("/macro/latest");
+  return fetchJson<CryptoMacroSnapshot>("/macro/latest", { revalidate: 300 });
 }
 
 export async function fetchMarketNews(limit = 8, hours = 36): Promise<MarketNewsItem[]> {
   const normalizedLimit = Math.max(1, Math.min(limit, 50));
   const normalizedHours = Math.max(1, Math.min(hours, 168));
   const result = await fetchJson<{ items: MarketNewsItem[] }>(
-    `/news/market/latest?limit=${normalizedLimit}&hours=${normalizedHours}`
+    `/news/market/latest?limit=${normalizedLimit}&hours=${normalizedHours}`,
+    { revalidate: 300 }
   );
   return result?.items ?? [];
 }
@@ -132,7 +141,8 @@ export async function fetchCoinNews(
   }
 
   const result = await fetchJson<{ coinCode: string; reportDate?: string | null; items: CoinNewsItem[] }>(
-    `/news/coin/${encodeURIComponent(normalizedCode)}?${query.toString()}`
+    `/news/coin/${encodeURIComponent(normalizedCode)}?${query.toString()}`,
+    { revalidate: normalizedDate ? 1800 : 300 }
   );
   return result?.items ?? [];
 }
@@ -141,7 +151,8 @@ export async function fetchNewsClusters(limit = 6, hours = 48): Promise<NewsClus
   const normalizedLimit = Math.max(1, Math.min(limit, 50));
   const normalizedHours = Math.max(1, Math.min(hours, 168));
   const result = await fetchJson<{ items: NewsClusterItem[] }>(
-    `/news/clusters?limit=${normalizedLimit}&hours=${normalizedHours}`
+    `/news/clusters?limit=${normalizedLimit}&hours=${normalizedHours}`,
+    { revalidate: 300 }
   );
   return result?.items ?? [];
 }
@@ -152,7 +163,7 @@ export async function fetchReportDateNews(date: string): Promise<ReportDateNewsS
     return null;
   }
 
-  return fetchJson<ReportDateNewsSnapshot>(`/news/report/${encodeURIComponent(normalizedDate)}`);
+  return fetchJson<ReportDateNewsSnapshot>(`/news/report/${encodeURIComponent(normalizedDate)}`, { revalidate: 1800 });
 }
 
 export async function fetchNewsEventDetail(clusterId: number): Promise<NewsEventDetail | null> {
@@ -160,5 +171,22 @@ export async function fetchNewsEventDetail(clusterId: number): Promise<NewsEvent
     return null;
   }
 
-  return fetchJson<NewsEventDetail>(`/news/event/${clusterId}`);
+  return fetchJson<NewsEventDetail>(`/news/event/${clusterId}`, { revalidate: 1800 });
 }
+
+export async function fetchIntelligenceLatest(): Promise<IntelligenceWallResponse | null> {
+  return fetchJson<IntelligenceWallResponse>("/intelligence/latest", { revalidate: 300 });
+}
+
+export async function fetchIntelligenceReportByDate(date: string): Promise<IntelligenceWallResponse | null> {
+  const normalizedDate = date.trim();
+  if (!normalizedDate) {
+    return null;
+  }
+
+  return fetchJson<IntelligenceWallResponse>(`/intelligence/report/${encodeURIComponent(normalizedDate)}`, {
+    revalidate: 1800
+  });
+}
+
+export type { IntelligenceWallResponse };

@@ -219,6 +219,80 @@ export type MarketAiSummaryResponse = {
   item: MarketAiSummary | null;
 };
 
+export const INTELLIGENCE_SENTIMENTS = [-1, 0, 1] as const;
+export type IntelligenceSentiment = (typeof INTELLIGENCE_SENTIMENTS)[number];
+
+export const INTELLIGENCE_TARGET_TYPES = ["market", "asset"] as const;
+export type IntelligenceTargetType = (typeof INTELLIGENCE_TARGET_TYPES)[number];
+
+export const INTELLIGENCE_ASSET_CLASSES = ["crypto", "stocks", "macro"] as const;
+export type IntelligenceAssetClass = (typeof INTELLIGENCE_ASSET_CLASSES)[number];
+
+export type IntelligenceKeywordAlias = {
+  keyword: string;
+  assetClass: IntelligenceAssetClass;
+  targetType: IntelligenceTargetType;
+  targetId: string;
+  labelZh: string;
+  labelEn: string;
+};
+
+export type IntelligenceItem = {
+  id: number;
+  assetClass: IntelligenceAssetClass;
+  targetType: IntelligenceTargetType;
+  targetId: string;
+  targetLabelZh: string;
+  targetLabelEn: string;
+  title: string;
+  source: string;
+  url: string;
+  contentSummary: LocalizedText;
+  sentiment: IntelligenceSentiment;
+  importanceScore: number;
+  timestamp: string;
+  eventType: string;
+  clusterId: number | null;
+  topics: string[];
+  keywords: string[];
+};
+
+export type IntelligenceWallColumns = {
+  bullish: IntelligenceItem[];
+  neutral: IntelligenceItem[];
+  bearish: IntelligenceItem[];
+};
+
+export type IntelligenceMoverDiagnostic = {
+  assetCode: string;
+  assetLabelZh: string;
+  assetLabelEn: string;
+  reportDate: string;
+  change24hPct: number;
+  price: number;
+  quoteVolume24hUsdt: number;
+  primaryCause: IntelligenceItem | null;
+  supportingItems: IntelligenceItem[];
+};
+
+export type IntelligenceTimelineAnchor = {
+  assetCode: string;
+  reportDate: string;
+  clusterId: number;
+  sentiment: IntelligenceSentiment;
+  importanceScore: number;
+  title: string;
+};
+
+export type IntelligenceWallResponse = {
+  reportDate: string;
+  generatedAt: string;
+  overview: LocalizedText;
+  columns: IntelligenceWallColumns;
+  movers: IntelligenceMoverDiagnostic[];
+  chartAnchors: IntelligenceTimelineAnchor[];
+};
+
 export type MarketIndicesAdminRunResponse = {
   ok: true;
   summaryDate: string;
@@ -264,8 +338,15 @@ export type SchedulerJobStatus = {
   latest: SchedulerRunRecord | null;
 };
 
+export type SchedulerJobFailureSummary = {
+  jobKey: SchedulerJobKey;
+  failures: SchedulerRunRecord[];
+};
+
 export type SchedulerStatusResponse = {
   generatedAt: string;
+  retentionDays: number;
   jobs: SchedulerJobStatus[];
   recentRuns: SchedulerRunRecord[];
+  jobFailures: SchedulerJobFailureSummary[];
 };

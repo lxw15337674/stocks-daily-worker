@@ -22,6 +22,19 @@ type CryptoInstrumentPageProps = {
   searchParams: Promise<{ date?: string }>;
 };
 
+const ANCHOR_COPY = {
+  zh: {
+    title: "日期锚点摘要",
+    empty: "所选日期暂无事件锚点",
+    openEvent: "查看事件详情"
+  },
+  en: {
+    title: "Date Anchor Summary",
+    empty: "No event anchors for the selected date",
+    openEvent: "Open event detail"
+  }
+} as const;
+
 function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string) => string): string {
   if (value === "bullish") {
     return t("crypto.stanceBullish");
@@ -62,6 +75,7 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
 
   const name = lang === "zh" ? detail.coin.nameZh : detail.coin.nameEn;
   const corePosition = lang === "zh" ? detail.coin.corePositionZh : detail.coin.corePositionEn;
+  const anchorCopy = ANCHOR_COPY[lang];
   const eventTimelineByDate = new Map<string, typeof detail.eventTimeline>();
   for (const item of detail.eventTimeline) {
     const bucket = eventTimelineByDate.get(item.reportDate) ?? [];
@@ -200,6 +214,50 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
           )}
         </CardContent>
       </Card>
+
+      {selectedReportDate ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>{anchorCopy.title}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(eventTimelineByDate.get(selectedReportDate) ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">{anchorCopy.empty}</p>
+            ) : (
+              <div className="grid gap-3 xl:grid-cols-2">
+                {(eventTimelineByDate.get(selectedReportDate) ?? []).map((item) => (
+                  <article key={`anchor-${selectedReportDate}-${item.clusterId}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{renderStance(item.stance, t)}</Badge>
+                      <Badge variant="secondary">{t("crypto.clusterImpact", { impact: item.marketImpact })}</Badge>
+                      <Badge variant="outline">{t("crypto.signalLabel")}: {item.importanceScore}</Badge>
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-foreground">{item.label}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">{item.representative.source} · {formatDateTime(item.representative.publishedAt, lang)}</p>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionSameDayLabel")}</p>
+                        <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.event.change24hPct)}</p>
+                      </div>
+                      <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionNextLabel")}</p>
+                        <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.next.returnPct)}</p>
+                      </div>
+                      <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionDay3Label")}</p>
+                        <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.day3.returnPct)}</p>
+                      </div>
+                    </div>
+                    <Link href={assetEventPath(lang, item.clusterId)} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">
+                      {anchorCopy.openEvent}
+                    </Link>
+                  </article>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="pb-3">

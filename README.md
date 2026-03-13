@@ -66,6 +66,30 @@ curl http://127.0.0.1:8787/api/v1/crypto/news/market/latest
 
 That initializes the stock pool, crypto coin seed data, and crypto news tables in the local D1 files without touching the remote databases.
 
+### Sync production D1 into local D1
+
+When you need a one-time full snapshot from production into your local D1 files, use the root sync helper:
+
+```bash
+pnpm db:sync:local -- all --dry-run
+pnpm db:sync:local -- stocks --yes
+pnpm db:sync:local -- crypto --yes
+```
+
+What it does:
+
+- exports the selected remote D1 database from Cloudflare
+- bootstraps the local schema from the remote schema when the local DB is still empty
+- clears the existing local tables for that database
+- imports the remote data into the local D1 used by `wrangler dev`
+
+Notes:
+
+- This overwrites local D1 data for the selected database.
+- The helper writes a rollback export of the current local database into `backups/d1-sync/` before it resets anything.
+- Run the `--dry-run` first if you want to inspect the Wrangler commands before the real sync.
+- The helper targets the D1 bindings defined in `apps/api/wrangler.toml` and uses the same local persistence that `pnpm dev:api` reads by default.
+
 5. Local web dev:
 
 ```bash

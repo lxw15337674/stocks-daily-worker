@@ -1,4 +1,5 @@
 import type {
+  SchedulerJobFailureSummary,
   SchedulerJobKey,
   SchedulerJobStatus,
   SchedulerRunMetadata,
@@ -7,7 +8,7 @@ import type {
   SchedulerTriggerType
 } from "@china-stocks/contracts";
 
-export type SchedulerStatusBucket = Pick<R2Bucket, "get" | "list" | "put">;
+export type SchedulerStatusBucket = Pick<R2Bucket, "delete" | "get" | "list" | "put">;
 
 export const SCHEDULER_JOB_ORDER: readonly SchedulerJobKey[] = [
   "stocks_daily_report",
@@ -18,6 +19,9 @@ export const SCHEDULER_JOB_ORDER: readonly SchedulerJobKey[] = [
 
 const HISTORY_PREFIX = "scheduler-runs";
 const LATEST_PREFIX = "scheduler-latest";
+const HISTORY_RETENTION_DAYS = 14;
+const FAILURE_LIMIT_PER_JOB = 3;
+const DELETE_BATCH_SIZE = 1000;
 
 type RunSuccessInfo = {
   message?: string | null;
@@ -91,6 +95,20 @@ async function safePutJson(bucket: SchedulerStatusBucket | undefined, key: strin
   }
 }
 
+async function safeDeleteKeys(bucket: SchedulerStatusBucket | undefined, keys: string[]): Promise<void> {
+  if (!bucket || keys.length === 0) {
+    return;
+  }
+
+  try {
+    for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
+      await bucket.delete(keys.slice(index, index + DELETE_BATCH_SIZE));
+    }
+  } catch (error) {
+    console.error(`[scheduler-status] failed to delete old history objects: ${toErrorMessage(error)}`);
+  }
+}
+
 async function readRunRecord(bucket: SchedulerStatusBucket, key: string): Promise<SchedulerRunRecord | null> {
   const object = await bucket.get(key);
   if (!object) {
@@ -111,6 +129,58 @@ function toErrorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function parseHistoryKeyDay(key: string): number | null {
+  const match = /^scheduler-runs\/[^/]+\/(\d{4})\/(\d{2})\/(\d{2})\//.exec(key);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day));
+}
+
+export async function cleanupSchedulerHistory(
+  bucket: SchedulerStatusBucket | undefined,
+  now: Date,
+  retentionDays = HISTORY_RETENTION_DAYS
+): Promise<void> {
+  if (!bucket || retentionDays <= 0) {
+    return;
+  }
+
+  try {
+    const cutoff = startOfUtcDay(now);
+    cutoff.setUTCDate(cutoff.getUTCDate() - (retentionDays - 1));
+    const staleKeys: string[] = [];
+
+    let cursor: string | undefined;
+    do {
+      const page = await bucket.list({
+        prefix: `${HISTORY_PREFIX}/`,
+        limit: DELETE_BATCH_SIZE,
+        cursor
+      });
+
+      for (const object of page.objects) {
+        const objectDay = parseHistoryKeyDay(object.key);
+        if (objectDay !== null && objectDay < cutoff.getTime()) {
+          staleKeys.push(object.key);
+        }
+      }
+
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+
+    await safeDeleteKeys(bucket, staleKeys);
+  } catch (error) {
+    console.error(`[scheduler-status] failed to scan history for cleanup: ${toErrorMessage(error)}`);
+  }
 }
 
 export async function trackSchedulerRun<TResult>(
@@ -152,6 +222,7 @@ export async function trackSchedulerRun<TResult>(
     };
     await safePutJson(bucket, historyKey(finalRecord), finalRecord);
     await safePutJson(bucket, latestKey(finalRecord.jobKey), finalRecord);
+    await cleanupSchedulerHistory(bucket, finishedAt);
     return result;
   } catch (error) {
     const finishedAt = now();
@@ -167,6 +238,7 @@ export async function trackSchedulerRun<TResult>(
     };
     await safePutJson(bucket, historyKey(finalRecord), finalRecord);
     await safePutJson(bucket, latestKey(finalRecord.jobKey), finalRecord);
+    await cleanupSchedulerHistory(bucket, finishedAt);
     throw error;
   }
 }
@@ -176,11 +248,15 @@ export async function readSchedulerStatus(
   recentLimit = 20
 ): Promise<SchedulerStatusResponse> {
   const jobs = await readLatestJobStatuses(bucket);
-  const recentRuns = await readRecentRuns(bucket, recentLimit);
+  const historyRuns = await readHistoryRuns(bucket);
+  const recentRuns = historyRuns.slice(0, recentLimit);
+  const jobFailures = groupRecentFailuresByJob(historyRuns);
   return {
     generatedAt: new Date().toISOString(),
+    retentionDays: HISTORY_RETENTION_DAYS,
     jobs,
-    recentRuns
+    recentRuns,
+    jobFailures
   };
 }
 
@@ -202,17 +278,42 @@ export async function readRecentRuns(
   bucket: SchedulerStatusBucket | undefined,
   recentLimit: number
 ): Promise<SchedulerRunRecord[]> {
-  if (!bucket || recentLimit <= 0) {
+  if (recentLimit <= 0) {
     return [];
   }
 
-  const list = await bucket.list({ prefix: `${HISTORY_PREFIX}/` });
-  const records = await Promise.all(list.objects.map((object) => readRunRecord(bucket, object.key)));
+  return (await readHistoryRuns(bucket)).slice(0, recentLimit);
+}
+
+async function readHistoryRuns(bucket: SchedulerStatusBucket | undefined): Promise<SchedulerRunRecord[]> {
+  if (!bucket) {
+    return [];
+  }
+
+  const objectKeys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({
+      prefix: `${HISTORY_PREFIX}/`,
+      limit: DELETE_BATCH_SIZE,
+      cursor
+    });
+    objectKeys.push(...page.objects.map((object) => object.key));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  const records = await Promise.all(objectKeys.map((key) => readRunRecord(bucket, key)));
 
   return records
     .filter((record): record is SchedulerRunRecord => record !== null)
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-    .slice(0, recentLimit);
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
+export function groupRecentFailuresByJob(recentRuns: SchedulerRunRecord[]): SchedulerJobFailureSummary[] {
+  return SCHEDULER_JOB_ORDER.map((jobKey) => ({
+    jobKey,
+    failures: recentRuns.filter((run) => run.jobKey === jobKey && run.status === "failed").slice(0, FAILURE_LIMIT_PER_JOB)
+  }));
 }
 
 export function toScheduledForIso(scheduledTime: number | Date): string {

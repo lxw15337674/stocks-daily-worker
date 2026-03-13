@@ -3,11 +3,12 @@ import test from "node:test";
 
 import type { MarketAiSummary, ReportListItem, SchedulerStatusResponse } from "../packages/contracts/src/index.ts";
 import type { CryptoMacroSnapshot, DailyReport, MarketNewsItem } from "../apps/web/lib/crypto/types.ts";
-import { buildPlatformStatusPageData } from "../apps/web/lib/platform-status-core.ts";
+import { buildPlatformStatusPageData, normalizeSchedulerStatusResponse } from "../apps/web/lib/platform-status-core.ts";
 
 function createSchedulerStatus(): SchedulerStatusResponse {
   return {
     generatedAt: "2026-03-13T10:30:00.000Z",
+    retentionDays: 14,
     jobs: [
       {
         jobKey: "stocks_daily_report",
@@ -30,7 +31,31 @@ function createSchedulerStatus(): SchedulerStatusResponse {
       { jobKey: "crypto_news_ingestion", latest: null },
       { jobKey: "crypto_daily_report", latest: null }
     ],
-    recentRuns: []
+    recentRuns: [],
+    jobFailures: [
+      { jobKey: "stocks_daily_report", failures: [] },
+      {
+        jobKey: "market_indices_summary",
+        failures: [
+          {
+            attemptId: "b",
+            jobKey: "market_indices_summary",
+            triggerType: "cron",
+            triggerLabel: "15 20 * * 1-5",
+            scheduledFor: "2026-03-13T20:15:00.000Z",
+            startedAt: "2026-03-13T20:15:05.000Z",
+            finishedAt: "2026-03-13T20:15:08.000Z",
+            durationMs: 3000,
+            status: "failed",
+            message: "summary generation failed",
+            errorMessage: "AI provider timeout",
+            metadata: null
+          }
+        ]
+      },
+      { jobKey: "crypto_news_ingestion", failures: [] },
+      { jobKey: "crypto_daily_report", failures: [] }
+    ]
   };
 }
 
@@ -136,6 +161,7 @@ test("buildPlatformStatusPageData merges scheduler and freshness signals", () =>
   });
 
   assert.equal(result.scheduler.jobs[0].latest?.status, "success");
+  assert.equal(result.scheduler.jobFailures[1]?.failures[0]?.errorMessage, "AI provider timeout");
   assert.equal(result.freshness.length, 5);
   assert.equal(result.freshness[0].key, "stocks_report");
   assert.equal(result.freshness[0].state, "fresh");
@@ -157,5 +183,29 @@ test("buildPlatformStatusPageData falls back to missing states cleanly", () => {
   });
 
   assert.equal(result.scheduler.jobs.length, 4);
+  assert.equal(result.scheduler.retentionDays, 14);
+  assert.equal(result.scheduler.jobFailures.length, 4);
   assert.ok(result.freshness.every((item) => item.state === "missing"));
+});
+
+test("normalizeSchedulerStatusResponse backfills new fields for older API payloads", () => {
+  const result = normalizeSchedulerStatusResponse(
+    {
+      generatedAt: "2026-03-13T10:30:00.000Z",
+      jobs: [
+        { jobKey: "stocks_daily_report", latest: null },
+        { jobKey: "market_indices_summary", latest: null }
+      ],
+      recentRuns: []
+    } as Partial<SchedulerStatusResponse>,
+    "2026-03-13T11:00:00.000Z"
+  );
+
+  assert.equal(result.retentionDays, 14);
+  assert.equal(result.jobs.length, 4);
+  assert.equal(result.jobFailures.length, 4);
+  assert.deepEqual(
+    result.jobFailures.map((item) => item.jobKey),
+    ["stocks_daily_report", "market_indices_summary", "crypto_news_ingestion", "crypto_daily_report"]
+  );
 });

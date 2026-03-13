@@ -22,6 +22,7 @@ interface Env {
   CRYPTO_DB?: D1Database;
   CRYPTO_ADMIN_TOKEN?: string;
   CRYPTO_AI?: WorkersAiBinding;
+  CRYPTO_WEBHOOK_URL?: string;
   SCHEDULER_STATUS_BUCKET?: SchedulerStatusBucket;
 }
 
@@ -81,6 +82,7 @@ function toCryptoEnv(env: Env) {
     DB: env.CRYPTO_DB,
     ADMIN_TOKEN: env.CRYPTO_ADMIN_TOKEN,
     AI: env.CRYPTO_AI,
+    WEBHOOK_URL: env.CRYPTO_WEBHOOK_URL,
     STATUS_BUCKET: env.SCHEDULER_STATUS_BUCKET
   };
 }

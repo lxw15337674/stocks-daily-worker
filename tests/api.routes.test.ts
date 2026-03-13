@@ -11,6 +11,12 @@ class FakeR2Bucket implements SchedulerStatusBucket {
     this.storage.set(key, value);
   }
 
+  async delete(keys: string | string[]): Promise<void> {
+    for (const key of Array.isArray(keys) ? keys : [keys]) {
+      this.storage.delete(key);
+    }
+  }
+
   async get(key: string): Promise<{ json(): Promise<unknown> } | null> {
     const value = this.storage.get(key);
     if (!value) {
@@ -24,7 +30,11 @@ class FakeR2Bucket implements SchedulerStatusBucket {
     };
   }
 
-  async list(options?: { prefix?: string; limit?: number }): Promise<{ objects: Array<{ key: string }> }> {
+  async list(options?: { cursor?: string; prefix?: string; limit?: number }): Promise<{
+    cursor?: string;
+    objects: Array<{ key: string }>;
+    truncated: boolean;
+  }> {
     const prefix = options?.prefix ?? "";
     const limit = options?.limit ?? Number.MAX_SAFE_INTEGER;
     const objects = [...this.storage.keys()]
@@ -32,7 +42,7 @@ class FakeR2Bucket implements SchedulerStatusBucket {
       .sort()
       .slice(0, limit)
       .map((key) => ({ key }));
-    return { objects };
+    return { objects, truncated: false };
   }
 }
 
@@ -135,9 +145,16 @@ test("root routes and scheduler status route return stable shell responses", asy
 
   const status = await request("/api/v1/status/scheduler?limit=5", {}, env);
   assert.equal(status.status, 200);
-  const statusBody = (await status.json()) as { jobs: Array<{ jobKey: string }>; recentRuns: unknown[] };
+  const statusBody = (await status.json()) as {
+    jobFailures: Array<{ failures: unknown[]; jobKey: string }>;
+    jobs: Array<{ jobKey: string }>;
+    recentRuns: unknown[];
+    retentionDays: number;
+  };
   assert.equal(statusBody.jobs.length, 4);
+  assert.equal(statusBody.retentionDays, 14);
   assert.equal(statusBody.recentRuns.length, 1);
+  assert.equal(statusBody.jobFailures.length, 4);
 
   const notFound = await request("/api/v1/unknown", {}, env);
   assert.equal(notFound.status, 404);
@@ -195,6 +212,11 @@ test("route coverage matrix exercises stocks and crypto endpoints", async (t) =>
     { path: "/api/v1/crypto/news/clusters", status: 200 },
     { path: "/api/v1/crypto/news/event/0", status: 400 },
     { path: "/api/v1/crypto/news/report/bad-date", status: 400 },
+    { path: "/api/v1/crypto/news/report/2026-03-12", status: 200 },
+    { path: "/api/v1/crypto/intelligence/aliases", status: 200 },
+    { path: "/api/v1/crypto/intelligence/latest", status: 500 },
+    { path: "/api/v1/crypto/intelligence/report/bad-date", status: 400 },
+    { path: "/api/v1/crypto/intelligence/report/2026-03-12", status: 500 },
     { path: "/api/v1/crypto/news/admin/run", status: 401 },
     { path: "/api/v1/crypto/news/admin/overview", status: 401 },
     { path: "/api/v1/crypto/news/admin/raw", status: 401 },
@@ -218,4 +240,40 @@ test("route coverage matrix exercises stocks and crypto endpoints", async (t) =>
     );
     assert.equal(response.status, item.status, `${item.method ?? "GET"} ${item.path}`);
   }
+});
+
+test("crypto auxiliary endpoints return stable payload shapes for aliases and report snapshots", async () => {
+  const env = createEnv();
+
+  const aliasesResponse = await request("/api/v1/crypto/intelligence/aliases", {}, env);
+  assert.equal(aliasesResponse.status, 200);
+  const aliasesBody = (await aliasesResponse.json()) as {
+    items: Array<{
+      keyword: string;
+      assetClass: string;
+      targetType: string;
+      targetId: string;
+      labelZh: string;
+      labelEn: string;
+    }>;
+  };
+  assert.ok(Array.isArray(aliasesBody.items));
+  assert.ok(aliasesBody.items.length > 0);
+  assert.equal(typeof aliasesBody.items[0]?.keyword, "string");
+  assert.equal(typeof aliasesBody.items[0]?.targetId, "string");
+  assert.equal(typeof aliasesBody.items[0]?.labelZh, "string");
+  assert.equal(typeof aliasesBody.items[0]?.labelEn, "string");
+
+  const reportSnapshotResponse = await request("/api/v1/crypto/news/report/2026-03-12", {}, env);
+  assert.equal(reportSnapshotResponse.status, 200);
+  const reportSnapshotBody = (await reportSnapshotResponse.json()) as {
+    reportDate: string;
+    marketNews: unknown[];
+    clusters: unknown[];
+    coinNewsByCode: Record<string, unknown>;
+  };
+  assert.equal(reportSnapshotBody.reportDate, "2026-03-12");
+  assert.ok(Array.isArray(reportSnapshotBody.marketNews));
+  assert.ok(Array.isArray(reportSnapshotBody.clusters));
+  assert.deepEqual(reportSnapshotBody.coinNewsByCode, {});
 });

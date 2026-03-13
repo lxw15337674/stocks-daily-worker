@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 
 import { headers } from "next/headers";
 import type { SchedulerStatusResponse } from "@china-stocks/contracts";
@@ -14,7 +15,7 @@ function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-async function resolveRootApiTarget(): Promise<ApiTarget> {
+const resolveRootApiTarget = cache(async (): Promise<ApiTarget> => {
   const requestHeaders = await headers();
   return resolveApiTargetFromHeaders({
     defaultBaseUrl: DEFAULT_API_BASE_URL,
@@ -23,11 +24,11 @@ async function resolveRootApiTarget(): Promise<ApiTarget> {
     headers: requestHeaders,
     remoteProtocolFallback: "https"
   });
-}
+});
 
-function buildRequestHeaders(target: ApiTarget, accept: string): Headers {
+function buildRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
   const requestHeaders = new Headers({ accept });
-  if (target.cookieHeader) {
+  if (includeCookies && target.cookieHeader) {
     requestHeaders.set("cookie", target.cookieHeader);
   }
   return requestHeaders;
@@ -37,7 +38,7 @@ export async function fetchSchedulerStatus(limit = 20): Promise<SchedulerStatusR
   const target = await resolveRootApiTarget();
   const response = await fetch(joinApiUrl(target, `/status/scheduler?limit=${Math.max(1, Math.min(limit, 100))}`), {
     method: "GET",
-    cache: "no-store",
+    next: { revalidate: 60 },
     headers: buildRequestHeaders(target, "application/json")
   });
 

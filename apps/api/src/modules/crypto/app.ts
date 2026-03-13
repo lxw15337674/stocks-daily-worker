@@ -1,5 +1,10 @@
 import { Hono } from "hono";
 import {
+  buildCryptoIntelligenceWall,
+  listCryptoIntelligenceKeywordAliases,
+  notifyHighPriorityCryptoIntelligence,
+} from "./intelligence.ts";
+import {
   getCryptoNewsAdminClusterDetail,
   getNewsEventDetail,
   getCryptoNewsAdminOverview,
@@ -29,6 +34,7 @@ import { trackSchedulerRun, type SchedulerStatusBucket } from "../../scheduler-s
 interface Env {
   DB?: D1Database;
   ADMIN_TOKEN?: string;
+  WEBHOOK_URL?: string;
   STATUS_BUCKET?: SchedulerStatusBucket;
   AI?: {
     run(model: string, input: unknown): Promise<unknown>;
@@ -457,6 +463,37 @@ app.get("/news/report/:date", async (c) => {
   return c.json(snapshot);
 });
 
+app.get("/intelligence/aliases", (c) => {
+  return c.json({ items: listCryptoIntelligenceKeywordAliases() });
+});
+
+app.get("/intelligence/latest", async (c) => {
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const latestReport = await getLatestOrGenerateReport(c.env);
+  if (!latestReport) {
+    return c.json({ message: "No report available." }, 404);
+  }
+
+  const wall = await buildCryptoIntelligenceWall(c.env.DB, latestReport.reportDate);
+  return c.json(wall);
+});
+
+app.get("/intelligence/report/:date", async (c) => {
+  const reportDate = c.req.param("date").trim();
+  if (!isIsoDate(reportDate)) {
+    return c.json({ message: "Invalid report date." }, 400);
+  }
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const wall = await buildCryptoIntelligenceWall(c.env.DB, reportDate);
+  return c.json(wall);
+});
+
 app.get("/news/admin/run", async (c) => {
   if (!hasValidAdminToken(c)) {
     return c.json({ message: "Unauthorized." }, 401);
@@ -478,6 +515,9 @@ app.get("/news/admin/run", async (c) => {
     },
     () => runHourlyNewsIngestion(c.env, COINS)
   );
+  await notifyHighPriorityCryptoIntelligence(c.env.DB, c.env.WEBHOOK_URL).catch((error) => {
+    console.error(`Crypto intelligence webhook failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
   return c.json({
     ok: true,
     ...result
@@ -648,6 +688,9 @@ app.get("/", (c) =>
       "/news/clusters",
       "/news/event/:clusterId",
       "/news/report/:date",
+      "/intelligence/aliases",
+      "/intelligence/latest",
+      "/intelligence/report/:date",
       "/news/admin/run",
       "/news/admin/overview",
       "/news/admin/raw",
@@ -673,6 +716,9 @@ export default {
     if (event.cron === CRYPTO_NEWS_CRON) {
       await refreshCryptoMacroSnapshot(env);
       await runHourlyNewsIngestion(env, COINS);
+      await notifyHighPriorityCryptoIntelligence(env.DB, env.WEBHOOK_URL).catch((error) => {
+        console.error(`Crypto intelligence webhook failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
       return;
     }
 

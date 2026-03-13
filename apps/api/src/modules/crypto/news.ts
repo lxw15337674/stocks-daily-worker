@@ -2,6 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { and, asc, count, desc, eq, gte, inArray, like, lt, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { parseHTML } from "linkedom";
+import { detectMappedCoins } from "./entity-map.ts";
 import { getReportDateCryptoMacroSnapshot, type CryptoMacroSnapshot } from "./macro.ts";
 import {
   cryptoNewsClusterMembers,
@@ -2783,32 +2784,11 @@ function containsTrumpButMissingCryptoContext(rawRow: RawNewsRow): boolean {
 }
 
 function detectRelatedCoins(haystack: string, coins: CoinSeedLike[], hints: string[]): string[] {
-  const aliases = new Map<string, string[]>([
-    ["BTC", ["bitcoin", " btc ", "spot bitcoin etf"]],
-    ["ETH", ["ethereum", " ether ", " eth ", "spot ether etf"]],
-    ["USDC", ["usdc", "usd coin", "circle stablecoin", "circle"]],
-    ["SOL", ["solana", " sol "]],
-    ["XRP", ["xrp", "ripple"]],
-    ["FDUSD", ["fdusd", "first digital usd", "first digital"]],
-    ["DOGE", ["dogecoin", " doge "]],
-    ["BNB", ["bnb", "binance coin", "bnb chain", "binance ecosystem"]],
-    ["SUI", ["sui", "sui network"]],
-    ["TRUMP", ["official trump", "trump token", "trump meme coin", "trump crypto"]]
-  ]);
-
-  const out = new Set<string>(hints);
-
-  for (const coin of coins) {
-    const values = aliases.get(coin.code) ?? [coin.nameEn.toLowerCase(), coin.code.toLowerCase()];
-    if (
-      values.some((alias) => haystack.includes(alias.trim())) &&
-      (coin.code !== "TRUMP" || /\b(token|coin|crypto|solana|meme)\b/i.test(haystack))
-    ) {
-      out.add(coin.code);
-    }
-  }
-
-  return [...out];
+  return detectMappedCoins(
+    haystack,
+    coins.map((coin) => coin.code),
+    hints
+  );
 }
 
 function isMarketWideText(haystack: string): boolean {

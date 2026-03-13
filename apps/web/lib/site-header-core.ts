@@ -48,7 +48,10 @@ export function resolveNavItems(
         href: assetArchivePath(lang, "stocks"),
         label: t("stocksArchive"),
         icon: Newspaper,
-        active: pathname.startsWith(assetArchivePath(lang, "stocks"))
+        active:
+          pathname.startsWith(assetArchivePath(lang, "stocks")) ||
+          pathname.startsWith(assetHomePath(lang, "stocks") + "/report") ||
+          pathname.startsWith(assetHomePath(lang, "stocks") + "/instrument")
       },
       {
         href: stocksComparePath(lang),
@@ -66,7 +69,7 @@ export function resolveNavItems(
         href: stocksAdminPath(lang),
         label: t("stocksAdmin"),
         icon: Settings2,
-        active: pathname.startsWith(stocksAdminPath(lang)) || pathname.startsWith(assetHomePath(lang, "stocks") + "/instrument")
+        active: pathname.startsWith(stocksAdminPath(lang))
       },
       {
         href: platformStatusPath(lang),

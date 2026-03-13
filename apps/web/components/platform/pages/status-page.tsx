@@ -21,8 +21,9 @@ const COPY = {
     summary: "R2 记录最近的定时任务运行结果，业务区展示股票与数字货币关键数据的最新 freshness。",
     latestJobs: "最新任务状态",
     latestJobsDescription: "每个定时任务最近一次运行结果。",
+    failures: "近期失败详情",
+    noFailures: "最近窗口内没有失败记录。",
     recentRuns: "最近运行记录",
-    recentRunsDescription: "按开始时间倒序展示最近 24 次 cron/manual 运行。",
     freshness: "数据新鲜度",
     freshnessDescription: "基于现有公开 API 的最近产出时间，帮助判断业务数据是否跟上任务运行。",
     updatedAt: "页面生成",
@@ -37,8 +38,10 @@ const COPY = {
     duration: "耗时",
     startedAt: "开始",
     finishedAt: "结束",
+    scheduledFor: "计划时间",
     trigger: "触发方式",
-    error: "错误",
+    errorSummary: "摘要",
+    error: "错误详情",
     fresh: "新鲜",
     stale: "偏旧",
     missing: "缺失",
@@ -62,8 +65,9 @@ const COPY = {
     summary: "Recent scheduler runs come from R2, while the freshness section reflects the latest visible outputs from the public market APIs.",
     latestJobs: "Latest Job Status",
     latestJobsDescription: "Most recent run result for each scheduled job.",
+    failures: "Recent Failure Details",
+    noFailures: "No failures recorded in the current retention window.",
     recentRuns: "Recent Runs",
-    recentRunsDescription: "Latest 24 cron/manual runs sorted by start time.",
     freshness: "Data Freshness",
     freshnessDescription: "Derived from existing public APIs so you can see whether visible market data is keeping up with scheduler activity.",
     updatedAt: "Rendered",
@@ -78,8 +82,10 @@ const COPY = {
     duration: "Duration",
     startedAt: "Started",
     finishedAt: "Finished",
+    scheduledFor: "Scheduled for",
     trigger: "Trigger",
-    error: "Error",
+    errorSummary: "Summary",
+    error: "Error details",
     fresh: "Fresh",
     stale: "Stale",
     missing: "Missing",
@@ -189,6 +195,46 @@ function resolveFreshnessTitle(lang: Language, key: PlatformFreshnessCard["key"]
   return COPY[lang].freshnessCards[key];
 }
 
+function resolveTriggerLabel(lang: Language, triggerType: SchedulerRunRecord["triggerType"]): string {
+  return triggerType === "cron" ? COPY[lang].triggerCron : COPY[lang].triggerManual;
+}
+
+function resolveRecentRunsDescription(lang: Language, retentionDays: number): string {
+  return lang === "zh"
+    ? `按开始时间倒序展示最近运行记录，R2 历史仅保留最近 ${retentionDays} 天。`
+    : `Recent cron/manual runs sorted by start time. R2 history is retained for the last ${retentionDays} days.`;
+}
+
+function resolveFailuresDescription(lang: Language, retentionDays: number): string {
+  return lang === "zh"
+    ? `按任务展示最近 ${retentionDays} 天内最多 3 次失败，便于快速定位重复报错。`
+    : `Up to 3 failed runs per job across the last ${retentionDays} days so repeated errors are easier to spot.`;
+}
+
+function resolveRunSummary(run: SchedulerRunRecord): { summary: string | null; detail: string | null } {
+  const message = run.message?.trim() || null;
+  const errorMessage = run.errorMessage?.trim() || null;
+
+  if (run.status !== "failed") {
+    return {
+      summary: message,
+      detail: null
+    };
+  }
+
+  if (message && errorMessage && message !== errorMessage) {
+    return {
+      summary: message,
+      detail: errorMessage
+    };
+  }
+
+  return {
+    summary: errorMessage ?? message,
+    detail: null
+  };
+}
+
 export default function StatusPage(props: StatusPageProps) {
   const copy = COPY[props.lang];
 
@@ -211,6 +257,7 @@ export default function StatusPage(props: StatusPageProps) {
             <MetricGrid className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {props.data.scheduler.jobs.map((job) => {
                 const latest = job.latest;
+                const latestSummary = latest ? resolveRunSummary(latest) : null;
                 return (
                   <MetricCard
                     key={job.jobKey}
@@ -233,10 +280,13 @@ export default function StatusPage(props: StatusPageProps) {
                       latest ? (
                         <div className="space-y-2">
                           <Badge variant="outline" className={resolveRunBadgeClass(latest.status)}>
-                            {latest.triggerType === "cron" ? copy.triggerCron : copy.triggerManual}
+                            {resolveTriggerLabel(props.lang, latest.triggerType)}
                           </Badge>
                           <div>{copy.latestRun}: {formatDateTime(latest.startedAt, props.lang)}</div>
                           <div>{copy.duration}: {formatDuration(latest.durationMs, props.lang)}</div>
+                          {latest.status === "failed" && latestSummary?.summary ? (
+                            <div className="text-sm text-red-100">{latestSummary.summary}</div>
+                          ) : null}
                         </div>
                       ) : null
                     }
@@ -249,8 +299,62 @@ export default function StatusPage(props: StatusPageProps) {
 
         <Card>
           <CardHeader className="pb-3">
+            <CardTitle>{copy.failures}</CardTitle>
+            <CardDescription>{resolveFailuresDescription(props.lang, props.data.scheduler.retentionDays)}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MetricGrid className="grid gap-4 md:grid-cols-2">
+              {props.data.scheduler.jobFailures.map((group) => (
+                <MetricCard
+                  key={group.jobKey}
+                  title={resolveJobLabel(props.lang, group.jobKey)}
+                  value={`${group.failures.length}`}
+                  valueClassName="text-lg font-semibold"
+                  description={
+                    group.failures.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{copy.noFailures}</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {group.failures.map((run) => {
+                          const summary = resolveRunSummary(run);
+                          return (
+                            <div key={run.attemptId} className="rounded-2xl border border-border/70 bg-background/30 p-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className={resolveRunBadgeClass(run.status)}>
+                                  {resolveRunStatusLabel(props.lang, run.status)}
+                                </Badge>
+                                <Badge variant="outline">{resolveTriggerLabel(props.lang, run.triggerType)}</Badge>
+                              </div>
+                              <div className="mt-3 space-y-2 text-sm">
+                                <div className="font-medium text-foreground">{summary.summary ?? "-"}</div>
+                                {summary.detail ? (
+                                  <div className="text-muted-foreground">{summary.detail}</div>
+                                ) : null}
+                                <div className="space-y-1 text-xs text-muted-foreground">
+                                  <div>{copy.startedAt}: {formatDateTime(run.startedAt, props.lang)}</div>
+                                  <div>{copy.finishedAt}: {formatDateTime(run.finishedAt, props.lang)}</div>
+                                  <div>{copy.duration}: {formatDuration(run.durationMs, props.lang)}</div>
+                                  {run.scheduledFor ? (
+                                    <div>{copy.scheduledFor}: {formatDateTime(run.scheduledFor, props.lang)}</div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
+                  }
+                />
+              ))}
+            </MetricGrid>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
             <CardTitle>{copy.recentRuns}</CardTitle>
-            <CardDescription>{copy.recentRunsDescription}</CardDescription>
+            <CardDescription>{resolveRecentRunsDescription(props.lang, props.data.scheduler.retentionDays)}</CardDescription>
           </CardHeader>
           <CardContent>
             {props.data.scheduler.recentRuns.length === 0 ? (
@@ -265,29 +369,36 @@ export default function StatusPage(props: StatusPageProps) {
                       <TableHead>{copy.startedAt}</TableHead>
                       <TableHead>{copy.finishedAt}</TableHead>
                       <TableHead>{copy.duration}</TableHead>
+                      <TableHead>{copy.errorSummary}</TableHead>
                       <TableHead>{copy.error}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {props.data.scheduler.recentRuns.map((run) => (
-                      <TableRow key={run.attemptId}>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <span className="font-medium">{resolveJobLabel(props.lang, run.jobKey)}</span>
-                            <Badge variant="outline" className={`w-fit ${resolveRunBadgeClass(run.status)}`}>
-                              {resolveRunStatusLabel(props.lang, run.status)}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>{run.triggerType === "cron" ? copy.triggerCron : copy.triggerManual}</TableCell>
-                        <TableCell>{formatDateTime(run.startedAt, props.lang)}</TableCell>
-                        <TableCell>{formatDateTime(run.finishedAt, props.lang)}</TableCell>
-                        <TableCell>{formatDuration(run.durationMs, props.lang)}</TableCell>
-                        <TableCell className="max-w-[260px] whitespace-normal text-sm text-muted-foreground">
-                          {run.errorMessage ?? run.message ?? "-"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {props.data.scheduler.recentRuns.map((run) => {
+                      const summary = resolveRunSummary(run);
+                      return (
+                        <TableRow key={run.attemptId}>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <span className="font-medium">{resolveJobLabel(props.lang, run.jobKey)}</span>
+                              <Badge variant="outline" className={`w-fit ${resolveRunBadgeClass(run.status)}`}>
+                                {resolveRunStatusLabel(props.lang, run.status)}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell>{resolveTriggerLabel(props.lang, run.triggerType)}</TableCell>
+                          <TableCell>{formatDateTime(run.startedAt, props.lang)}</TableCell>
+                          <TableCell>{formatDateTime(run.finishedAt, props.lang)}</TableCell>
+                          <TableCell>{formatDuration(run.durationMs, props.lang)}</TableCell>
+                          <TableCell className="max-w-[240px] whitespace-normal text-sm">
+                            <div className="text-foreground">{summary.summary ?? "-"}</div>
+                          </TableCell>
+                          <TableCell className="max-w-[280px] whitespace-normal text-sm text-muted-foreground">
+                            {summary.detail ?? "-"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

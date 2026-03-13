@@ -46,11 +46,58 @@ const JOB_KEYS: readonly SchedulerJobKey[] = [
   "crypto_daily_report"
 ];
 
+const DEFAULT_SCHEDULER_RETENTION_DAYS = 14;
+
 function createEmptySchedulerStatus(generatedAt: string): SchedulerStatusResponse {
   return {
     generatedAt,
+    retentionDays: DEFAULT_SCHEDULER_RETENTION_DAYS,
     jobs: JOB_KEYS.map((jobKey) => ({ jobKey, latest: null })),
-    recentRuns: []
+    recentRuns: [],
+    jobFailures: JOB_KEYS.map((jobKey) => ({ jobKey, failures: [] }))
+  };
+}
+
+export function normalizeSchedulerStatusResponse(
+  scheduler: Partial<SchedulerStatusResponse> | null | undefined,
+  generatedAt: string
+): SchedulerStatusResponse {
+  const fallback = createEmptySchedulerStatus(generatedAt);
+  if (!scheduler) {
+    return fallback;
+  }
+
+  const latestByJob = new Map(
+    Array.isArray(scheduler.jobs)
+      ? scheduler.jobs
+          .filter((job): job is NonNullable<SchedulerStatusResponse["jobs"]>[number] => Boolean(job?.jobKey))
+          .map((job) => [job.jobKey, job.latest ?? null])
+      : []
+  );
+
+  const failuresByJob = new Map(
+    Array.isArray(scheduler.jobFailures)
+      ? scheduler.jobFailures
+          .filter((group): group is NonNullable<SchedulerStatusResponse["jobFailures"]>[number] => Boolean(group?.jobKey))
+          .map((group) => [group.jobKey, Array.isArray(group.failures) ? group.failures : []])
+      : []
+  );
+
+  return {
+    generatedAt: scheduler.generatedAt ?? generatedAt,
+    retentionDays:
+      typeof scheduler.retentionDays === "number" && Number.isFinite(scheduler.retentionDays)
+        ? scheduler.retentionDays
+        : DEFAULT_SCHEDULER_RETENTION_DAYS,
+    jobs: JOB_KEYS.map((jobKey) => ({
+      jobKey,
+      latest: latestByJob.get(jobKey) ?? null
+    })),
+    recentRuns: Array.isArray(scheduler.recentRuns) ? scheduler.recentRuns : [],
+    jobFailures: JOB_KEYS.map((jobKey) => ({
+      jobKey,
+      failures: failuresByJob.get(jobKey) ?? []
+    }))
   };
 }
 
@@ -71,7 +118,7 @@ function toFreshnessState(timestamp: string | null, now: Date, staleAfterHours: 
 export function buildPlatformStatusPageData(input: BuildPlatformStatusDataInput): PlatformStatusPageData {
   const now = (input.now ?? (() => new Date()))();
   const generatedAt = now.toISOString();
-  const scheduler = input.scheduler ?? createEmptySchedulerStatus(generatedAt);
+  const scheduler = normalizeSchedulerStatusResponse(input.scheduler, generatedAt);
   const latestStockReport = input.stockReports[0] ?? null;
   const latestMarketNews = input.cryptoMarketNews[0] ?? null;
 

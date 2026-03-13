@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ReportView } from "@/components/crypto/report-view";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
-import { fetchCoins, fetchLatestReport, fetchReportDateNews } from "@/lib/crypto/api";
+import { fetchCoins, fetchIntelligenceLatest, fetchLatestReport, fetchReportDateNews } from "@/lib/crypto/api";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
 
@@ -16,7 +16,9 @@ export async function CryptoHomePageContent(props: CryptoHomePageProps) {
   const channelT = getFixedT(lang, "channel", "crypto");
 
   const [coins, report] = await Promise.all([fetchCoins(), fetchLatestReport()]);
-  const reportNews = report ? await fetchReportDateNews(report.reportDate) : null;
+  const [reportNews, intelligence] = report
+    ? await Promise.all([fetchReportDateNews(report.reportDate), fetchIntelligenceLatest()])
+    : [null, null];
 
   if (!report) {
     return (
@@ -38,6 +40,7 @@ export async function CryptoHomePageContent(props: CryptoHomePageProps) {
         marketNews={reportNews?.marketNews ?? []}
         clusters={reportNews?.clusters ?? []}
         coinNewsByCode={reportNews?.coinNewsByCode ?? {}}
+        intelligence={intelligence}
       />
     </main>
   );

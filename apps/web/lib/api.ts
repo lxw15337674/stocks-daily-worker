@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { resolveApiTargetFromHeaders } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
@@ -35,7 +36,7 @@ function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-async function resolveApiTarget(): Promise<ApiTarget> {
+const resolveApiTarget = cache(async (): Promise<ApiTarget> => {
   const requestHeaders = await headers();
   return resolveApiTargetFromHeaders({
     defaultBaseUrl: DEFAULT_API_BASE_URL,
@@ -44,22 +45,28 @@ async function resolveApiTarget(): Promise<ApiTarget> {
     headers: requestHeaders,
     remoteProtocolFallback: "https"
   });
-}
+});
 
-function buildApiRequestHeaders(target: ApiTarget, accept: string): Headers {
+type FetchJsonOptions = {
+  revalidate?: number;
+  includeCookies?: boolean;
+};
+
+function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
   const requestHeaders = new Headers({ accept });
-  if (target.cookieHeader) {
+  if (includeCookies && target.cookieHeader) {
     requestHeaders.set("cookie", target.cookieHeader);
   }
   return requestHeaders;
 }
 
-async function fetchJson<T>(path: string): Promise<T | null> {
+async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
   const target = await resolveApiTarget();
   const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
-    cache: "no-store",
-    headers: buildApiRequestHeaders(target, "application/json")
+    next: options.revalidate ? { revalidate: options.revalidate } : undefined,
+    cache: options.revalidate ? undefined : "no-store",
+    headers: buildApiRequestHeaders(target, "application/json", options.includeCookies)
   });
 
   if (!response.ok) {
@@ -75,16 +82,18 @@ export async function fetchStockReportByDate(date: string): Promise<StockDailyRe
     return null;
   }
 
-  return fetchJson<StockDailyReport>(`/report-data/${encodeURIComponent(normalized)}`);
+  return fetchJson<StockDailyReport>(`/report-data/${encodeURIComponent(normalized)}`, { revalidate: 900 });
 }
 
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {
-  const result = await fetchJson<ReportListResponse>(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`);
+  const result = await fetchJson<ReportListResponse>(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`, {
+    revalidate: 300
+  });
   return result?.items ?? [];
 }
 
 export async function fetchStockList(): Promise<StockListItem[]> {
-  const result = await fetchJson<StockListResponse>("/stocks");
+  const result = await fetchJson<StockListResponse>("/stocks", { revalidate: 3600 });
   return result?.items ?? [];
 }
 
@@ -93,7 +102,7 @@ export async function fetchStockDetail(symbol: string): Promise<StockDetailResul
   if (!normalized) {
     return null;
   }
-  return fetchJson<StockDetailResult>(`/stock/${encodeURIComponent(normalized)}`);
+  return fetchJson<StockDetailResult>(`/stock/${encodeURIComponent(normalized)}`, { revalidate: 300 });
 }
 
 export async function fetchStockDetails(symbols: string[]): Promise<StockDetailResult[]> {
@@ -105,12 +114,12 @@ export async function fetchStockDetails(symbols: string[]): Promise<StockDetailR
   const query = new URLSearchParams({
     symbols: normalized.join(",")
   });
-  const result = await fetchJson<StockDetailListResponse>(`/stocks/details?${query.toString()}`);
+  const result = await fetchJson<StockDetailListResponse>(`/stocks/details?${query.toString()}`, { revalidate: 300 });
   return result?.items ?? [];
 }
 
 export async function fetchStockIndicesLatest(): Promise<MarketIndexLatestResponse | null> {
-  return fetchJson<MarketIndexLatestResponse>("/indices/latest");
+  return fetchJson<MarketIndexLatestResponse>("/indices/latest", { revalidate: 60 });
 }
 
 export async function fetchStockIndicesHistory(
@@ -122,11 +131,11 @@ export async function fetchStockIndicesHistory(
   if (normalized.length > 0) {
     query.set("indexKeys", normalized.join(","));
   }
-  return fetchJson<MarketIndexHistoryResponse>(`/indices/history?${query.toString()}`);
+  return fetchJson<MarketIndexHistoryResponse>(`/indices/history?${query.toString()}`, { revalidate: 300 });
 }
 
 export async function fetchStockIndicesSummaryLatest(): Promise<MarketAiSummary | null> {
-  const result = await fetchJson<MarketAiSummaryResponse>("/indices/summary/latest");
+  const result = await fetchJson<MarketAiSummaryResponse>("/indices/summary/latest", { revalidate: 300 });
   return result?.item ?? null;
 }
 
@@ -136,6 +145,8 @@ export async function fetchStockIndicesSummaryByDate(date: string): Promise<Mark
     return null;
   }
 
-  const result = await fetchJson<MarketAiSummaryResponse>(`/indices/summary/${encodeURIComponent(normalized)}`);
+  const result = await fetchJson<MarketAiSummaryResponse>(`/indices/summary/${encodeURIComponent(normalized)}`, {
+    revalidate: 3600
+  });
   return result?.item ?? null;
 }
