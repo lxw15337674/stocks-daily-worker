@@ -1,0 +1,35 @@
+name: Stocks News Ingestion
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: stocks-news-ingestion
+  cancel-in-progress: false
+
+jobs:
+  import-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Native Playwright + Readability Dependencies
+        run: npm install --no-save playwright@1.53.2 @mozilla/readability@0.6.0 linkedom@0.18.12
+
+      - name: Install Chromium Runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Crawl and Import Stocks News
+        env:
+          STOCKS_API_BASE_URL: ${{ secrets.STOCKS_API_BASE_URL }}
+          STOCKS_ADMIN_TOKEN: ${{ secrets.STOCKS_ADMIN_TOKEN }}
+        run: node scripts/stocks-news-crawl-import.mjs

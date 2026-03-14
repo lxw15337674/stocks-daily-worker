@@ -28,13 +28,15 @@ export const reportRuns = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     reportDateEt: text("report_date_et").notNull(),
+    runType: text("run_type").notNull().default("daily_report"),
     marketOverview: text("market_overview"),
     marketOverviewEn: text("market_overview_en"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
   },
   (table) => ({
     dateIdx: index("idx_report_runs_date").on(table.reportDateEt),
-    dateUnique: uniqueIndex("idx_report_runs_date_unique").on(table.reportDateEt)
+    typeDateIdx: index("idx_report_runs_type_date").on(table.runType, table.reportDateEt),
+    typeIdIdx: index("idx_report_runs_type_id").on(table.runType, table.id)
   })
 );
 
@@ -67,6 +69,7 @@ export const reportNews = sqliteTable(
     link: text("link").notNull(),
     source: text("source").notNull(),
     publishedAt: text("published_at").notNull(),
+    bodySnippet: text("body_snippet"),
     aiSummary: text("ai_summary"),
     aiSummaryEn: text("ai_summary_en")
   },

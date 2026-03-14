@@ -39,10 +39,6 @@ bucket_name = "china-stocks-daily-scheduler-status"
 [ai]
 binding = "CRYPTO_AI"
 
-[browser]
-binding = "STOCKS_BROWSER"
-remote = true
-
 [vars]
 STOCKS_WEBHOOK_URL = ""
 STOCKS_OPENAI_BASE_URL = ""

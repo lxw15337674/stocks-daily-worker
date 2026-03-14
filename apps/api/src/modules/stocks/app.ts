@@ -1,5 +1,4 @@
 import { swaggerUI } from "@hono/swagger-ui";
-import { launch, type BrowserContext, type BrowserWorker } from "@cloudflare/playwright";
 import { Readability } from "@mozilla/readability";
 import axios from "axios";
 import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
@@ -38,7 +37,6 @@ import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./s
 
 interface Env {
   DB?: D1Database;
-  BROWSER?: BrowserWorker;
   ADMIN_TOKEN?: string;
   WEBHOOK_URL?: string;
   OPENAI_BASE_URL?: string;
@@ -81,6 +79,23 @@ type NewsItem = {
   source: string;
   publishedAt: Date;
   bodySnippet?: string;
+};
+
+type ReportRunType = "daily_report" | "news_ingestion";
+
+type NewsImportItem = {
+  symbol: string;
+  title: string;
+  link: string;
+  source: string;
+  publishedAt: Date;
+  bodySnippet?: string;
+};
+
+type StockNewsImportInput = {
+  reportDateEt: string;
+  items: NewsImportItem[];
+  skippedInvalid: number;
 };
 
 type MorningBriefContextStock = {
@@ -346,6 +361,9 @@ const ET_TIMEZONE = "America/New_York";
 const CN_TIMEZONE = "Asia/Shanghai";
 const OPENAPI_VERSION = "3.1.0";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
+const REPORT_RUN_TYPE_DAILY: ReportRunType = "daily_report";
+const REPORT_RUN_TYPE_NEWS_INGESTION: ReportRunType = "news_ingestion";
+const STOCK_NEWS_IMPORT_MAX_ITEMS = 500;
 const QUOTE_FETCH_TIMEOUT_MS = 8_000;
 const RSS_FETCH_TIMEOUT_MS = 6_000;
 const AI_FETCH_TIMEOUT_MS = 25_000;
@@ -706,6 +724,70 @@ app.get(
       ...result,
       _debugNewsBody: newsBodyDebug
     });
+  }
+);
+
+app.post(
+  "/news/admin/import",
+  describeRoute({
+    tags: ["Reports"],
+    summary: "Import crawled stock news into report_news",
+    description: "Creates a new news-ingestion run and writes crawled stock news rows into report_news.",
+    parameters: [
+      {
+        name: "x-admin-token",
+        in: "header",
+        required: true,
+        schema: { type: "string" },
+        description: "Admin token"
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Import result",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                runId: { type: "integer" },
+                reportDateEt: { type: "string" },
+                received: { type: "integer" },
+                inserted: { type: "integer" },
+                deduped: { type: "integer" },
+                skippedInvalid: { type: "integer" }
+              },
+              required: ["runId", "reportDateEt", "received", "inserted", "deduped", "skippedInvalid"]
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid payload"
+      },
+      "401": {
+        description: "Missing or invalid admin token"
+      }
+    }
+  }),
+  async (c) => {
+    if (!c.env.DB) {
+      return c.text("DB binding is required.", 400);
+    }
+
+    const authError = ensureAdminToken(c.req.header("x-admin-token"), c.env);
+    if (authError) {
+      return new Response(authError.message, { status: authError.status });
+    }
+
+    const payload = await readJsonSafe(c.req.raw);
+    const parsed = parseStockNewsImportInput(payload);
+    if (!parsed.ok) {
+      return c.text(parsed.error, 400);
+    }
+
+    const result = await importStockNewsIntoReportNews(c.env.DB, parsed.value);
+    return c.json(result);
   }
 );
 
@@ -1495,44 +1577,17 @@ async function generateAndPersistReport(
 
   const newsStartedAt = Date.now();
   const newsBodyConfig = getNewsBodyFetchConfig(env);
-  let browserContext: BrowserContext | null = null;
-  let browserToClose: { close: () => Promise<void> } | null = null;
-  if (newsBodyConfig.enabled && newsBodyConfig.perStockLimit > 0) {
-    if (env.BROWSER) {
-      try {
-        const browser = await launch(env.BROWSER);
-        browserToClose = browser;
-        browserContext = await browser.newContext({
-          userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        });
-      } catch (error) {
-        console.error(`[stocks][news-body] Failed to launch browser session: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    } else {
-      console.warn("[stocks][news-body] Browser binding is not configured; skipping body extraction.");
-    }
-  }
-
   const newsBySymbol = new Map<string, NewsItem[]>();
-  try {
-    for (const stock of stocks) {
-      const items = await fetchGoogleNews(env, stock, browserContext, newsBodyConfig);
-      newsBySymbol.set(stock.symbol, items);
-    }
-  } finally {
-    if (browserContext) {
-      await browserContext.close().catch(() => undefined);
-    }
-    if (browserToClose) {
-      await browserToClose.close().catch(() => undefined);
-    }
+  for (const stock of stocks) {
+    const items = await fetchGoogleNews(env, stock, newsBodyConfig);
+    newsBySymbol.set(stock.symbol, items);
   }
   options?.captureNewsBodyDebug?.(
     buildNewsBodyDebugSummary(newsBySymbol, {
       enabled: newsBodyConfig.enabled,
       perStockLimit: newsBodyConfig.perStockLimit,
-      browserBindingConfigured: Boolean(env.BROWSER),
-      browserContextReady: Boolean(browserContext)
+      browserBindingConfigured: false,
+      browserContextReady: false
     })
   );
   console.log(`[stocks][run] news loaded (${newsBySymbol.size} symbols) in ${Date.now() - newsStartedAt}ms`);
@@ -1775,6 +1830,85 @@ function parseStockMutationInput(
   }
 
   return { ok: true, value: parsed };
+}
+
+function normalizePublishedAt(value: unknown): Date | undefined {
+  const raw = normalizeStringField(value, 64);
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function parseStockNewsImportInput(payload: unknown): ParseResult<StockNewsImportInput> {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Payload must be an object." };
+  }
+
+  const body = payload as Record<string, unknown>;
+  if (!Array.isArray(body.items)) {
+    return { ok: false, error: "items must be an array." };
+  }
+  if (body.items.length === 0) {
+    return { ok: false, error: "items is empty." };
+  }
+  if (body.items.length > STOCK_NEWS_IMPORT_MAX_ITEMS) {
+    return { ok: false, error: `Too many items. Maximum ${STOCK_NEWS_IMPORT_MAX_ITEMS}.` };
+  }
+
+  const reportDateEtCandidate = normalizeStringField(body.reportDateEt, 10);
+  const reportDateEt =
+    reportDateEtCandidate && /^\d{4}-\d{2}-\d{2}$/.test(reportDateEtCandidate)
+      ? reportDateEtCandidate
+      : formatDate(new Date(), ET_TIMEZONE);
+
+  let skippedInvalid = 0;
+  const items: NewsImportItem[] = [];
+  for (const rawItem of body.items) {
+    if (!rawItem || typeof rawItem !== "object") {
+      skippedInvalid += 1;
+      continue;
+    }
+
+    const row = rawItem as Record<string, unknown>;
+    const symbol = normalizeSymbol(row.symbol);
+    const title = normalizeStringField(row.title, 500);
+    const link = normalizeStringField(row.link, 2048);
+    const source = normalizeStringField(row.source, 160);
+    const publishedAt = normalizePublishedAt(row.publishedAt);
+    const bodySnippet = normalizeStringField(row.bodySnippet, 3000);
+
+    if (!symbol || !title || !link || !source || !publishedAt) {
+      skippedInvalid += 1;
+      continue;
+    }
+
+    items.push({
+      symbol,
+      title,
+      link,
+      source,
+      publishedAt,
+      bodySnippet
+    });
+  }
+
+  if (items.length === 0) {
+    return { ok: false, error: "No valid news items in payload." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      reportDateEt,
+      items,
+      skippedInvalid
+    }
+  };
 }
 
 function tryParseJsonValue(raw: string): unknown | undefined {
@@ -2143,7 +2277,7 @@ async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDeta
     })
     .from(reportQuotes)
     .innerJoin(reportRuns, eq(reportRuns.id, reportQuotes.runId))
-    .where(eq(reportQuotes.symbol, symbol))
+    .where(and(eq(reportQuotes.symbol, symbol), eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY)))
     .orderBy(desc(reportRuns.reportDateEt), desc(reportQuotes.id))
     .limit(30);
 
@@ -2183,6 +2317,7 @@ async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDeta
     .where(
       and(
         eq(reportNews.symbol, symbol),
+        eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY),
         or(
           sql`(${reportNews.aiSummary} IS NOT NULL AND TRIM(${reportNews.aiSummary}) <> '')`,
           sql`(${reportNews.aiSummaryEn} IS NOT NULL AND TRIM(${reportNews.aiSummaryEn}) <> '')`
@@ -2208,7 +2343,7 @@ async function getPublicStockDetail(env: Env, symbol: string): Promise<StockDeta
       reportNews,
       and(eq(reportNews.runId, reportQuotes.runId), eq(reportNews.symbol, reportQuotes.symbol))
     )
-    .where(eq(reportQuotes.symbol, symbol))
+    .where(and(eq(reportQuotes.symbol, symbol), eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY)))
     .groupBy(reportQuotes.id, reportRuns.reportDateEt, reportQuotes.close, reportQuotes.changePct)
     .orderBy(desc(reportRuns.reportDateEt), desc(reportQuotes.id))
     .limit(8);
@@ -2586,7 +2721,6 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
 async function fetchGoogleNews(
   env: Env,
   stock: Stock,
-  browserContext?: BrowserContext | null,
   newsBodyConfig?: { enabled: boolean; perStockLimit: number; timeoutMs: number; maxChars: number }
 ): Promise<NewsItem[]> {
   try {
@@ -2623,18 +2757,13 @@ async function fetchGoogleNews(
       return deduped;
     }
 
-    if (!browserContext) {
-      return deduped;
-    }
-
-    return enrichNewsBodySnippetsWithBrowserContext(browserContext, deduped, config);
+    return enrichNewsBodySnippetsWithHttpFetch(deduped, config);
   } catch {
     return [];
   }
 }
 
-async function enrichNewsBodySnippetsWithBrowserContext(
-  browserContext: BrowserContext,
+async function enrichNewsBodySnippetsWithHttpFetch(
   items: NewsItem[],
   options: { perStockLimit: number; timeoutMs: number; maxChars: number }
 ): Promise<NewsItem[]> {
@@ -2647,7 +2776,7 @@ async function enrichNewsBodySnippetsWithBrowserContext(
         continue;
       }
 
-      const bodySnippet = await fetchNewsBodySnippetWithBrowserPage(browserContext, item.link, {
+      const bodySnippet = await fetchNewsBodySnippetWithHttpFetch(item.link, {
         timeoutMs: options.timeoutMs,
         maxChars: options.maxChars
       });
@@ -2656,7 +2785,7 @@ async function enrichNewsBodySnippetsWithBrowserContext(
 
     return enriched;
   } catch (error) {
-    console.error(`[stocks][news-body] Browser rendering extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`[stocks][news-body] HTTP extraction failed: ${error instanceof Error ? error.message : String(error)}`);
     return items;
   }
 }
@@ -2767,55 +2896,26 @@ function isAxiosTimeoutError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.code === "ECONNABORTED";
 }
 
-async function fetchNewsBodySnippetWithBrowserPage(
-  context: BrowserContext,
+async function fetchNewsBodySnippetWithHttpFetch(
   url: string,
   options: { timeoutMs: number; maxChars: number }
 ): Promise<string | null> {
-  const page = await context.newPage();
-  const redirectTimeoutMs = Math.max(1000, Math.floor(options.timeoutMs / 2));
-  const settleTimeoutMs = Math.max(600, Math.floor(options.timeoutMs / 3));
-
   try {
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
+    const response = await axios.get(url, {
+      responseType: "text",
+      headers: {
+        "user-agent": "Mozilla/5.0"
+      },
       timeout: options.timeoutMs
     });
-
-    if (isGoogleNewsUrl(page.url())) {
-      await page
-        .waitForURL((nextUrl: URL) => !isGoogleNewsHost(nextUrl.hostname), {
-          timeout: redirectTimeoutMs
-        })
-        .catch(() => undefined);
-    }
-
-    await page.waitForLoadState("domcontentloaded", { timeout: settleTimeoutMs }).catch(() => undefined);
-
-    const finalUrl = page.url();
-    if (isGoogleNewsUrl(finalUrl)) {
+    if (typeof response.data !== "string" || response.data.trim().length === 0) {
       return null;
     }
 
-    return extractNewsBodySnippetFromHtml(await page.content(), options.maxChars, finalUrl);
+    return extractNewsBodySnippetFromHtml(response.data, options.maxChars, url);
   } catch {
     return null;
-  } finally {
-    await page.close().catch(() => undefined);
   }
-}
-
-function isGoogleNewsUrl(url: string): boolean {
-  try {
-    return isGoogleNewsHost(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
-
-function isGoogleNewsHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return normalized === "news.google.com" || normalized.endsWith(".news.google.com");
 }
 
 function extractNewsBodySnippetFromHtml(html: string, maxChars: number, sourceUrl: string): string | null {
@@ -3222,7 +3322,7 @@ async function getStructuredReportByDateFromD1(env: Env, reportDateEt: string): 
         marketOverviewEn: reportRuns.marketOverviewEn
       })
       .from(reportRuns)
-      .where(eq(reportRuns.reportDateEt, reportDateEt))
+      .where(and(eq(reportRuns.reportDateEt, reportDateEt), eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY)))
       .orderBy(desc(reportRuns.id))
       .limit(1)
   )[0];
@@ -3355,7 +3455,7 @@ async function getReportListFromD1(
           createdAt: reportRuns.createdAt
         })
         .from(reportRuns)
-        .where(lt(reportRuns.id, beforeId))
+        .where(and(eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY), lt(reportRuns.id, beforeId)))
         .orderBy(desc(reportRuns.id))
         .limit(pageSize)
     : await db
@@ -3365,6 +3465,7 @@ async function getReportListFromD1(
           createdAt: reportRuns.createdAt
         })
         .from(reportRuns)
+        .where(eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY))
         .orderBy(desc(reportRuns.id))
         .limit(pageSize);
 
@@ -4086,6 +4187,133 @@ function resolveChatCompletionsEndpoint(baseUrl: string): string {
   }
 }
 
+async function createReportRun(
+  dbBinding: D1Database,
+  input: {
+    reportDateEt: string;
+    runType: ReportRunType;
+    marketOverviewZh?: string | null;
+    marketOverviewEn?: string | null;
+  }
+): Promise<number> {
+  const insertResult = await dbBinding
+    .prepare(
+      "INSERT INTO report_runs (report_date_et, run_type, market_overview, market_overview_en) VALUES (?1, ?2, ?3, ?4)"
+    )
+    .bind(input.reportDateEt, input.runType, input.marketOverviewZh ?? null, input.marketOverviewEn ?? null)
+    .run();
+  const insertedId = Number(insertResult.meta?.last_row_id ?? 0);
+  if (insertedId > 0) {
+    return insertedId;
+  }
+
+  const latestRow = await dbBinding
+    .prepare(
+      "SELECT id FROM report_runs WHERE report_date_et = ?1 AND run_type = ?2 ORDER BY id DESC LIMIT 1"
+    )
+    .bind(input.reportDateEt, input.runType)
+    .first<{ id: number | null }>();
+  return Number(latestRow?.id ?? 0);
+}
+
+async function getOrCreateDailyReportRunId(
+  dbBinding: D1Database,
+  input: {
+    reportDateEt: string;
+    marketOverviewZh: string;
+    marketOverviewEn: string;
+  }
+): Promise<number> {
+  const db = drizzle(dbBinding);
+  const existingRows = await db
+    .select({ id: reportRuns.id })
+    .from(reportRuns)
+    .where(and(eq(reportRuns.reportDateEt, input.reportDateEt), eq(reportRuns.runType, REPORT_RUN_TYPE_DAILY)))
+    .orderBy(desc(reportRuns.id))
+    .limit(1);
+  const existingRunId = Number(existingRows[0]?.id ?? 0);
+  if (existingRunId > 0) {
+    await db
+      .update(reportRuns)
+      .set({
+        marketOverview: input.marketOverviewZh,
+        marketOverviewEn: input.marketOverviewEn,
+        createdAt: sql`CURRENT_TIMESTAMP`
+      })
+      .where(eq(reportRuns.id, existingRunId));
+    return existingRunId;
+  }
+
+  return createReportRun(dbBinding, {
+    reportDateEt: input.reportDateEt,
+    runType: REPORT_RUN_TYPE_DAILY,
+    marketOverviewZh: input.marketOverviewZh,
+    marketOverviewEn: input.marketOverviewEn
+  });
+}
+
+async function importStockNewsIntoReportNews(dbBinding: D1Database, input: StockNewsImportInput): Promise<{
+  runId: number;
+  reportDateEt: string;
+  received: number;
+  inserted: number;
+  deduped: number;
+  skippedInvalid: number;
+}> {
+  await ensureD1Schema(dbBinding);
+  const db = drizzle(dbBinding);
+
+  const dedupedItems: NewsImportItem[] = [];
+  const seen = new Set<string>();
+  let deduped = 0;
+  for (const item of input.items) {
+    const key = `${item.symbol}|${normalizeTitle(item.title)}|${item.link.toLowerCase()}`;
+    if (seen.has(key)) {
+      deduped += 1;
+      continue;
+    }
+    seen.add(key);
+    dedupedItems.push(item);
+  }
+
+  const runId = await createReportRun(dbBinding, {
+    reportDateEt: input.reportDateEt,
+    runType: REPORT_RUN_TYPE_NEWS_INGESTION,
+    marketOverviewZh: null,
+    marketOverviewEn: null
+  });
+  if (!runId) {
+    throw new Error("Failed to create news ingestion run.");
+  }
+
+  if (dedupedItems.length > 0) {
+    const newsValues = dedupedItems.map((item) => ({
+      runId,
+      symbol: item.symbol,
+      title: item.title,
+      link: item.link,
+      source: item.source,
+      publishedAt: item.publishedAt.toISOString(),
+      bodySnippet: item.bodySnippet ?? null,
+      aiSummary: null,
+      aiSummaryEn: null
+    }));
+    const batchSize = 20;
+    for (let index = 0; index < newsValues.length; index += batchSize) {
+      await db.insert(reportNews).values(newsValues.slice(index, index + batchSize));
+    }
+  }
+
+  return {
+    runId,
+    reportDateEt: input.reportDateEt,
+    received: input.items.length + input.skippedInvalid,
+    inserted: dedupedItems.length,
+    deduped,
+    skippedInvalid: input.skippedInvalid
+  };
+}
+
 async function persistReportToD1(
   env: Env,
   input: {
@@ -4107,29 +4335,11 @@ async function persistReportToD1(
 
   await ensureD1Schema(env.DB);
   const db = drizzle(env.DB);
-
-  await db
-    .insert(reportRuns)
-    .values({
-      reportDateEt: input.reportDateEt,
-      marketOverview: input.marketOverviewZh,
-      marketOverviewEn: input.marketOverviewEn
-    })
-    .onConflictDoUpdate({
-      target: reportRuns.reportDateEt,
-      set: {
-        marketOverview: input.marketOverviewZh,
-        marketOverviewEn: input.marketOverviewEn,
-        createdAt: sql`CURRENT_TIMESTAMP`
-      }
-    });
-
-  const run = await db
-    .select({ id: reportRuns.id })
-    .from(reportRuns)
-    .where(eq(reportRuns.reportDateEt, input.reportDateEt))
-    .limit(1);
-  const runId = Number(run[0]?.id ?? 0);
+  const runId = await getOrCreateDailyReportRunId(env.DB, {
+    reportDateEt: input.reportDateEt,
+    marketOverviewZh: input.marketOverviewZh,
+    marketOverviewEn: input.marketOverviewEn
+  });
   if (!runId) {
     return;
   }
@@ -4165,6 +4375,7 @@ async function persistReportToD1(
       link: item.link,
       source: item.source,
       publishedAt: item.publishedAt.toISOString(),
+      bodySnippet: item.bodySnippet ?? null,
       aiSummary: summary.zh,
       aiSummaryEn: summary.en
     }));
@@ -4196,18 +4407,47 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
 }
 
 async function ensureReportTablesSchema(db: D1Database): Promise<void> {
-  const statements = [
-    "CREATE TABLE IF NOT EXISTS report_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, report_date_et TEXT NOT NULL, market_overview TEXT, market_overview_en TEXT, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP))",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_report_runs_date_unique ON report_runs(report_date_et)",
-    "CREATE INDEX IF NOT EXISTS idx_report_runs_date ON report_runs(report_date_et)",
+  const createStatements = [
+    "CREATE TABLE IF NOT EXISTS report_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, report_date_et TEXT NOT NULL, run_type TEXT NOT NULL DEFAULT 'daily_report', market_overview TEXT, market_overview_en TEXT, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP))",
     "CREATE TABLE IF NOT EXISTS report_quotes (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, name TEXT NOT NULL, close REAL NOT NULL, previous_close REAL NOT NULL, change_pct REAL NOT NULL, volume INTEGER NOT NULL, turnover_estimate REAL NOT NULL, currency TEXT NOT NULL, FOREIGN KEY(run_id) REFERENCES report_runs(id))",
+    "CREATE TABLE IF NOT EXISTS report_news (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, title TEXT NOT NULL, link TEXT NOT NULL, source TEXT NOT NULL, published_at TEXT NOT NULL, body_snippet TEXT, ai_summary TEXT, ai_summary_en TEXT, FOREIGN KEY(run_id) REFERENCES report_runs(id))"
+  ];
+
+  for (const statement of createStatements) {
+    await db.prepare(statement).run();
+  }
+
+  try {
+    await db.prepare("ALTER TABLE report_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'daily_report'").run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  try {
+    await db.prepare("ALTER TABLE report_news ADD COLUMN body_snippet TEXT").run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  await db.prepare("DROP INDEX IF EXISTS idx_report_runs_date_unique").run();
+
+  const indexStatements = [
+    "CREATE INDEX IF NOT EXISTS idx_report_runs_date ON report_runs(report_date_et)",
+    "CREATE INDEX IF NOT EXISTS idx_report_runs_type_date ON report_runs(run_type, report_date_et)",
+    "CREATE INDEX IF NOT EXISTS idx_report_runs_type_id ON report_runs(run_type, id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_report_runs_daily_date_unique ON report_runs(report_date_et) WHERE run_type = 'daily_report'",
     "CREATE INDEX IF NOT EXISTS idx_report_quotes_symbol_run ON report_quotes(symbol, run_id)",
-    "CREATE TABLE IF NOT EXISTS report_news (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, symbol TEXT NOT NULL, title TEXT NOT NULL, link TEXT NOT NULL, source TEXT NOT NULL, published_at TEXT NOT NULL, ai_summary TEXT, ai_summary_en TEXT, FOREIGN KEY(run_id) REFERENCES report_runs(id))",
     "CREATE INDEX IF NOT EXISTS idx_report_news_run_symbol ON report_news(run_id, symbol)",
     "CREATE INDEX IF NOT EXISTS idx_report_news_symbol_run ON report_news(symbol, run_id)"
   ];
 
-  for (const statement of statements) {
+  for (const statement of indexStatements) {
     await db.prepare(statement).run();
   }
 }

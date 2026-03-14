@@ -26,6 +26,9 @@
     "db:studio": "pnpm --filter @china-stocks/api db:studio"
   },
   "devDependencies": {
+    "@mozilla/readability": "0.6.0",
+    "linkedom": "0.18.12",
+    "playwright": "1.53.2",
     "wrangler": "^4.73.0"
   }
 }

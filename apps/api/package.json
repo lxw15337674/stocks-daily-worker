@@ -11,7 +11,6 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@cloudflare/playwright": "^1.1.2",
     "@china-stocks/contracts": "workspace:*",
     "@hono/standard-validator": "^0.2.2",
     "@hono/swagger-ui": "^0.6.0",
