@@ -13,6 +13,7 @@ import type {
   DailyReport,
   MarketNewsItem,
   NewsClusterItem,
+  CryptoHomeSnapshot,
   NewsEventDetail,
   ReportDateNewsSnapshot,
   ReportListItem
@@ -69,6 +70,10 @@ export async function fetchCoins(): Promise<CoinItem[]> {
 
 export async function fetchLatestReport(): Promise<DailyReport | null> {
   return fetchJson<DailyReport>("/latest", { revalidate: 300 });
+}
+
+export async function fetchHomeSnapshot(): Promise<CryptoHomeSnapshot | null> {
+  return fetchJson<CryptoHomeSnapshot>("/home-snapshot", { revalidate: 300 });
 }
 
 export async function fetchReportByDate(date: string): Promise<DailyReport | null> {

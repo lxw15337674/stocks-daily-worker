@@ -244,6 +244,7 @@ test("route coverage matrix exercises stocks and crypto endpoints", async (t) =>
     { path: "/api/v1/crypto/health", status: 200 },
     { path: "/api/v1/crypto/coins", status: 200 },
     { path: "/api/v1/crypto/latest", status: 200 },
+    { path: "/api/v1/crypto/home-snapshot", status: 500 },
     { path: "/api/v1/crypto/report/bad-date", status: 400 },
     { path: "/api/v1/crypto/reports?limit=5", status: 200 },
     { path: "/api/v1/crypto/coin/BTC", status: 200 },

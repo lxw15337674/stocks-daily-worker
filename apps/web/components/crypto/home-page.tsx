@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ReportView } from "@/components/crypto/report-view";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
-import { fetchCoins, fetchIntelligenceLatest, fetchLatestReport, fetchReportDateNews } from "@/lib/crypto/api";
+import { fetchCoins, fetchHomeSnapshot } from "@/lib/crypto/api";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
 
@@ -15,12 +15,9 @@ export async function CryptoHomePageContent(props: CryptoHomePageProps) {
   const { lang } = props;
   const channelT = getFixedT(lang, "channel", "crypto");
 
-  const [coins, report] = await Promise.all([fetchCoins(), fetchLatestReport()]);
-  const [reportNews, intelligence] = report
-    ? await Promise.all([fetchReportDateNews(report.reportDate), fetchIntelligenceLatest()])
-    : [null, null];
+  const [coins, snapshot] = await Promise.all([fetchCoins(), fetchHomeSnapshot()]);
 
-  if (!report) {
+  if (!snapshot) {
     return (
       <StatusCard title={channelT("missingReportTitle")} body={channelT("missingReportDescription")}>
         <Button asChild>
@@ -30,16 +27,18 @@ export async function CryptoHomePageContent(props: CryptoHomePageProps) {
     );
   }
 
+  const { report, reportNews, intelligence } = snapshot;
+
   return (
     <main className="page-shell">
       <ReportView
         lang={lang}
         report={report}
         coins={coins}
-        macro={reportNews?.macro ?? null}
-        marketNews={reportNews?.marketNews ?? []}
-        clusters={reportNews?.clusters ?? []}
-        coinNewsByCode={reportNews?.coinNewsByCode ?? {}}
+        macro={reportNews.macro}
+        marketNews={reportNews.marketNews}
+        clusters={reportNews.clusters}
+        coinNewsByCode={reportNews.coinNewsByCode}
         intelligence={intelligence}
       />
     </main>

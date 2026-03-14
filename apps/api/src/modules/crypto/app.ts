@@ -281,6 +281,32 @@ app.get("/latest", async (c) => {
   return c.json(report);
 });
 
+app.get("/home-snapshot", async (c) => {
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const report = await getLatestOrGenerateReport(c.env);
+  if (!report) {
+    return c.json({ message: "No report available." }, 404);
+  }
+
+  if (report.reportDate === formatDate(new Date())) {
+    await refreshCryptoMacroSnapshot(c.env);
+  }
+
+  const [reportNews, intelligence] = await Promise.all([
+    getReportDateNewsSnapshot(c.env.DB, report.reportDate),
+    buildCryptoIntelligenceWall(c.env.DB, report.reportDate)
+  ]);
+
+  return c.json({
+    report,
+    reportNews,
+    intelligence
+  });
+});
+
 app.get("/report/:date", async (c) => {
   const reportDate = c.req.param("date").trim();
   if (!isIsoDate(reportDate)) {
@@ -472,7 +498,7 @@ app.get("/intelligence/latest", async (c) => {
     return c.json({ message: "DB binding is required." }, 500);
   }
 
-  const latestReport = await getLatestOrGenerateReport(c.env);
+  const latestReport = await getLatestReport(c.env.DB);
   if (!latestReport) {
     return c.json({ message: "No report available." }, 404);
   }
@@ -676,6 +702,7 @@ app.get("/", (c) =>
       "/health",
       "/coins",
       "/latest",
+      "/home-snapshot",
       "/report/:date",
       "/reports",
       "/coin/:code",
@@ -1089,9 +1116,12 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
       leader_change_24h_pct REAL,
       laggard_code TEXT,
       laggard_change_24h_pct REAL,
-      generated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      generated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      status TEXT NOT NULL DEFAULT 'ready',
+      snapshot_count INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_reports_date_unique ON daily_reports(report_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_daily_reports_status_date ON daily_reports(status, report_date DESC)`,
     `CREATE TABLE IF NOT EXISTS daily_coin_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       report_id INTEGER NOT NULL,
@@ -1115,6 +1145,16 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
   for (const statement of statements) {
     await db.prepare(statement).run();
   }
+
+  const columnsResult = await db.prepare("PRAGMA table_info(daily_reports)").all<{ name: string }>();
+  const columns = new Set((columnsResult.results ?? []).map((row) => row.name));
+  if (!columns.has("status")) {
+    await db.prepare("ALTER TABLE daily_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'").run();
+  }
+  if (!columns.has("snapshot_count")) {
+    await db.prepare("ALTER TABLE daily_reports ADD COLUMN snapshot_count INTEGER NOT NULL DEFAULT 0").run();
+  }
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_daily_reports_status_date ON daily_reports(status, report_date DESC)").run();
 }
 
 async function seedCoins(db: D1Database): Promise<void> {
@@ -1167,89 +1207,126 @@ async function seedCoins(db: D1Database): Promise<void> {
 }
 
 async function persistReport(db: D1Database, report: DailyReport): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO daily_reports (
-        report_date,
-        summary_zh,
-        summary_en,
-        total_quote_volume_usdt,
-        up_count,
-        down_count,
-        flat_count,
-        leader_code,
-        leader_change_24h_pct,
-        laggard_code,
-        laggard_change_24h_pct,
-        generated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(report_date) DO UPDATE SET
-        summary_zh = excluded.summary_zh,
-        summary_en = excluded.summary_en,
-        total_quote_volume_usdt = excluded.total_quote_volume_usdt,
-        up_count = excluded.up_count,
-        down_count = excluded.down_count,
-        flat_count = excluded.flat_count,
-        leader_code = excluded.leader_code,
-        leader_change_24h_pct = excluded.leader_change_24h_pct,
-        laggard_code = excluded.laggard_code,
-        laggard_change_24h_pct = excluded.laggard_change_24h_pct,
-        generated_at = excluded.generated_at`
-    )
-    .bind(
-      report.reportDate,
-      report.summaryZh,
-      report.summaryEn,
-      report.totalQuoteVolumeUsdt,
-      report.upCount,
-      report.downCount,
-      report.flatCount,
-      report.leaderCode,
-      report.leaderChange24hPct,
-      report.laggardCode,
-      report.laggardChange24hPct,
-      report.generatedAt
-    )
-    .run();
+  const statements: D1PreparedStatement[] = [];
 
-  const run = await db.prepare("SELECT id FROM daily_reports WHERE report_date = ? LIMIT 1").bind(report.reportDate).first<{ id: number }>();
-  const reportId = Number(run?.id ?? 0);
-  if (!reportId) {
-    return;
-  }
-
-  await db.prepare("DELETE FROM daily_coin_snapshots WHERE report_id = ?").bind(reportId).run();
-
-  for (const item of report.items) {
-    await db
+  statements.push(
+    db
       .prepare(
-        `INSERT INTO daily_coin_snapshots (
-          report_id,
-          code,
-          pair,
-          price_usdt,
-          change_24h_pct,
-          high_24h,
-          low_24h,
-          quote_volume_24h_usdt,
-          trade_share_pct,
-          close_time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO daily_reports (
+          report_date,
+          summary_zh,
+          summary_en,
+          total_quote_volume_usdt,
+          up_count,
+          down_count,
+          flat_count,
+          leader_code,
+          leader_change_24h_pct,
+          laggard_code,
+          laggard_change_24h_pct,
+          generated_at,
+          status,
+          snapshot_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'building', 0)
+        ON CONFLICT(report_date) DO UPDATE SET
+          summary_zh = excluded.summary_zh,
+          summary_en = excluded.summary_en,
+          total_quote_volume_usdt = excluded.total_quote_volume_usdt,
+          up_count = excluded.up_count,
+          down_count = excluded.down_count,
+          flat_count = excluded.flat_count,
+          leader_code = excluded.leader_code,
+          leader_change_24h_pct = excluded.leader_change_24h_pct,
+          laggard_code = excluded.laggard_code,
+          laggard_change_24h_pct = excluded.laggard_change_24h_pct,
+          generated_at = excluded.generated_at,
+          status = 'building',
+          snapshot_count = 0`
       )
       .bind(
-        reportId,
-        item.code,
-        item.pair,
-        item.priceUsdt,
-        item.change24hPct,
-        item.high24h,
-        item.low24h,
-        item.quoteVolume24hUsdt,
-        item.tradeSharePct,
-        item.closeTime
+        report.reportDate,
+        report.summaryZh,
+        report.summaryEn,
+        report.totalQuoteVolumeUsdt,
+        report.upCount,
+        report.downCount,
+        report.flatCount,
+        report.leaderCode,
+        report.leaderChange24hPct,
+        report.laggardCode,
+        report.laggardChange24hPct,
+        report.generatedAt
       )
-      .run();
+  );
+
+  statements.push(
+    db
+      .prepare(
+        `DELETE FROM daily_coin_snapshots
+        WHERE report_id = (
+          SELECT id FROM daily_reports WHERE report_date = ? LIMIT 1
+        )`
+      )
+      .bind(report.reportDate)
+  );
+
+  for (const item of report.items) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO daily_coin_snapshots (
+            report_id,
+            code,
+            pair,
+            price_usdt,
+            change_24h_pct,
+            high_24h,
+            low_24h,
+            quote_volume_24h_usdt,
+            trade_share_pct,
+            close_time
+          )
+          SELECT
+            id,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          FROM daily_reports
+          WHERE report_date = ?
+          LIMIT 1`
+        )
+        .bind(
+          item.code,
+          item.pair,
+          item.priceUsdt,
+          item.change24hPct,
+          item.high24h,
+          item.low24h,
+          item.quoteVolume24hUsdt,
+          item.tradeSharePct,
+          item.closeTime,
+          report.reportDate
+        )
+    );
   }
+
+  statements.push(
+    db
+      .prepare(
+        `UPDATE daily_reports
+        SET status = 'ready', snapshot_count = ?, generated_at = ?
+        WHERE report_date = ?`
+      )
+      .bind(report.items.length, report.generatedAt, report.reportDate)
+  );
+
+  await db.batch(statements);
 }
 
 async function listCoins(db: D1Database): Promise<CoinRecord[]> {
@@ -1314,8 +1391,15 @@ async function getCoinByCode(db: D1Database, code: string): Promise<CoinRecord |
 }
 
 async function getLatestReport(db: D1Database): Promise<DailyReport | null> {
+  await ensureD1Schema(db);
   const latest = await db
-    .prepare("SELECT report_date AS reportDate FROM daily_reports ORDER BY report_date DESC LIMIT 1")
+    .prepare(
+      `SELECT report_date AS reportDate
+      FROM daily_reports
+      WHERE status = 'ready' AND snapshot_count > 0
+      ORDER BY report_date DESC
+      LIMIT 1`
+    )
     .first<{ reportDate: string }>();
   if (!latest?.reportDate) {
     return null;
@@ -1342,7 +1426,7 @@ async function getReportByDate(db: D1Database, reportDate: string): Promise<Dail
         laggard_change_24h_pct AS laggardChange24hPct,
         generated_at AS generatedAt
       FROM daily_reports
-      WHERE report_date = ?
+      WHERE report_date = ? AND status = 'ready' AND snapshot_count > 0
       LIMIT 1`
     )
     .bind(reportDate)
@@ -1402,6 +1486,7 @@ async function listReports(db: D1Database, limit: number): Promise<ReportListIte
         down_count AS downCount,
         flat_count AS flatCount
       FROM daily_reports
+      WHERE status = 'ready' AND snapshot_count > 0
       ORDER BY report_date DESC
       LIMIT ?`
     )

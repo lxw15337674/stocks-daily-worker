@@ -1,3 +1,5 @@
+import type { IntelligenceWallResponse } from "@china-stocks/contracts";
+
 export type CoinItem = {
   rank: number;
   code: string;
@@ -189,4 +191,10 @@ export type ReportDateNewsSnapshot = {
   marketNews: MarketNewsItem[];
   clusters: NewsClusterItem[];
   coinNewsByCode: Record<string, CoinNewsItem[]>;
+};
+
+export type CryptoHomeSnapshot = {
+  report: DailyReport;
+  reportNews: ReportDateNewsSnapshot;
+  intelligence: IntelligenceWallResponse;
 };
