@@ -425,6 +425,10 @@ async function crawlStockNews(stock, requestContext, browserContext) {
   return enriched;
 }
 
+function countSnippetItems(items) {
+  return items.reduce((total, item) => total + (item.bodySnippet ? 1 : 0), 0);
+}
+
 async function main() {
   const apiBaseUrl = withTrailingSlashRemoved(assertEnv("STOCKS_API_BASE_URL"));
   const adminToken = assertEnv("STOCKS_ADMIN_TOKEN");
@@ -456,15 +460,30 @@ async function main() {
     }
 
     console.log(`[stocks-news-ci] crawling ${stocks.length} stocks`);
-    const crawledGroups = await mapWithConcurrency(stocks, STOCK_CONCURRENCY, (stock) =>
-      crawlStockNews(stock, requestContext, browserContext)
-    );
+    const crawledGroups = await mapWithConcurrency(stocks, STOCK_CONCURRENCY, async (stock, index) => {
+      const newsItems = await crawlStockNews(stock, requestContext, browserContext);
+      const snippetItems = countSnippetItems(newsItems);
+      console.log(
+        `[stocks-news-ci] crawl progress ${index + 1}/${stocks.length} symbol=${String(stock.symbol).toUpperCase()} fetched=${newsItems.length} snippet=${snippetItems}`
+      );
+      return newsItems;
+    });
+
+    const rawFetchedCount = crawledGroups.reduce((total, group) => total + group.length, 0);
     const items = dedupeNewsItems(crawledGroups.flat());
+    const dedupedCount = Math.max(0, rawFetchedCount - items.length);
+    const snippetItems = countSnippetItems(items);
+
+    console.log(
+      `[stocks-news-ci] crawl summary stocks=${stocks.length} rawFetched=${rawFetchedCount} deduped=${dedupedCount} readyToImport=${items.length} snippet=${snippetItems}`
+    );
+
     if (items.length === 0) {
       console.log("[stocks-news-ci] no news items collected, skip import.");
       return;
     }
 
+    console.log(`[stocks-news-ci] importing ${items.length} news rows into report_news`);
     const importPayload = {
       reportDateEt: toEtDate(),
       items

@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ../../scripts/select-web-config.mjs local && vinext dev",
-    "build": "node ../../scripts/select-web-config.mjs remote && vinext build",
-    "start": "node ../../scripts/select-web-config.mjs remote && vinext start",
-    "deploy": "node ../../scripts/select-web-config.mjs remote && vinext build && pnpm --dir ../.. exec wrangler deploy --config apps/web/dist/server/wrangler.json",
-    "check": "node ../../scripts/select-web-config.mjs remote && vinext check && tsc --noEmit"
+    "dev": "bun ../../scripts/select-web-config.ts local && vinext dev",
+    "build": "bun ../../scripts/select-web-config.ts remote && vinext build",
+    "start": "bun ../../scripts/select-web-config.ts remote && vinext start",
+    "deploy": "bun ../../scripts/select-web-config.ts remote && vinext build && bunx wrangler deploy --config dist/server/wrangler.json",
+    "check": "bun ../../scripts/select-web-config.ts remote && vinext check && tsc --noEmit"
   },
   "dependencies": {
     "@china-stocks/contracts": "workspace:*",

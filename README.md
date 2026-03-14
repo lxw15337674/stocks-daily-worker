@@ -8,7 +8,7 @@ Monorepo for a unified multi-asset daily report platform on Cloudflare.
 - `apps/web`: unified vinext + shadcn/ui frontend with localized routes under `/{lang}`
 - `packages/contracts`: shared stock contracts used across the workspace
 
-The repository uses `pnpm workspace` only. There is no `turbo` layer.
+The repository is now run with Bun workspaces. There is no `turbo` layer.
 
 ## What it does
 
@@ -30,20 +30,20 @@ The repository uses `pnpm workspace` only. There is no `turbo` layer.
 1. Login Cloudflare from the repo root:
 
 ```bash
-pnpm run cf:login
+bun run cf:login
 ```
 
 2. Install dependencies from the workspace root:
 
 ```bash
-pnpm install
+bun install
 ```
 
 3. Create D1 databases (first time):
 
 ```bash
-pnpm run cf:d1:create:stocks
-pnpm run cf:d1:create:crypto
+bun run cf:d1:create:stocks
+bun run cf:d1:create:crypto
 ```
 
 Then update `apps/api/wrangler.toml` with the returned `database_id` values.
@@ -51,7 +51,7 @@ Then update `apps/api/wrangler.toml` with the returned `database_id` values.
 4. Local API dev:
 
 ```bash
-pnpm dev:api
+bun run dev:api
 ```
 
 The local API worker uses the same `apps/api/wrangler.toml` as deploys, and `wrangler dev` reads local D1 by default.
@@ -71,9 +71,9 @@ That initializes the stock pool, crypto coin seed data, and crypto news tables i
 When you need a one-time full snapshot from production into your local D1 files, use the root sync helper:
 
 ```bash
-pnpm db:sync:local -- all --dry-run
-pnpm db:sync:local -- stocks --yes
-pnpm db:sync:local -- crypto --yes
+bun run db:sync:local -- all --dry-run
+bun run db:sync:local -- stocks --yes
+bun run db:sync:local -- crypto --yes
 ```
 
 What it does:
@@ -88,12 +88,12 @@ Notes:
 - This overwrites local D1 data for the selected database.
 - The helper writes a rollback export of the current local database into `backups/d1-sync/` before it resets anything.
 - Run the `--dry-run` first if you want to inspect the Wrangler commands before the real sync.
-- The helper targets the D1 bindings defined in `apps/api/wrangler.toml` and uses the same local persistence that `pnpm dev:api` reads by default.
+- The helper targets the D1 bindings defined in `apps/api/wrangler.toml` and uses the same local persistence that `bun run dev:api` reads by default.
 
 5. Local web dev:
 
 ```bash
-pnpm dev:web
+bun run dev:web
 ```
 
 When the local API dev session is available, the web worker will prefer the local `MARKETS_API` binding first and only fall back to `MARKETS_API_BASE_URL` if that local API session is unavailable.
@@ -101,14 +101,14 @@ When the local API dev session is available, the web worker will prefer the loca
 6. Local full stack dev:
 
 ```bash
-pnpm dev:all
+bun run dev:all
 ```
 
 7. Deploy:
 
 ```bash
-pnpm deploy:api
-pnpm deploy:web
+bun run deploy:api
+bun run deploy:web
 ```
 
 8. Verify:
@@ -127,13 +127,13 @@ Recommended setup for this monorepo:
 
 - Backend Worker project
   - Root Directory: `/`
-  - Build Command: `pnpm install --frozen-lockfile`
-  - Deploy Command: `pnpm --filter @china-stocks/api run deploy`
+  - Build Command: `bun install --frozen-lockfile`
+  - Deploy Command: `bun --cwd apps/api run deploy`
   - Production Branch: `main`
 - Frontend Worker project
   - Root Directory: `/`
-  - Build Command: `pnpm install --frozen-lockfile`
-  - Deploy Command: `pnpm --filter @china-stocks/web run deploy`
+  - Build Command: `bun install --frozen-lockfile`
+  - Deploy Command: `bun --cwd apps/web run deploy`
   - Production Branch: `main`
 
 When configured, commits pushed to `main` will trigger Cloudflare auto deploy directly.
@@ -141,7 +141,7 @@ When configured, commits pushed to `main` will trigger Cloudflare auto deploy di
 Legacy compatibility note:
 
 - If an existing frontend Worker Build project still uses `Root Directory: /web`, this repo now includes a thin `web/` compatibility wrapper so the old setting can still deploy `apps/web`.
-- If that legacy project also still uses `Deploy Command: pnpm deploy`, change it to `pnpm run deploy` because `pnpm@10` reserves `deploy` as a built-in CLI command.
+- If that legacy project still uses an old deploy command, migrate it to `bun run deploy`.
 - The preferred long-term Cloudflare configuration remains `Root Directory: /`.
 
 ## Optional configuration
@@ -151,7 +151,7 @@ Legacy compatibility note:
 The web UI project is under `apps/web` and supports date lookup pages.
 
 ```bash
-pnpm dev:web
+bun run dev:web
 ```
 
 ### Stocks D1 + Crypto D1
@@ -170,7 +170,7 @@ database_name = "crypto-daily"
 database_id = "<crypto-d1-database-id>"
 ```
 
-`pnpm dev:api` and deploys now share this single Wrangler file. Per Cloudflare's default behavior, local `wrangler dev` uses local D1 storage unless you explicitly opt into remote development.
+`bun run dev:api` and deploys now share this single Wrangler file. Per Cloudflare's default behavior, local `wrangler dev` uses local D1 storage unless you explicitly opt into remote development.
 
 When the stock DB is configured, each stock run stores:
 - structured market overview metadata (`report_runs`)
@@ -186,9 +186,9 @@ Set `STOCKS_ADMIN_TOKEN` for stock admin APIs and `CRYPTO_ADMIN_TOKEN` for crypt
 This Worker uses Cloudflare Worker Versions, so use versioned secret commands:
 
 ```bash
-pnpm exec wrangler versions secret put STOCKS_ADMIN_TOKEN --config apps/api/wrangler.toml
-pnpm exec wrangler versions secret put CRYPTO_ADMIN_TOKEN --config apps/api/wrangler.toml
-pnpm exec wrangler versions deploy <new-version-id>@100 --yes --config apps/api/wrangler.toml
+bunx wrangler versions secret put STOCKS_ADMIN_TOKEN --config apps/api/wrangler.toml
+bunx wrangler versions secret put CRYPTO_ADMIN_TOKEN --config apps/api/wrangler.toml
+bunx wrangler versions deploy <new-version-id>@100 --yes --config apps/api/wrangler.toml
 ```
 
 Admin endpoints require header:
@@ -197,7 +197,7 @@ Admin endpoints require header:
 x-admin-token: <STOCKS_ADMIN_TOKEN or CRYPTO_ADMIN_TOKEN>
 ```
 
-For local development, prefer a non-committed `apps/api/.dev.vars` file or `pnpm exec wrangler dev --config apps/api/wrangler.toml --var CRYPTO_ADMIN_TOKEN:...`.
+For local development, prefer a non-committed `apps/api/.dev.vars` file or `bunx wrangler dev --config apps/api/wrangler.toml --var CRYPTO_ADMIN_TOKEN:...`.
 
 Web frontend provides the stock admin UI at `/{lang}/stocks/admin`.
 

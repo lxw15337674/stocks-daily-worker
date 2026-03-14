@@ -32,4 +32,4 @@ jobs:
         env:
           STOCKS_API_BASE_URL: ${{ secrets.STOCKS_API_BASE_URL }}
           STOCKS_ADMIN_TOKEN: ${{ secrets.STOCKS_ADMIN_TOKEN }}
-        run: bun scripts/stocks-news-crawl-import.mjs
+        run: bun scripts/stocks-news-crawl-import.ts
