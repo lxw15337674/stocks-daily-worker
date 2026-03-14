@@ -1,6 +1,7 @@
 import { swaggerUI } from "@hono/swagger-ui";
 import { launch, type BrowserContext, type BrowserWorker } from "@cloudflare/playwright";
 import { Readability } from "@mozilla/readability";
+import axios from "axios";
 import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
@@ -345,6 +346,10 @@ const ET_TIMEZONE = "America/New_York";
 const CN_TIMEZONE = "Asia/Shanghai";
 const OPENAPI_VERSION = "3.1.0";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
+const QUOTE_FETCH_TIMEOUT_MS = 8_000;
+const RSS_FETCH_TIMEOUT_MS = 6_000;
+const AI_FETCH_TIMEOUT_MS = 25_000;
+const WEBHOOK_FETCH_TIMEOUT_MS = 3_000;
 const NEWS_BODY_FETCH_ENABLED_DEFAULT = true;
 const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
 const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
@@ -1476,11 +1481,19 @@ async function generateAndPersistReport(
     captureNewsBodyDebug?: (summary: NewsBodyDebugSummary) => void;
   }
 ): Promise<StockDailyReport> {
+  const runStartedAt = Date.now();
+
+  const stockUniverseStartedAt = Date.now();
   const stocks = await getStockUniverse(env);
+  console.log(`[stocks][run] stock universe loaded (${stocks.length}) in ${Date.now() - stockUniverseStartedAt}ms`);
+
+  const quotesStartedAt = Date.now();
   const quotes = (await Promise.all(stocks.map((stock) => fetchQuote(stock)))).filter(
     (item): item is Quote => item !== null
   );
+  console.log(`[stocks][run] quotes loaded (${quotes.length}/${stocks.length}) in ${Date.now() - quotesStartedAt}ms`);
 
+  const newsStartedAt = Date.now();
   const newsBodyConfig = getNewsBodyFetchConfig(env);
   let browserContext: BrowserContext | null = null;
   let browserToClose: { close: () => Promise<void> } | null = null;
@@ -1522,11 +1535,15 @@ async function generateAndPersistReport(
       browserContextReady: Boolean(browserContext)
     })
   );
+  console.log(`[stocks][run] news loaded (${newsBySymbol.size} symbols) in ${Date.now() - newsStartedAt}ms`);
 
   const reportDateEt = formatDate(new Date(), ET_TIMEZONE);
+  const aiStartedAt = Date.now();
   const aiSummary = await buildAiSummary(env, stocks, quotes, newsBySymbol);
+  console.log(`[stocks][run] ai summary built in ${Date.now() - aiStartedAt}ms`);
   const createdAt = new Date().toISOString();
 
+  const persistStartedAt = Date.now();
   await persistReportToD1(env, {
     reportDateEt,
     quotes,
@@ -1536,19 +1553,36 @@ async function generateAndPersistReport(
     marketOverviewEn: aiSummary.morningBriefEn,
     requireDb: options?.requireDb ?? false
   });
+  console.log(`[stocks][run] report persisted in ${Date.now() - persistStartedAt}ms`);
 
   if (env.WEBHOOK_URL) {
-    await fetch(env.WEBHOOK_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        reportDateEt,
-        createdAt,
-        sampleSize: quotes.length,
-        validQuoteCount: quotes.length
-      })
-    });
+    const webhookStartedAt = Date.now();
+    try {
+      await axios.post(
+        env.WEBHOOK_URL,
+        {
+          reportDateEt,
+          createdAt,
+          sampleSize: quotes.length,
+          validQuoteCount: quotes.length
+        },
+        {
+          headers: { "content-type": "application/json" },
+          timeout: WEBHOOK_FETCH_TIMEOUT_MS
+        }
+      );
+      console.log(`[stocks][run] webhook delivered in ${Date.now() - webhookStartedAt}ms`);
+    } catch (error) {
+      const reason = isAxiosTimeoutError(error)
+        ? `timeout after ${WEBHOOK_FETCH_TIMEOUT_MS}ms`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      console.warn(`[stocks][run] webhook skipped: ${reason}`);
+    }
   }
+
+  console.log(`[stocks][run] total ${Date.now() - runStartedAt}ms`);
 
   return buildStructuredReport({
     reportDateEt,
@@ -2494,17 +2528,13 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
       stock.symbol
     )}?interval=1d&range=5d`;
 
-    const response = await fetch(endpoint, {
+    const response = await axios.get(endpoint, {
       headers: {
         "user-agent": "Mozilla/5.0"
-      }
+      },
+      timeout: QUOTE_FETCH_TIMEOUT_MS
     });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as {
+    const payload = response.data as {
       chart?: {
         result?: Array<{
           meta?: {
@@ -2545,7 +2575,10 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
       turnoverEstimate,
       currency: result?.meta?.currency ?? "USD"
     };
-  } catch {
+  } catch (error) {
+    if (isAxiosTimeoutError(error)) {
+      console.warn(`[stocks][quote] ${stock.symbol} timed out after ${QUOTE_FETCH_TIMEOUT_MS}ms`);
+    }
     return null;
   }
 }
@@ -2560,12 +2593,21 @@ async function fetchGoogleNews(
     const searchRequests = buildGoogleNewsSearchRequests(stock);
     const rssResponses = await Promise.all(
       searchRequests.map(async (request) => {
-        const response = await fetch(request.endpoint, {
-          headers: {
-            "user-agent": "Mozilla/5.0"
+        try {
+          const response = await axios.get(request.endpoint, {
+            headers: {
+              "user-agent": "Mozilla/5.0"
+            },
+            timeout: RSS_FETCH_TIMEOUT_MS,
+            responseType: "text"
+          });
+          return typeof response.data === "string" ? response.data : null;
+        } catch (error) {
+          if (isAxiosTimeoutError(error)) {
+            console.warn(`[stocks][news] ${stock.symbol} rss timed out after ${RSS_FETCH_TIMEOUT_MS}ms`);
           }
-        });
-        return response.ok ? response.text() : null;
+          return null;
+        }
       })
     );
 
@@ -2719,6 +2761,10 @@ function parseIntEnv(value: string | undefined, fallback: number, min: number, m
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+function isAxiosTimeoutError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.code === "ECONNABORTED";
 }
 
 async function fetchNewsBodySnippetWithBrowserPage(
@@ -3983,33 +4029,39 @@ async function callAiCompatible(env: Env, systemPrompt: string, userPrompt: stri
     headers.authorization = `Bearer ${apiKey}`;
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: env.AI_MODEL ?? OPENAI_DEFAULT_MODEL,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    })
-  });
+  try {
+    const response = await axios.post(
+      endpoint,
+      {
+        model: env.AI_MODEL ?? OPENAI_DEFAULT_MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ]
+      },
+      {
+        headers,
+        timeout: AI_FETCH_TIMEOUT_MS
+      }
+    );
 
-  if (!response.ok) {
+    const payload = response.data as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
+
+    const content = payload.choices?.[0]?.message?.content?.trim();
+    return content && content.length > 0 ? content : null;
+  } catch (error) {
+    if (isAxiosTimeoutError(error)) {
+      console.warn(`[stocks][ai] request timed out after ${AI_FETCH_TIMEOUT_MS}ms`);
+    }
     return null;
   }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  return content && content.length > 0 ? content : null;
 }
 
 function resolveChatCompletionsEndpoint(baseUrl: string): string {
