@@ -80,10 +80,25 @@ type NewsItem = {
   bodySnippet?: string;
 };
 
+type MorningBriefContextStock = {
+  symbol: string;
+  displayName: string;
+  changePct: number | null;
+  newsCount: number;
+};
+
+type MorningBriefNewsItem = {
+  symbol: string;
+  title: string;
+  source: string;
+  publishedAt: Date;
+  bodySnippet?: string;
+};
+
 type ReportSummary = {
   stockSummaryBySymbol: Map<string, LocalizedText>;
-  marketOverviewZh: string;
-  marketOverviewEn: string;
+  morningBriefZh: string;
+  morningBriefEn: string;
 };
 
 type StockAdminItem = StockListItem;
@@ -316,6 +331,27 @@ const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
 const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
 const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
 const MARKET_INDICES_SUMMARY_CRON_STD = "15 21 * * 1-5";
+const MORNING_BRIEF_MIN_ZH_CHARS = 180;
+const MORNING_BRIEF_MAX_ZH_CHARS = 300;
+const MORNING_BRIEF_MIN_EN_WORDS = 120;
+const MORNING_BRIEF_MAX_EN_WORDS = 180;
+const MORNING_BRIEF_BANNED_ZH = ["买入", "卖出", "抄底", "逃顶", "看好", "看空", "有望", "预计", "将会", "必然", "建议"];
+const MORNING_BRIEF_BANNED_EN = ["buy", "sell", "overweight", "underweight", "target price", "will", "expected to"];
+const CHINA_CONCEPT_SYMBOLS = new Set([
+  "KWEB",
+  "CWEB",
+  "0700.HK",
+  "BABA",
+  "PDD",
+  "3690.HK",
+  "NTES",
+  "BIDU",
+  "TCOM",
+  "JD",
+  "TME",
+  "1024.HK"
+]);
+const US_TECH_TOP10_SYMBOLS = new Set(["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "ORCL", "NFLX"]);
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -1206,7 +1242,7 @@ app.get(
   describeRoute({
     tags: ["Reports"],
     summary: "Get structured report data by date",
-    description: "Returns localized AI overview plus structured quote and news sections from D1.",
+    description: "Returns localized morning brief plus structured quote and news sections from D1.",
     parameters: [
       {
         name: "date",
@@ -1231,15 +1267,7 @@ app.get(
                 overview: {
                   type: "object",
                   properties: {
-                    stock: {
-                      type: "object",
-                      properties: {
-                        zh: { anyOf: [{ type: "string" }, { type: "null" }] },
-                        en: { anyOf: [{ type: "string" }, { type: "null" }] }
-                      },
-                      required: ["zh", "en"]
-                    },
-                    news: {
+                    brief: {
                       type: "object",
                       properties: {
                         zh: { anyOf: [{ type: "string" }, { type: "null" }] },
@@ -1248,7 +1276,7 @@ app.get(
                       required: ["zh", "en"]
                     }
                   },
-                  required: ["stock", "news"]
+                  required: ["brief"]
                 },
                 items: {
                   type: "array",
@@ -1428,8 +1456,8 @@ async function generateAndPersistReport(
     quotes,
     newsBySymbol,
     stockSummaryBySymbol: aiSummary.stockSummaryBySymbol,
-    marketOverviewZh: aiSummary.marketOverviewZh,
-    marketOverviewEn: aiSummary.marketOverviewEn,
+    marketOverviewZh: aiSummary.morningBriefZh,
+    marketOverviewEn: aiSummary.morningBriefEn,
     requireDb: options?.requireDb ?? false
   });
 
@@ -1452,8 +1480,8 @@ async function generateAndPersistReport(
     stocks,
     quotes,
     newsBySymbol,
-    marketOverviewZh: aiSummary.marketOverviewZh,
-    marketOverviewEn: aiSummary.marketOverviewEn
+    marketOverviewZh: aiSummary.morningBriefZh,
+    marketOverviewEn: aiSummary.morningBriefEn
   });
 }
 
@@ -2826,50 +2854,9 @@ function truncateByChars(input: string, maxChars: number): string {
   return `${chars.slice(0, maxChars).join("")}...`;
 }
 
-function splitAiOverviewParagraphs(
-  marketOverview: string,
-  fallback?: { stockParagraph: string; newsParagraph: string }
-): { stockParagraph: string; newsParagraph: string } {
-  const normalized = marketOverview.replace(/\r\n/g, "\n").trim();
-  const defaultStock =
-    fallback?.stockParagraph ?? "当日股票行情已更新，市场表现请结合下方个股涨跌和成交数据综合判断。";
-  const defaultNews =
-    fallback?.newsParagraph ?? "相关新闻主要围绕样本股公司动态展开，详见下方“相关新闻”板块。";
-
-  if (!normalized) {
-    return { stockParagraph: defaultStock, newsParagraph: defaultNews };
-  }
-
-  const stockMatch = normalized.match(
-    /(?:^|\n)\s*(?:第一段|股票市场|市场概览|市场总览)\s*[：:]\s*([\s\S]*?)(?=\n\s*(?:第二段|相关新闻|新闻概览|新闻总览)\s*[：:]|$)/i
-  );
-  const newsMatch = normalized.match(/(?:^|\n)\s*(?:第二段|相关新闻|新闻概览|新闻总览)\s*[：:]\s*([\s\S]*?)$/i);
-
-  if (stockMatch || newsMatch) {
-    const stockParagraph = sanitizeParagraph(stockMatch?.[1] ?? defaultStock) || defaultStock;
-    const newsParagraph = sanitizeParagraph(newsMatch?.[1] ?? defaultNews) || defaultNews;
-    return {
-      stockParagraph,
-      newsParagraph
-    };
-  }
-
-  const paragraphs = normalized
-    .split(/\n{2,}/)
-    .map((paragraph) => sanitizeParagraph(paragraph))
-    .filter((paragraph) => paragraph.length > 0);
-
-  if (paragraphs.length >= 2) {
-    return {
-      stockParagraph: paragraphs[0],
-      newsParagraph: paragraphs.slice(1).join(" ")
-    };
-  }
-
-  return {
-    stockParagraph: sanitizeParagraph(normalized) || defaultStock,
-    newsParagraph: defaultNews
-  };
+function normalizeStoredBriefText(input: string | null): string | null {
+  const normalized = sanitizeParagraph((input ?? "").replace(/\r\n/g, "\n").replace(/^[\-•\s]+/, ""));
+  return normalized || null;
 }
 
 function formatDate(date: Date, timeZone: string): string {
@@ -2921,39 +2908,34 @@ function formatMoney(value: number, currency: string): string {
   return `${symbol}${value.toFixed(2)}`;
 }
 
-function splitStoredOverviewText(input: string | null, language: "zh" | "en"): { stock: string | null; news: string | null } {
-  const normalized = input?.trim() ?? "";
-  if (!normalized) {
-    return { stock: null, news: null };
+function countTextChars(input: string): number {
+  return Array.from(input.trim()).length;
+}
+
+function countWords(input: string): number {
+  return input
+    .trim()
+    .split(/\s+/)
+    .filter((item) => item.length > 0).length;
+}
+
+function trimToSentenceBoundary(input: string, maxChars: number): string {
+  const normalized = sanitizeParagraph(input);
+  if (countTextChars(normalized) <= maxChars) {
+    return normalized;
   }
 
-  const stockPattern =
-    language === "zh"
-      ? /(?:^|\n)\s*股票市场\s*[：:]\s*([\s\S]*?)(?=\n\s*相关新闻\s*[：:]|$)/
-      : /(?:^|\n)\s*(?:Stock Market|Market Overview)\s*[：:]\s*([\s\S]*?)(?=\n\s*(?:News Flow|Related Coverage|Market News)\s*[：:]|$)/i;
-  const newsPattern =
-    language === "zh"
-      ? /(?:^|\n)\s*相关新闻\s*[：:]\s*([\s\S]*?)$/i
-      : /(?:^|\n)\s*(?:News Flow|Related Coverage|Market News)\s*[：:]\s*([\s\S]*?)$/i;
-
-  const stock = sanitizeParagraph(stockPattern.exec(normalized)?.[1] ?? "");
-  const news = sanitizeParagraph(newsPattern.exec(normalized)?.[1] ?? "");
-  if (stock || news) {
-    return {
-      stock: stock || null,
-      news: news || null
-    };
+  const clipped = Array.from(normalized).slice(0, maxChars).join("");
+  const lastPunctuationIndex = Math.max(clipped.lastIndexOf("。"), clipped.lastIndexOf("！"), clipped.lastIndexOf("？"));
+  if (lastPunctuationIndex >= Math.floor(maxChars * 0.6)) {
+    return clipped.slice(0, lastPunctuationIndex + 1).trim();
   }
+  return `${clipped.trimEnd()}。`;
+}
 
-  const paragraphs = normalized
-    .split(/\n{2,}/)
-    .map((item) => sanitizeParagraph(item))
-    .filter((item) => item.length > 0);
-
-  return {
-    stock: paragraphs[0] ?? null,
-    news: paragraphs[1] ?? null
-  };
+function containsBannedPhrase(input: string, phrases: string[]): boolean {
+  const normalized = input.toLowerCase();
+  return phrases.some((phrase) => normalized.includes(phrase.toLowerCase()));
 }
 
 function buildStructuredReport(params: {
@@ -2984,11 +2966,8 @@ function buildStructuredReport(params: {
     };
   });
 
-  const zhOverview = splitStoredOverviewText(marketOverviewZh, "zh");
-  const enOverview = splitStoredOverviewText(marketOverviewEn, "en");
   const overview: StockReportOverview = {
-    stock: createLocalizedText(zhOverview.stock, enOverview.stock),
-    news: createLocalizedText(zhOverview.news, enOverview.news)
+    brief: createLocalizedText(normalizeStoredBriefText(marketOverviewZh), normalizeStoredBriefText(marketOverviewEn))
   };
 
   const newsGroups: StockReportNewsGroup[] = items.map((item) => ({
@@ -3130,11 +3109,8 @@ async function getStructuredReportByDateFromD1(env: Env, reportDateEt: string): 
     );
   });
 
-  const zhOverview = splitStoredOverviewText(run.marketOverviewZh, "zh");
-  const enOverview = splitStoredOverviewText(run.marketOverviewEn, "en");
   const overview: StockReportOverview = {
-    stock: createLocalizedText(zhOverview.stock, enOverview.stock),
-    news: createLocalizedText(zhOverview.news, enOverview.news)
+    brief: createLocalizedText(normalizeStoredBriefText(run.marketOverviewZh), normalizeStoredBriefText(run.marketOverviewEn))
   };
 
   return {
@@ -3230,27 +3206,8 @@ function parseSummaryDate(rawDate: string | undefined): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
-async function buildAiSummary(
-  env: Env,
-  stocks: Stock[],
-  quotes: Quote[],
-  newsBySymbol: Map<string, NewsItem[]>
-): Promise<ReportSummary> {
-  const stockSummaryBySymbol = new Map<string, LocalizedText>();
-  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
-
-  const quoteLines = stocks
-    .map((stock) => {
-      const quote = quoteBySymbol.get(stock.symbol);
-      return quote
-        ? `- ${stock.symbol} (${stock.displayName}): 收盘${formatPrice(quote.close, quote.currency)}, 涨跌幅${formatSignedPct(
-            quote.changePct
-          )}`
-        : `- ${stock.symbol} (${stock.displayName}): 行情数据缺失`;
-    })
-    .join("\n");
-
-  const allMarketNews = stocks
+function buildMorningBriefNewsPool(stocks: Stock[], newsBySymbol: Map<string, NewsItem[]>): MorningBriefNewsItem[] {
+  return stocks
     .flatMap((stock) => {
       const items = newsBySymbol.get(stock.symbol) ?? [];
       return items.map((item) => ({
@@ -3262,44 +3219,307 @@ async function buildAiSummary(
       }));
     })
     .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+}
 
-  const allMarketNewsLines = allMarketNews
-    .map((item, index) => {
-      const snippet = item.bodySnippet ? `；正文摘要：${sanitizeParagraph(item.bodySnippet)}` : "";
-      return `${index + 1}. [${item.symbol}] ${item.title} (${item.source}, ${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET)${snippet}`;
+function pickMorningBriefStocks(
+  stocks: Stock[],
+  quoteBySymbol: Map<string, Quote>,
+  newsBySymbol: Map<string, NewsItem[]>,
+  allowedSymbols: Set<string>,
+  limit: number
+): MorningBriefContextStock[] {
+  return stocks
+    .filter((stock) => allowedSymbols.has(stock.symbol))
+    .map((stock) => {
+      const quote = quoteBySymbol.get(stock.symbol);
+      return {
+        symbol: stock.symbol,
+        displayName: stock.displayName,
+        changePct: quote?.changePct ?? null,
+        newsCount: (newsBySymbol.get(stock.symbol) ?? []).length
+      };
     })
-    .join("\n");
+    .sort((a, b) => {
+      const scoreA = (a.newsCount * 2) + Math.abs(a.changePct ?? 0);
+      const scoreB = (b.newsCount * 2) + Math.abs(b.changePct ?? 0);
+      return scoreB - scoreA;
+    })
+    .slice(0, limit);
+}
 
-  const fallbackStockParagraph = await buildFallbackStockOverview(env, stocks, quoteBySymbol, quotes);
-  const fallbackNewsParagraph = buildFallbackNewsOverview(allMarketNews);
-  const fallbackStockParagraphEn = buildEnglishStockOverview(stocks, quotes);
-  const fallbackNewsParagraphEn = buildEnglishNewsOverview(allMarketNews);
+async function loadMorningBriefIndicesContext(_env: Env): Promise<{ lines: string[]; enLines: string[] }> {
+  try {
+    const payload = await getLiveMarketIndicesLatest();
+    const lines = payload.regions
+      .map((group) => group.items.find((item) => item.isPrimary) ?? group.items[0])
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .map((item) => `${item.nameZh}${item.changePct === null ? "暂无变动" : `${formatSignedPct(item.changePct)}，最新点位${item.price ?? "-"}`}`);
+    const enLines = payload.regions
+      .map((group) => group.items.find((item) => item.isPrimary) ?? group.items[0])
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .map((item) => `${item.nameEn} ${item.changePct === null ? "had no usable move" : `moved ${formatSignedPct(item.changePct)} to ${item.price ?? "-"}`}`);
+    return { lines, enLines };
+  } catch {
+    return { lines: [], enLines: [] };
+  }
+}
 
-  const marketPrompt = [
-    "请基于以下股票池的股票数据和相关新闻，输出中文 AI 总览，严格分成两段。",
-    "要求：第一段只讲股票市场，控制在50字以内，必须概括整体盘面，并至少包含以下信息中的两项：整体涨跌方向、代表性强弱个股、上涨或下跌覆盖面。不要重复原始数据列表，不要空泛表述。",
-    "要求：第二段只讲相关新闻，控制在180字以内，只提炼高相关、重复出现或影响较大的主线信息。优先总结财报、监管、评级、业务进展、行业政策等主题，忽略纯持仓披露、零散技术分析、重复改写标题和低价值噪音。",
-    "如果新闻不足以形成主线，请明确写信息面未形成明显主线，整体偏中性。",
-    "只基于给定信息，不要猜测原因，不要把单一公司新闻上升为整个板块结论。",
-    "请严格使用如下格式：",
-    "股票市场：<第一段内容>",
-    "相关新闻：<第二段内容>",
-    `股票数据:\n${quoteLines}`,
-    allMarketNewsLines ? `相关新闻:\n${allMarketNewsLines}` : "相关新闻: 无"
+async function loadArchivedIndicesSummary(env: Env): Promise<string | null> {
+  try {
+    const payload = await getLatestMarketAiSummary(env);
+    return normalizeStoredBriefText(payload.item?.summaryZh ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function isQuietMorningBriefDay(
+  indicesLines: string[],
+  chinaConceptStocks: MorningBriefContextStock[],
+  usTechStocks: MorningBriefContextStock[],
+  newsItems: MorningBriefNewsItem[]
+): boolean {
+  const maxChinaMove = Math.max(0, ...chinaConceptStocks.map((item) => Math.abs(item.changePct ?? 0)));
+  const maxUsMove = Math.max(0, ...usTechStocks.map((item) => Math.abs(item.changePct ?? 0)));
+  return indicesLines.length > 0 && maxChinaMove < 2.5 && maxUsMove < 2.5 && newsItems.length < 4;
+}
+
+function inferNewsThemeZh(items: MorningBriefNewsItem[]): string {
+  if (items.length === 0) {
+    return "消息面未形成明确主线";
+  }
+
+  const categories = [
+    { label: "财报与业绩", keywords: ["earnings", "revenue", "profit", "guidance", "业绩", "财报", "利润", "营收"] },
+    { label: "评级与目标价", keywords: ["upgrade", "downgrade", "target", "rating", "评级", "目标价", "上调", "下调"] },
+    { label: "监管与政策", keywords: ["regulation", "probe", "investigation", "tariff", "监管", "政策", "调查", "审查"] },
+    { label: "AI与产品进展", keywords: ["ai", "chip", "model", "launch", "云", "芯片", "模型", "发布"] }
+  ];
+
+  const counts = categories.map((category) => ({
+    label: category.label,
+    count: items.filter((item) => {
+      const haystack = `${item.title} ${item.bodySnippet ?? ""}`.toLowerCase();
+      return category.keywords.some((keyword) => haystack.includes(keyword.toLowerCase()));
+    }).length
+  }));
+
+  const top = counts.filter((item) => item.count > 0).sort((a, b) => b.count - a.count).slice(0, 2);
+  if (top.length === 0) {
+    return `消息面主要围绕${items.slice(0, 2).map((item) => item.symbol).join("、")}等个股展开`;
+  }
+
+  return `消息面主要围绕${top.map((item) => item.label).join("、")}`;
+}
+
+function inferNewsThemeEn(items: MorningBriefNewsItem[]): string {
+  if (items.length === 0) {
+    return "the news backdrop stayed fairly light";
+  }
+
+  if (items.some((item) => /earnings|revenue|profit|guidance/i.test(`${item.title} ${item.bodySnippet ?? ""}`))) {
+    return "earnings and company updates drove most of the coverage";
+  }
+  if (items.some((item) => /rating|target|upgrade|downgrade/i.test(`${item.title} ${item.bodySnippet ?? ""}`))) {
+    return "broker calls and target-price changes stood out in coverage";
+  }
+  if (items.some((item) => /regulation|probe|investigation|policy|tariff/i.test(`${item.title} ${item.bodySnippet ?? ""}`))) {
+    return "regulatory and policy headlines carried most of the news flow";
+  }
+  return "headline flow stayed centered on company-specific updates";
+}
+
+function buildStockMoveClauseZh(label: string, items: MorningBriefContextStock[]): string {
+  if (items.length === 0) {
+    return `${label}暂无明显强弱线索`;
+  }
+
+  const leader = [...items]
+    .filter((item) => item.changePct !== null)
+    .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0))[0];
+  const laggard = [...items]
+    .filter((item) => item.changePct !== null)
+    .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0))[0];
+
+  if (!leader && !laggard) {
+    return `${label}行情信号有限`;
+  }
+  if (leader && laggard && leader.symbol !== laggard.symbol) {
+    return `${label}里${leader.displayName}${formatSignedPct(leader.changePct ?? 0)}相对领先，${laggard.displayName}${formatSignedPct(laggard.changePct ?? 0)}相对承压`;
+  }
+  const focus = leader ?? laggard;
+  return focus ? `${label}里${focus.displayName}${formatSignedPct(focus.changePct ?? 0)}最值得留意` : `${label}行情信号有限`;
+}
+
+function buildStockMoveClauseEn(label: string, items: MorningBriefContextStock[]): string {
+  if (items.length === 0) {
+    return `${label} lacked a clear leadership signal`;
+  }
+
+  const leader = [...items]
+    .filter((item) => item.changePct !== null)
+    .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0))[0];
+  const laggard = [...items]
+    .filter((item) => item.changePct !== null)
+    .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0))[0];
+
+  if (leader && laggard && leader.symbol !== laggard.symbol) {
+    return `within ${label}, ${leader.displayName} led at ${formatSignedPct(leader.changePct ?? 0)} while ${laggard.displayName} lagged at ${formatSignedPct(laggard.changePct ?? 0)}`;
+  }
+  const focus = leader ?? laggard;
+  return focus ? `within ${label}, ${focus.displayName} stood out at ${formatSignedPct(focus.changePct ?? 0)}` : `${label} stayed muted`;
+}
+
+function buildFallbackMorningBriefZh(params: {
+  indicesLines: string[];
+  chinaConceptStocks: MorningBriefContextStock[];
+  usTechStocks: MorningBriefContextStock[];
+  allMarketNews: MorningBriefNewsItem[];
+  quietDay: boolean;
+}): string {
+  const indicesClause = params.indicesLines.length > 0 ? `主要指数方面，${params.indicesLines.join("；")}` : "主要指数信号暂缺";
+  const chinaClause = buildStockMoveClauseZh("中概股", params.chinaConceptStocks);
+  const usClause = buildStockMoveClauseZh("美股科技龙头", params.usTechStocks);
+  const newsClause = inferNewsThemeZh(params.allMarketNews);
+  const quietClause = params.quietDay ? "，整体更像情绪延续而不是新的强催化日" : "，市场重心仍围绕这些名字与消息线索展开";
+  let brief = sanitizeParagraph(`${indicesClause}。${chinaClause}；${usClause}。${newsClause}${quietClause}。`);
+  if (countTextChars(brief) < MORNING_BRIEF_MIN_ZH_CHARS) {
+    brief = sanitizeParagraph(
+      `${brief} 从固定观察池内部看，资金仍主要围绕龙头品种和高频新闻线索切换，盘面节奏偏结构化，暂时没有出现能够同时带动中概与美股科技全面扩散的统一主线。`
+    );
+  }
+  return trimToSentenceBoundary(brief, MORNING_BRIEF_MAX_ZH_CHARS);
+}
+
+function buildFallbackMorningBriefEn(params: {
+  indicesLines: string[];
+  chinaConceptStocks: MorningBriefContextStock[];
+  usTechStocks: MorningBriefContextStock[];
+  allMarketNews: MorningBriefNewsItem[];
+  quietDay: boolean;
+}): string {
+  const indicesClause = params.indicesLines.length > 0 ? `Across major indices, ${params.indicesLines.join("; ")}` : "Major-index context was limited";
+  const chinaClause = buildStockMoveClauseEn("China ADRs", params.chinaConceptStocks);
+  const usClause = buildStockMoveClauseEn("US tech leaders", params.usTechStocks);
+  const newsClause = inferNewsThemeEn(params.allMarketNews);
+  const quietClause = params.quietDay ? "and the session looked more like a steady follow-through than a fresh catalyst day." : "and that cluster of names still set the tone for the session.";
+  return sanitizeParagraph(`${indicesClause}. ${chinaClause}. ${usClause}. Overall, ${newsClause}, ${quietClause}`);
+}
+
+function normalizeMorningBriefZh(input: string | null, fallback: string): string {
+  const normalized = sanitizeParagraph(
+    (input ?? "")
+      .replace(/^\s*(?:今日晨报|晨报导语|市场晨报|Morning Brief)\s*[：:]\s*/i, "")
+      .replace(/[\r\n]+/g, " ")
+  );
+  if (!normalized) {
+    return fallback;
+  }
+
+  const trimmed = trimToSentenceBoundary(normalized, MORNING_BRIEF_MAX_ZH_CHARS);
+  if (containsBannedPhrase(trimmed, MORNING_BRIEF_BANNED_ZH)) {
+    return fallback;
+  }
+  if (countTextChars(trimmed) < MORNING_BRIEF_MIN_ZH_CHARS) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+function normalizeMorningBriefEn(input: string): string {
+  const normalized = sanitizeParagraph(input);
+  if (!normalized) {
+    return "Daily market context is unavailable.";
+  }
+  if (containsBannedPhrase(normalized, MORNING_BRIEF_BANNED_EN)) {
+    return "Daily market context is unavailable.";
+  }
+
+  const words = normalized.split(/\s+/).filter((item) => item.length > 0);
+  if (words.length < MORNING_BRIEF_MIN_EN_WORDS) {
+    return normalized;
+  }
+  if (countWords(normalized) <= MORNING_BRIEF_MAX_EN_WORDS) {
+    return normalized;
+  }
+  return `${words.slice(0, MORNING_BRIEF_MAX_EN_WORDS).join(" ")}.`;
+}
+
+async function buildAiSummary(
+  env: Env,
+  stocks: Stock[],
+  quotes: Quote[],
+  newsBySymbol: Map<string, NewsItem[]>
+): Promise<ReportSummary> {
+  const stockSummaryBySymbol = new Map<string, LocalizedText>();
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const allMarketNews = buildMorningBriefNewsPool(stocks, newsBySymbol);
+
+  const indicesContext = await loadMorningBriefIndicesContext(env);
+  const archivedIndicesSummary = await loadArchivedIndicesSummary(env);
+  const chinaConceptStocks = pickMorningBriefStocks(stocks, quoteBySymbol, newsBySymbol, CHINA_CONCEPT_SYMBOLS, 4);
+  const usTechStocks = pickMorningBriefStocks(stocks, quoteBySymbol, newsBySymbol, US_TECH_TOP10_SYMBOLS, 4);
+  const notableNews = allMarketNews.slice(0, 10);
+  const quietDay = isQuietMorningBriefDay(indicesContext.lines, chinaConceptStocks, usTechStocks, notableNews);
+
+  const fallbackMorningBriefZh = buildFallbackMorningBriefZh({
+    indicesLines: indicesContext.lines,
+    chinaConceptStocks,
+    usTechStocks,
+    allMarketNews,
+    quietDay
+  });
+  const fallbackMorningBriefEn = buildFallbackMorningBriefEn({
+    indicesLines: indicesContext.enLines,
+    chinaConceptStocks,
+    usTechStocks,
+    allMarketNews,
+    quietDay
+  });
+
+  const promptSections = [
+    "请把下面材料整理成一段给所有用户看的中文股市晨报导语。",
+    `要求：只输出一段自然中文正文，不要标题、不要项目符号、不要分段，控制在${MORNING_BRIEF_MIN_ZH_CHARS}-${MORNING_BRIEF_MAX_ZH_CHARS}个汉字。`,
+    "表达顺序优先从主要指数与跨市场气氛切入，再决定是否点名中概或美股科技龙头。只有在给定行情或新闻确实支持时才点名。",
+    quietDay
+      ? "当前整体信号偏平静，可以只写指数和整体情绪，不必强行加入个股。"
+      : "当前存在一定个股与消息主线，请优先提炼最能代表当天气氛的名字和事件。",
+    "你可以归纳行情与新闻之间的关系，但只能基于给定材料，不得补充外部事实，不得预测后续走势，不得给出投资建议。",
+    "禁止使用：买入、卖出、抄底、逃顶、看好、有望、预计、将会、建议等措辞。",
+    indicesContext.lines.length > 0 ? `主要指数:\n${indicesContext.lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}` : "主要指数: 无",
+    archivedIndicesSummary ? `最近归档指数摘要: ${archivedIndicesSummary}` : "最近归档指数摘要: 无",
+    chinaConceptStocks.length > 0
+      ? `固定中概观察池:\n${chinaConceptStocks
+          .map((item, index) => `${index + 1}. ${item.symbol} / ${item.displayName}，涨跌幅${formatSignedPct(item.changePct ?? 0)}，相关新闻${item.newsCount}条`)
+          .join("\n")}`
+      : "固定中概观察池: 无",
+    usTechStocks.length > 0
+      ? `固定美股科技观察池:\n${usTechStocks
+          .map((item, index) => `${index + 1}. ${item.symbol} / ${item.displayName}，涨跌幅${formatSignedPct(item.changePct ?? 0)}，相关新闻${item.newsCount}条`)
+          .join("\n")}`
+      : "固定美股科技观察池: 无",
+    notableNews.length > 0
+      ? `相关新闻线索:\n${notableNews
+          .map((item, index) => {
+            const snippet = item.bodySnippet ? `；摘要：${sanitizeParagraph(item.bodySnippet)}` : "";
+            return `${index + 1}. [${item.symbol}] ${item.title}（${item.source}，${formatDateTime(item.publishedAt, ET_TIMEZONE)} ET）${snippet}`;
+          })
+          .join("\n")}`
+      : "相关新闻线索: 无"
   ].join("\n\n");
 
-  const aiOverviewRaw = await callAiCompatible(
-    env,
-    "你是股票日报编辑。你只能基于用户提供的股票数据和新闻做归纳，不得补充外部事实、背景或猜测。请严格输出两行中文内容，格式固定为：股票市场：<内容>；相关新闻：<内容>。不要输出任何额外前言、解释、项目符号或第三段内容。语言客观克制，不写投资建议，不使用“有望、值得关注、或将、看好”等评论性表述。",
-    marketPrompt
-  );
+  let aiMorningBriefRaw: string | null = null;
+  try {
+    aiMorningBriefRaw = await callAiCompatible(
+      env,
+      "你是面向普通用户的市场晨报编辑。你只能使用给定材料写一段简洁、克制、可直接发布的中文晨报导语。不要写标题，不要写分点，不要使用投资建议或预测语言，不要补充外部知识。",
+      promptSections
+    );
+  } catch {
+    aiMorningBriefRaw = null;
+  }
 
-  const parsedOverview = splitAiOverviewParagraphs(aiOverviewRaw ?? "", {
-    stockParagraph: fallbackStockParagraph,
-    newsParagraph: fallbackNewsParagraph
-  });
-  const marketOverviewZh = `股票市场：${parsedOverview.stockParagraph}\n\n相关新闻：${parsedOverview.newsParagraph}`;
-  const marketOverviewEn = `Stock Market: ${fallbackStockParagraphEn}\n\nNews Flow: ${fallbackNewsParagraphEn}`;
+  const morningBriefZh = normalizeMorningBriefZh(aiMorningBriefRaw, fallbackMorningBriefZh);
 
   const stockSummaryPairs = await Promise.all(
     stocks.map(async (stock) => {
@@ -3317,7 +3537,7 @@ async function buildAiSummary(
     stockSummaryBySymbol.set(symbol, summary);
   }
 
-  return { stockSummaryBySymbol, marketOverviewZh, marketOverviewEn };
+  return { stockSummaryBySymbol, morningBriefZh, morningBriefEn: normalizeMorningBriefEn(fallbackMorningBriefEn) };
 }
 
 async function buildFallbackStockOverview(

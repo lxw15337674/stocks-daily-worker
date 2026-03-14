@@ -189,10 +189,9 @@ type StocksNamespace = {
     noStreak: string;
     tradingDate: string;
     fullReport: string;
-    aiOverviewTitle: string;
-    aiOverviewBadge: string;
-    stockOverviewTitle: string;
-    newsOverviewTitle: string;
+    morningBriefTitle: string;
+    morningBriefBadge: string;
+    morningBriefEyebrow: string;
     stockTableTitle: string;
     stockTableDescription: string;
     companyNewsTitle: string;
@@ -655,10 +654,9 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noStreak: "暂无连续信号",
       tradingDate: "美东交易日",
       fullReport: "完整日报",
-      aiOverviewTitle: "AI 总览",
-      aiOverviewBadge: "结构化摘要",
-      stockOverviewTitle: "股票市场",
-      newsOverviewTitle: "相关新闻",
+      morningBriefTitle: "早报导语",
+      morningBriefBadge: "AI 晨报",
+      morningBriefEyebrow: "Morning Brief",
       stockTableTitle: "股票数据",
       stockTableDescription: "按结构化行情数据浏览当日样本，并支持按价格或涨跌幅排序。",
       companyNewsTitle: "相关新闻（按公司）",
@@ -800,11 +798,8 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noneLabel: "暂无",
       unmappedSymbol: "未映射 symbol",
       watchSummary: "{{company}} 当前涨跌幅 {{currentChangeText}}，相对对比日变化 {{deltaText}}，新闻 {{newsCount}} 条。",
-      aiOverviewTitle: "{{date}} AI 总览",
-      stocksSectionTitle: "股票市场",
-      newsSectionTitle: "相关新闻",
-      noStockOverview: "暂无股票市场总览。",
-      noNewsOverview: "暂无新闻总览。",
+      aiOverviewTitle: "{{date}} 早报导语",
+      noMorningBrief: "暂无可展示的早报导语。",
       changeBoardTitle: "股票变化榜",
       changeBoardDescription: "按两天涨跌幅差值排序",
       noOverlapSamples: "两天之间暂无可重叠的股票样本。",
@@ -818,7 +813,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       summaryWeakened: "{{date}} 相比 {{compareDate}}，重叠样本平均涨跌幅回落 {{delta}}。",
       summaryFlat: "两天重叠样本平均涨跌幅基本持平。",
       leadershipSummary: "转强代表：{{stronger}}；转弱代表：{{weaker}}。",
-      overviewSummary: "当前日报股票概览：{{stockOverview}}；新闻概览：{{newsOverview}}。",
+      overviewSummary: "当前日报导语：{{brief}}。",
       coverageSummary: "{{date}} 独有样本 {{newlyAdded}} 只，{{compareDate}} 独有样本 {{removed}} 只。"
     },
     instrument: {
@@ -1016,10 +1011,9 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noStreak: "No streak signal",
       tradingDate: "ET trading day",
       fullReport: "Full Report",
-      aiOverviewTitle: "AI Overview",
-      aiOverviewBadge: "Structured Summary",
-      stockOverviewTitle: "Stock Market",
-      newsOverviewTitle: "Related Coverage",
+      morningBriefTitle: "Morning Brief",
+      morningBriefBadge: "AI Brief",
+      morningBriefEyebrow: "Open Summary",
       stockTableTitle: "Quote Table",
       stockTableDescription: "Browse the day's tracked names from structured quote data, with sortable price and change columns.",
       companyNewsTitle: "Company Coverage",
@@ -1162,11 +1156,8 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       noneLabel: "none",
       unmappedSymbol: "Unmapped symbol",
       watchSummary: "{{company}} printed {{currentChangeText}} on the current day, moved {{deltaText}} versus the compare date, and carries {{newsCount}} current-day news items.",
-      aiOverviewTitle: "{{date}} AI Overview",
-      stocksSectionTitle: "Stocks",
-      newsSectionTitle: "News",
-      noStockOverview: "No stock-market overview available.",
-      noNewsOverview: "No news overview available.",
+      aiOverviewTitle: "{{date}} Morning Brief",
+      noMorningBrief: "No morning brief is available.",
       changeBoardTitle: "Change Board",
       changeBoardDescription: "Sorted by change delta between the two dates",
       noOverlapSamples: "There are no overlapping stock samples between the two dates.",
@@ -1180,7 +1171,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       summaryWeakened: "Versus {{compareDate}}, overlapping names weakened by {{delta}} on average on {{date}}.",
       summaryFlat: "Overlapping names are broadly flat between the two dates.",
       leadershipSummary: "Leading improvers: {{stronger}}; leading laggards: {{weaker}}.",
-      overviewSummary: "Current stock overview: {{stockOverview}}; current news overview: {{newsOverview}}.",
+      overviewSummary: "Current morning brief: {{brief}}.",
       coverageSummary: "{{date}} has {{newlyAdded}} unique names, while {{compareDate}} has {{removed}}."
     },
     instrument: {

@@ -11,8 +11,7 @@ export type ReportListItem = {
 };
 
 export type StockReportOverview = {
-  stock: LocalizedText;
-  news: LocalizedText;
+  brief: LocalizedText;
 };
 
 export type StockReportQuoteItem = {

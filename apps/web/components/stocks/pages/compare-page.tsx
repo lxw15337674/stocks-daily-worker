@@ -125,7 +125,7 @@ function summarizeAiChanges(
   t: TFunction<"stocks", "compare">,
   date: string,
   compareDate: string,
-  currentOverview: { stockParagraph: string | null; newsParagraph: string | null },
+  currentBrief: string | null,
   comparisonRows: ComparisonRow[],
   newlyAdded: ParsedReportStockRow[],
   removed: ParsedReportStockRow[]
@@ -152,8 +152,7 @@ function summarizeAiChanges(
   });
 
   const overviewSummary = t("overviewSummary", {
-    stockOverview: currentOverview.stockParagraph ?? t("noStockOverview"),
-    newsOverview: currentOverview.newsParagraph ?? t("noNewsOverview")
+    brief: currentBrief ?? t("noMorningBrief")
   });
 
   const coverageSummary = t("coverageSummary", {
@@ -229,14 +228,8 @@ export default async function ComparePage(props: ComparePageProps) {
     );
   }
 
-  const currentOverview = {
-    stockParagraph: resolveLocalizedText(currentReport.overview.stock, lang),
-    newsParagraph: resolveLocalizedText(currentReport.overview.news, lang)
-  };
-  const previousOverview = {
-    stockParagraph: resolveLocalizedText(previousReport.overview.stock, lang),
-    newsParagraph: resolveLocalizedText(previousReport.overview.news, lang)
-  };
+  const currentBrief = resolveLocalizedText(currentReport.overview.brief, lang);
+  const previousBrief = resolveLocalizedText(previousReport.overview.brief, lang);
 
   const currentRows =
     buildParsedRowsFromStockReport(currentReport, lang).map((row) => ({
@@ -256,7 +249,7 @@ export default async function ComparePage(props: ComparePageProps) {
   const newlyAdded = findUniqueRows(currentRows, previousRows);
   const removed = findUniqueRows(previousRows, currentRows);
   const improvedCount = comparisonRows.filter((row) => (row.deltaValue ?? 0) > 0).length;
-  const summaryItems = summarizeAiChanges(t, date, compareDate, currentOverview, comparisonRows, newlyAdded, removed);
+  const summaryItems = summarizeAiChanges(t, date, compareDate, currentBrief, comparisonRows, newlyAdded, removed);
   const watchRows = comparisonRows.slice(0, 3);
 
   return (
@@ -380,15 +373,8 @@ export default async function ComparePage(props: ComparePageProps) {
                 <Badge variant="outline">{toReadableDate(date, lang)}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="mb-2 text-sm font-medium">{t("stocksSectionTitle")}</p>
-                <p className="leading-7 text-foreground/90">{currentOverview.stockParagraph ?? t("noStockOverview")}</p>
-              </div>
-              <div>
-                <p className="mb-2 text-sm font-medium">{t("newsSectionTitle")}</p>
-                <p className="leading-7 text-foreground/90">{currentOverview.newsParagraph ?? t("noNewsOverview")}</p>
-              </div>
+            <CardContent>
+              <p className="leading-7 text-foreground/90">{currentBrief ?? t("noMorningBrief")}</p>
             </CardContent>
           </Card>
 
@@ -399,15 +385,8 @@ export default async function ComparePage(props: ComparePageProps) {
                 <Badge variant="outline">{toReadableDate(compareDate, lang)}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="mb-2 text-sm font-medium">{t("stocksSectionTitle")}</p>
-                <p className="leading-7 text-foreground/90">{previousOverview.stockParagraph ?? t("noStockOverview")}</p>
-              </div>
-              <div>
-                <p className="mb-2 text-sm font-medium">{t("newsSectionTitle")}</p>
-                <p className="leading-7 text-foreground/90">{previousOverview.newsParagraph ?? t("noNewsOverview")}</p>
-              </div>
+            <CardContent>
+              <p className="leading-7 text-foreground/90">{previousBrief ?? t("noMorningBrief")}</p>
             </CardContent>
           </Card>
         </div>

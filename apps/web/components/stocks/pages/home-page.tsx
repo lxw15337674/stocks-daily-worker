@@ -208,10 +208,7 @@ export default async function HomePage(props: HomePageProps) {
           rows={enhancedRows}
           previousDate={previousDate}
           nextDate={nextDate}
-          overview={{
-            stock: resolveLocalizedText(report.overview.stock, lang),
-            news: resolveLocalizedText(report.overview.news, lang)
-          }}
+          overview={resolveLocalizedText(report.overview.brief, lang)}
           newsGroups={report.newsGroups.map((group) => ({
             ...group,
             detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)

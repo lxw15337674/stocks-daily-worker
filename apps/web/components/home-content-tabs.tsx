@@ -29,10 +29,7 @@ type HomeContentTabsProps = {
   rows: ParsedReportStockRow[];
   previousDate: string | null;
   nextDate: string | null;
-  overview: {
-    stock: string | null;
-    news: string | null;
-  };
+  overview: string | null;
   newsGroups: Array<{
     symbol: string;
     displayName: string;
@@ -323,26 +320,14 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <section className="rounded-2xl border border-border/70 bg-background/45 p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold text-foreground">{t("home.aiOverviewTitle")}</h3>
-                  <Badge variant="secondary">{t("home.aiOverviewBadge")}</Badge>
+                  <h3 className="text-base font-semibold text-foreground">{t("home.morningBriefTitle")}</h3>
+                  <Badge variant="secondary">{t("home.morningBriefBadge")}</Badge>
                 </div>
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {t("home.stockOverviewTitle")}
-                    </p>
-                    <p className="mt-2 text-sm leading-7 text-foreground/90">
-                      {overview.stock ?? t("compare.noStockOverview")}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {t("home.newsOverviewTitle")}
-                    </p>
-                    <p className="mt-2 text-sm leading-7 text-foreground/90">
-                      {overview.news ?? t("compare.noNewsOverview")}
-                    </p>
-                  </div>
+                <div className="mt-4 rounded-xl border border-border/60 bg-background/60 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {t("home.morningBriefEyebrow")}
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-foreground/90">{overview ?? t("compare.noMorningBrief")}</p>
                 </div>
               </section>
 

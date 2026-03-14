@@ -50,6 +50,9 @@ type TestEnv = {
   STOCKS_ADMIN_TOKEN: string;
   CRYPTO_ADMIN_TOKEN: string;
   SCHEDULER_STATUS_BUCKET: SchedulerStatusBucket;
+  STOCKS_OPENAI_BASE_URL?: string;
+  STOCKS_AI_MODEL?: string;
+  STOCKS_NEWS_BODY_FETCH_ENABLED?: string;
 };
 
 const originalFetch = globalThis.fetch;
@@ -102,11 +105,52 @@ function createBinanceTickerPayload() {
   }));
 }
 
-function createEnv(bucket = new FakeR2Bucket()): TestEnv {
+function createEnv(bucket = new FakeR2Bucket(), overrides: Partial<TestEnv> = {}): TestEnv {
   return {
     STOCKS_ADMIN_TOKEN: "stocks-secret",
     CRYPTO_ADMIN_TOKEN: "crypto-secret",
-    SCHEDULER_STATUS_BUCKET: bucket
+    SCHEDULER_STATUS_BUCKET: bucket,
+    ...overrides
+  };
+}
+
+function createGoogleNewsRss(title: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>${title}</title><link>https://example.com/story</link><pubDate>Fri, 13 Mar 2026 10:00:00 GMT</pubDate><source url="https://example.com">Example News</source></item></channel></rss>`;
+}
+
+function createValidMorningBrief(): string {
+  return "隔夜主要指数延续分化，纳指和标普维持偏强节奏，恒生科技与中概资产跟随修复但弹性仍不完全同步。固定观察池里，阿里、拼多多和腾讯一侧承接相对更稳，英伟达、微软与苹果继续决定美股科技情绪中枢，涨跌节奏更多体现为龙头集中而非普遍扩散。消息面仍围绕财报更新、AI投入、监管进展与资本开支展开，相关新闻对重点个股的影响强弱不一，因此当天市场更像是核心资产带动下的结构性活跃，而不是全面扩散的新一轮风险偏好冲刺。";
+}
+
+function installStocksRunFetchMock(aiContent: string) {
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("query1.finance.yahoo.com/v8/finance/chart/")) {
+      return Response.json(createYahooChartPayload());
+    }
+
+    if (url.includes("news.google.com/rss/search")) {
+      return new Response(createGoogleNewsRss("Alibaba earnings update keeps AI and cloud focus in view"), {
+        status: 200,
+        headers: { "content-type": "application/rss+xml; charset=utf-8" }
+      });
+    }
+
+    if (url.includes("/v1/chat/completions") || url.includes("/chat/completions")) {
+      if (init?.method === "POST") {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: aiContent
+              }
+            }
+          ]
+        });
+      }
+    }
+
+    return new Response("not found", { status: 404 });
   };
 }
 
@@ -276,4 +320,74 @@ test("crypto auxiliary endpoints return stable payload shapes for aliases and re
   assert.ok(Array.isArray(reportSnapshotBody.marketNews));
   assert.ok(Array.isArray(reportSnapshotBody.clusters));
   assert.deepEqual(reportSnapshotBody.coinNewsByCode, {});
+});
+
+test("stocks run returns the new morning brief field when AI output is valid", async (t) => {
+  installStocksRunFetchMock(createValidMorningBrief());
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const env = createEnv(new FakeR2Bucket(), {
+    STOCKS_OPENAI_BASE_URL: "https://ai.example.test/v1",
+    STOCKS_AI_MODEL: "gpt-5.2",
+    STOCKS_NEWS_BODY_FETCH_ENABLED: "false"
+  });
+
+  const response = await request(
+    "/api/v1/stocks/run",
+    {
+      headers: { "x-admin-token": env.STOCKS_ADMIN_TOKEN }
+    },
+    env
+  );
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as {
+    overview: {
+      brief: {
+        zh: string | null;
+        en: string | null;
+      };
+    };
+  };
+  assert.ok(body.overview.brief.zh);
+  assert.ok(body.overview.brief.zh?.includes("纳指和标普"));
+  assert.equal(typeof body.overview.brief.en, "string");
+  assert.ok(!("stock" in body.overview));
+  assert.ok(!("news" in body.overview));
+});
+
+test("stocks run falls back when the AI morning brief violates guardrails", async (t) => {
+  installStocksRunFetchMock("建议买入科技龙头，预计指数将会继续上涨，相关个股值得关注。");
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const env = createEnv(new FakeR2Bucket(), {
+    STOCKS_OPENAI_BASE_URL: "https://ai.example.test/v1",
+    STOCKS_AI_MODEL: "gpt-5.2",
+    STOCKS_NEWS_BODY_FETCH_ENABLED: "false"
+  });
+
+  const response = await request(
+    "/api/v1/stocks/run",
+    {
+      headers: { "x-admin-token": env.STOCKS_ADMIN_TOKEN }
+    },
+    env
+  );
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as {
+    overview: {
+      brief: {
+        zh: string | null;
+      };
+    };
+  };
+  assert.ok(body.overview.brief.zh);
+  assert.ok(!body.overview.brief.zh?.includes("建议买入"));
+  assert.ok(!body.overview.brief.zh?.includes("预计"));
+  assert.ok(body.overview.brief.zh?.includes("主要指数") || body.overview.brief.zh?.includes("消息面"));
 });
