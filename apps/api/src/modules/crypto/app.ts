@@ -108,7 +108,7 @@ type ReportListItem = {
 };
 
 const CF_AI_MODEL = "@cf/zai-org/glm-4.7-flash";
-const CRYPTO_NEWS_CRON = "10 * * * *";
+const CRYPTO_NEWS_CRON = "10 0 * * *";
 const REPORT_TIMEZONE = "UTC";
 const AI_REQUEST_TIMEOUT_MS = 12000;
 

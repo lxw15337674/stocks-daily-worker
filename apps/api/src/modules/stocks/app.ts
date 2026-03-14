@@ -350,7 +350,6 @@ const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
 const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
 const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
 const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
-const MARKET_INDICES_SUMMARY_CRON_STD = "15 21 * * 1-5";
 const MORNING_BRIEF_MIN_ZH_CHARS = 180;
 const MORNING_BRIEF_MAX_ZH_CHARS = 300;
 const MORNING_BRIEF_MIN_EN_WORDS = 120;
@@ -1461,7 +1460,7 @@ app.get(
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
-    if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST || event.cron === MARKET_INDICES_SUMMARY_CRON_STD) {
+    if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST) {
       await runMarketIndicesScheduledSync(env);
       return;
     }
