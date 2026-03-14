@@ -372,6 +372,7 @@ const NEWS_BODY_FETCH_ENABLED_DEFAULT = true;
 const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
 const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
 const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
+const REPORT_NEWS_IMPORT_BATCH_SIZE = 10;
 const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
 const MORNING_BRIEF_MIN_ZH_CHARS = 180;
 const MORNING_BRIEF_MAX_ZH_CHARS = 300;
@@ -4298,9 +4299,8 @@ async function importStockNewsIntoReportNews(dbBinding: D1Database, input: Stock
       aiSummary: null,
       aiSummaryEn: null
     }));
-    const batchSize = 20;
-    for (let index = 0; index < newsValues.length; index += batchSize) {
-      await db.insert(reportNews).values(newsValues.slice(index, index + batchSize));
+    for (let index = 0; index < newsValues.length; index += REPORT_NEWS_IMPORT_BATCH_SIZE) {
+      await db.insert(reportNews).values(newsValues.slice(index, index + REPORT_NEWS_IMPORT_BATCH_SIZE));
     }
   }
 
