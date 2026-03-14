@@ -1,30 +1,26 @@
 import "server-only";
-import { cache } from "react";
 
 import { headers } from "next/headers";
 import type { SchedulerStatusResponse } from "@china-stocks/contracts";
-import { resolveApiTargetFromHeaders } from "@/lib/api-target";
+import { resolveServerApiTarget } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
 import { fetchReportList, fetchStockIndicesSummaryLatest } from "@/lib/api";
 import { fetchLatestReport, fetchMacroSnapshot, fetchMarketNews } from "@/lib/crypto/api";
 import { buildPlatformStatusPageData, type PlatformStatusPageData } from "@/lib/platform-status-core";
-
-const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
+import { SSR_API_BASE_URL } from "@/lib/runtime-config";
 
 function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-const resolveRootApiTarget = cache(async (): Promise<ApiTarget> => {
+async function resolveRootApiTarget(): Promise<ApiTarget> {
   const requestHeaders = await headers();
-  return resolveApiTargetFromHeaders({
-    defaultBaseUrl: DEFAULT_API_BASE_URL,
+  return resolveServerApiTarget({
+    defaultBaseUrl: SSR_API_BASE_URL,
     defaultPathPrefix: "/api/v1",
-    proxyPathPrefix: "/api",
-    headers: requestHeaders,
-    remoteProtocolFallback: "https"
+    headers: requestHeaders
   });
-});
+}
 
 function buildRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
   const requestHeaders = new Headers({ accept });
@@ -38,11 +34,12 @@ export async function fetchSchedulerStatus(limit = 20): Promise<SchedulerStatusR
   const target = await resolveRootApiTarget();
   const response = await fetch(joinApiUrl(target, `/status/scheduler?limit=${Math.max(1, Math.min(limit, 100))}`), {
     method: "GET",
-    next: { revalidate: 60 },
+    cache: "no-store",
     headers: buildRequestHeaders(target, "application/json")
   });
 
   if (!response.ok) {
+    console.error(`[web][status-api] /status/scheduler -> ${response.status}`);
     return null;
   }
 

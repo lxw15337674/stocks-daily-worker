@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import path from "node:path";
 
-import { resolveApiTargetFromHeaders } from "../apps/web/lib/api-target.ts";
+import { resolveServerApiTarget } from "../apps/web/lib/api-target.ts";
 
 function createHeaders(values: Record<string, string | undefined>): Pick<Headers, "get"> {
   const normalized = new Map(Object.entries(values));
@@ -13,13 +15,11 @@ function createHeaders(values: Record<string, string | undefined>): Pick<Headers
   };
 }
 
-test("resolveApiTargetFromHeaders falls back to the public stocks API without request host", () => {
-  const target = resolveApiTargetFromHeaders({
+test("resolveServerApiTarget uses the configured stocks API origin without request host inference", () => {
+  const target = resolveServerApiTarget({
     defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
     defaultPathPrefix: "/api/v1/stocks",
-    proxyPathPrefix: "/api",
-    headers: createHeaders({ cookie: "session=abc" }),
-    remoteProtocolFallback: "https"
+    headers: createHeaders({ cookie: "session=abc" })
   });
 
   assert.deepEqual(target, {
@@ -29,99 +29,64 @@ test("resolveApiTargetFromHeaders falls back to the public stocks API without re
   });
 });
 
-test("resolveApiTargetFromHeaders routes localhost stocks traffic back through the web worker proxy", () => {
-  const target = resolveApiTargetFromHeaders({
-    defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
+test("resolveServerApiTarget keeps cookie forwarding but never rewrites to same-origin proxy", () => {
+  const target = resolveServerApiTarget({
+    defaultBaseUrl: "http://127.0.0.1:8788",
     defaultPathPrefix: "/api/v1/stocks",
-    proxyPathPrefix: "/api",
     headers: createHeaders({
       host: "localhost:3000",
       "x-forwarded-proto": "http",
       cookie: "session=abc"
-    }),
-    remoteProtocolFallback: "https"
-  });
-
-  assert.deepEqual(target, {
-    baseUrl: "http://localhost:3000",
-    pathPrefix: "/api",
-    cookieHeader: "session=abc"
-  });
-});
-
-test("resolveApiTargetFromHeaders routes localhost crypto traffic through the crypto proxy prefix", () => {
-  const target = resolveApiTargetFromHeaders({
-    defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
-    defaultPathPrefix: "/api/v1/crypto",
-    proxyPathPrefix: "/api/crypto",
-    headers: createHeaders({
-      host: "127.0.0.1:8788",
-      "x-forwarded-proto": "http, https",
-      cookie: "admin=yes"
-    }),
-    remoteProtocolFallback: "https"
+    })
   });
 
   assert.deepEqual(target, {
     baseUrl: "http://127.0.0.1:8788",
-    pathPrefix: "/api/crypto",
+    pathPrefix: "/api/v1/stocks",
+    cookieHeader: "session=abc"
+  });
+});
+
+test("resolveServerApiTarget supports crypto and root prefixes explicitly", () => {
+  const cryptoTarget = resolveServerApiTarget({
+    defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
+    defaultPathPrefix: "/api/v1/crypto",
+    headers: createHeaders({
+      cookie: "admin=yes"
+    })
+  });
+
+  assert.deepEqual(cryptoTarget, {
+    baseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
+    pathPrefix: "/api/v1/crypto",
     cookieHeader: "admin=yes"
   });
-});
 
-test("resolveApiTargetFromHeaders keeps remote traffic on the forwarded host and protocol", () => {
-  const target = resolveApiTargetFromHeaders({
+  const rootTarget = resolveServerApiTarget({
     defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
-    defaultPathPrefix: "/api/v1/stocks",
-    proxyPathPrefix: "/api",
+    defaultPathPrefix: "/api/v1",
     headers: createHeaders({
-      "x-forwarded-host": "stocks.example.com",
-      "x-forwarded-proto": "https"
-    }),
-    remoteProtocolFallback: "https"
+      cookie: "session=xyz"
+    })
   });
 
-  assert.deepEqual(target, {
-    baseUrl: "https://stocks.example.com",
-    pathPrefix: "/api",
-    cookieHeader: null
+  assert.deepEqual(rootTarget, {
+    baseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
+    pathPrefix: "/api/v1",
+    cookieHeader: "session=xyz"
   });
 });
 
-test("resolveApiTargetFromHeaders uses the first forwarded host when proxies append a chain", () => {
-  const target = resolveApiTargetFromHeaders({
-    defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
-    defaultPathPrefix: "/api/v1/stocks",
-    proxyPathPrefix: "/api",
-    headers: createHeaders({
-      "x-forwarded-host": "stocks.example.com, edge.example.net",
-      "x-forwarded-proto": "https, http"
-    }),
-    remoteProtocolFallback: "https"
-  });
+test("local and remote runtime config files stay aligned with matching wrangler vars", () => {
+  const root = process.cwd();
+  const runtimeLocal = readFileSync(path.join(root, "apps/web/lib/runtime-config.local.ts"), "utf8");
+  const runtimeRemote = readFileSync(path.join(root, "apps/web/lib/runtime-config.remote.ts"), "utf8");
+  const wranglerLocal = JSON.parse(readFileSync(path.join(root, "apps/web/wrangler.local.jsonc"), "utf8"));
+  const wranglerRemote = JSON.parse(readFileSync(path.join(root, "apps/web/wrangler.remote.jsonc"), "utf8"));
 
-  assert.deepEqual(target, {
-    baseUrl: "https://stocks.example.com",
-    pathPrefix: "/api",
-    cookieHeader: null
-  });
-});
+  const localBaseUrl = runtimeLocal.match(/SSR_API_BASE_URL = "([^"]+)"/)?.[1];
+  const remoteBaseUrl = runtimeRemote.match(/SSR_API_BASE_URL = "([^"]+)"/)?.[1];
 
-test("resolveApiTargetFromHeaders does not treat non-local hosts containing localhost as local dev", () => {
-  const target = resolveApiTargetFromHeaders({
-    defaultBaseUrl: "https://china-stocks-daily-worker.404174262.workers.dev",
-    defaultPathPrefix: "/api/v1/stocks",
-    proxyPathPrefix: "/api",
-    headers: createHeaders({
-      host: "api-localhost.example.com",
-      "x-forwarded-proto": "https"
-    }),
-    remoteProtocolFallback: "https"
-  });
-
-  assert.deepEqual(target, {
-    baseUrl: "https://api-localhost.example.com",
-    pathPrefix: "/api",
-    cookieHeader: null
-  });
+  assert.equal(localBaseUrl, wranglerLocal.vars.MARKETS_API_BASE_URL);
+  assert.equal(remoteBaseUrl, wranglerRemote.vars.MARKETS_API_BASE_URL);
 });

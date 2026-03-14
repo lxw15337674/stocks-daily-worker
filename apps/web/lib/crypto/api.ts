@@ -1,9 +1,9 @@
 import "server-only";
-import { cache } from "react";
 
 import { headers } from "next/headers";
-import { resolveApiTargetFromHeaders } from "@/lib/api-target";
+import { resolveServerApiTarget } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
+import { SSR_API_BASE_URL } from "@/lib/runtime-config";
 
 import type {
   CoinDetail,
@@ -19,22 +19,18 @@ import type {
 } from "@/lib/crypto/types";
 import type { IntelligenceWallResponse } from "@china-stocks/contracts";
 
-const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.workers.dev";
-
 function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-const resolveApiTarget = cache(async (): Promise<ApiTarget> => {
+async function resolveApiTarget(): Promise<ApiTarget> {
   const requestHeaders = await headers();
-  return resolveApiTargetFromHeaders({
-    defaultBaseUrl: DEFAULT_API_BASE_URL,
+  return resolveServerApiTarget({
+    defaultBaseUrl: SSR_API_BASE_URL,
     defaultPathPrefix: "/api/v1/crypto",
-    proxyPathPrefix: "/api/crypto",
-    headers: requestHeaders,
-    remoteProtocolFallback: "https"
+    headers: requestHeaders
   });
-});
+}
 
 type FetchJsonOptions = {
   revalidate?: number;
@@ -59,6 +55,7 @@ async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promi
   });
 
   if (!response.ok) {
+    console.error(`[web][crypto-api] ${path} -> ${response.status}`);
     return null;
   }
 

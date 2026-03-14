@@ -36,13 +36,16 @@ pnpm deploy
 `pnpm --dir ../.. exec wrangler`, so Cloudflare CLI usage stays centralized at the
 workspace root.
 
-## API Base URL
+## Environment Config
 
-Set `MARKETS_API_BASE_URL` in `wrangler.jsonc` if the unified API worker uses a different domain.
+Web runtime config is now split explicitly between local and remote modes.
 
-Default:
+- `wrangler.local.jsonc` + `lib/runtime-config.local.ts` are used for local development
+- `wrangler.remote.jsonc` + `lib/runtime-config.remote.ts` are used for build/deploy
+- `wrangler.jsonc` + `lib/runtime-config.ts` are the active generated copies switched by `node ../../scripts/select-web-config.mjs <local|remote>`
 
-```json
-"MARKETS_API_BASE_URL": "https://china-stocks-daily-worker.404174262.workers.dev"
-```
+The important behavioral rule is:
+
+- browser requests may still use same-origin `/api/*` proxy paths
+- SSR always uses the configured API origin from `runtime-config.ts` and no longer infers production targets from the current host
 
