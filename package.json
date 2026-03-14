@@ -2,6 +2,10 @@
   "name": "china-stocks-daily-monorepo",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "packageManager": "bun@1.2.18",
   "scripts": {
     "cf:login": "wrangler login",
@@ -14,16 +18,16 @@
     "dev": "bun run dev:api & bun run dev:web",
     "dev:all": "bun run dev",
     "dev:api": "wrangler dev --config apps/api/wrangler.toml",
-    "dev:web": "bun scripts/select-web-config.ts local && bun --cwd apps/web run dev",
-    "build": "bun --cwd apps/web run build",
+    "dev:web": "bun scripts/select-web-config.ts local && bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
     "check": "bun run check:api && bun run check:web",
     "test": "bun test tests/contracts.market.test.ts tests/api.indices.test.ts tests/api.scheduler-status.test.ts tests/api.routes.test.ts tests/web.market-loaders.test.ts tests/web.status-loaders.test.ts tests/web.api-targets.test.ts",
-    "check:api": "bun --cwd apps/api run check",
-    "check:web": "bun scripts/select-web-config.ts remote && bun --cwd apps/web run check",
+    "check:api": "bun run --cwd apps/api check",
+    "check:web": "bun scripts/select-web-config.ts remote && bun run --cwd apps/web check",
     "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",
-    "deploy:web": "bun scripts/select-web-config.ts remote && bun --cwd apps/web run deploy",
-    "db:generate": "bun --cwd apps/api run db:generate",
-    "db:studio": "bun --cwd apps/api run db:studio"
+    "deploy:web": "bun scripts/select-web-config.ts remote && bun run --cwd apps/web deploy",
+    "db:generate": "bun run --cwd apps/api db:generate",
+    "db:studio": "bun run --cwd apps/api db:studio"
   },
   "devDependencies": {
     "@mozilla/readability": "0.6.0",
