@@ -1,0 +1,57 @@
+name: Crypto Daily Report Run
+
+on:
+  schedule:
+    - cron: "5 0 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: crypto-daily-report-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Trigger crypto daily report
+        env:
+          STOCKS_API_BASE_URL: ${{ secrets.STOCKS_API_BASE_URL }}
+          STOCKS_ADMIN_TOKEN: ${{ secrets.STOCKS_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${STOCKS_API_BASE_URL:-}" ]; then
+            echo "Missing secret: STOCKS_API_BASE_URL"
+            exit 1
+          fi
+          if [ -z "${STOCKS_ADMIN_TOKEN:-}" ]; then
+            echo "Missing secret: STOCKS_ADMIN_TOKEN"
+            exit 1
+          fi
+
+          endpoint="${STOCKS_API_BASE_URL%/}/api/v1/crypto/run"
+          echo "Triggering: ${endpoint}"
+
+          attempt=1
+          max_attempts=3
+          while [ "${attempt}" -le "${max_attempts}" ]; do
+            echo "Attempt ${attempt}/${max_attempts}"
+            response="$(curl -sS -m 240 -w '\n%{http_code}' -H "x-admin-token: ${STOCKS_ADMIN_TOKEN}" "${endpoint}")"
+            status_code="$(printf '%s\n' "${response}" | tail -n1)"
+            response_body="$(printf '%s\n' "${response}" | sed '$d')"
+
+            echo "HTTP ${status_code}"
+            echo "${response_body}"
+
+            if [ "${status_code}" -ge 200 ] && [ "${status_code}" -lt 300 ]; then
+              echo "Crypto daily report completed."
+              exit 0
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 8
+          done
+
+          echo "Crypto daily report failed after retries."
+          exit 1

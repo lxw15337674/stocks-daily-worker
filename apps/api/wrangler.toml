@@ -19,9 +19,6 @@ enabled = false
 persist = true
 head_sampling_rate = 1
 
-[triggers]
-crons = ["0 23 * * 1-5", "15 20 * * 1-5", "10 0 * * *", "5 0 * * *"]
-
 [[d1_databases]]
 binding = "STOCKS_DB"
 database_name = "china-stocks-daily"
