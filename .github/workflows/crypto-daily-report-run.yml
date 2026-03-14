@@ -30,6 +30,18 @@ jobs:
             exit 1
           fi
 
+          proxy_endpoint="${STOCKS_API_BASE_URL%/}/api/v1/crypto/market/admin/binance-ticker-proxy"
+          echo "Checking proxy endpoint: ${proxy_endpoint}"
+          proxy_response="$(curl -sS -m 120 -w '\n%{http_code}' -H "x-admin-token: ${STOCKS_ADMIN_TOKEN}" "${proxy_endpoint}")"
+          proxy_status="$(printf '%s\n' "${proxy_response}" | tail -n1)"
+          proxy_body="$(printf '%s\n' "${proxy_response}" | sed '$d')"
+          echo "Proxy HTTP ${proxy_status}"
+          echo "${proxy_body}"
+          if [ "${proxy_status}" -lt 200 ] || [ "${proxy_status}" -ge 300 ]; then
+            echo "Proxy endpoint check failed."
+            exit 1
+          fi
+
           endpoint="${STOCKS_API_BASE_URL%/}/api/v1/crypto/run"
           echo "Triggering: ${endpoint}"
 

@@ -111,6 +111,11 @@ const CF_AI_MODEL = "@cf/zai-org/glm-4.7-flash";
 const CRYPTO_NEWS_CRON = "10 0 * * *";
 const REPORT_TIMEZONE = "UTC";
 const AI_REQUEST_TIMEOUT_MS = 12000;
+const BINANCE_FETCH_TIMEOUT_MS = 12000;
+const BINANCE_TICKER_ENDPOINTS = [
+  "https://api.binance.com/api/v3/ticker/24hr",
+  "https://data-api.binance.vision/api/v3/ticker/24hr"
+] as const;
 
 function resolveCountryCodes(request: Request): string[] {
   const requestCountry =
@@ -520,6 +525,40 @@ app.get("/intelligence/report/:date", async (c) => {
   return c.json(wall);
 });
 
+app.get("/market/admin/binance-ticker-proxy", async (c) => {
+  if (!hasValidAdminToken(c)) {
+    return c.json({ message: "Unauthorized." }, 401);
+  }
+
+  const { endpoint, payload } = await fetchBinanceTickerPayload();
+  const tickerBySymbol = new Map(payload.map((item) => [item.symbol, item]));
+  const items = COINS.map((coin) => {
+    const ticker = tickerBySymbol.get(coin.pair);
+    if (!ticker) {
+      return null;
+    }
+
+    return {
+      code: coin.code,
+      pair: coin.pair,
+      priceUsdt: toNumber(ticker.lastPrice),
+      change24hPct: toNumber(ticker.priceChangePercent),
+      quoteVolume24hUsdt: toNumber(ticker.quoteVolume),
+      closeTime: new Date(ticker.closeTime).toISOString()
+    };
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
+
+  const missingPairs = COINS.filter((coin) => !tickerBySymbol.has(coin.pair)).map((coin) => coin.pair);
+
+  return c.json({
+    ok: true,
+    endpoint,
+    itemCount: items.length,
+    missingPairs,
+    items
+  });
+});
+
 app.get("/news/admin/run", async (c) => {
   if (!hasValidAdminToken(c)) {
     return c.json({ message: "Unauthorized." }, 401);
@@ -715,6 +754,7 @@ app.get("/", (c) =>
       "/news/clusters",
       "/news/event/:clusterId",
       "/news/report/:date",
+      "/market/admin/binance-ticker-proxy",
       "/intelligence/aliases",
       "/intelligence/latest",
       "/intelligence/report/:date",
@@ -826,17 +866,51 @@ async function generateAndPersistReport(env: Env): Promise<DailyReport> {
   return persisted ?? report;
 }
 
-async function fetchDailySnapshots(): Promise<DailySnapshot[]> {
-  const response = await fetch("https://api.binance.com/api/v3/ticker/24hr", {
-    headers: {
-      accept: "application/json"
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      headers: {
+        accept: "application/json"
+      },
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+async function fetchBinanceTickerPayload(): Promise<{ endpoint: string; payload: BinanceTicker24h[] }> {
+  const failures: string[] = [];
+
+  for (const endpoint of BINANCE_TICKER_ENDPOINTS) {
+    try {
+      const response = await fetchWithTimeout(endpoint, BINANCE_FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        failures.push(`${endpoint} -> HTTP ${response.status}`);
+        continue;
+      }
+
+      const payload = (await response.json()) as BinanceTicker24h[];
+      if (!Array.isArray(payload) || payload.length === 0) {
+        failures.push(`${endpoint} -> empty payload`);
+        continue;
+      }
+
+      return { endpoint, payload };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${endpoint} -> ${message}`);
     }
-  });
-  if (!response.ok) {
-    throw new Error(`Binance ticker request failed with status ${response.status}.`);
   }
 
-  const payload = (await response.json()) as BinanceTicker24h[];
+  throw new Error(`Binance ticker request failed: ${failures.join("; ")}`);
+}
+
+async function fetchDailySnapshots(): Promise<DailySnapshot[]> {
+  const { payload } = await fetchBinanceTickerPayload();
   const tickerBySymbol = new Map(payload.map((item) => [item.symbol, item]));
 
   const rawItems = COINS.map((coin) => {
