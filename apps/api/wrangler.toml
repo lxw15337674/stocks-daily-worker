@@ -4,7 +4,7 @@ compatibility_date = "2026-03-05"
 account_id = "5697c41d4efbabcbac78eafe2cdf036b"
 
 [triggers]
-crons = ["0 23 * * 1-5", "15 20 * * 1-5", "15 21 * * 1-5", "10 * * * *", "5 0 * * *"]
+crons = ["0 23 * * 1-5", "15 20 * * 1-5", "15 21 * * 1-5", "10 0 * * *", "5 0 * * *"]
 
 [[d1_databases]]
 binding = "STOCKS_DB"

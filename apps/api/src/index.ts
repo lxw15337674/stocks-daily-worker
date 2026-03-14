@@ -32,7 +32,7 @@ type ScheduledHandler = (event: ScheduledController, env: unknown) => Promise<vo
 const STOCKS_CRON = "0 23 * * 1-5";
 const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
 const MARKET_INDICES_SUMMARY_CRON_STD = "15 21 * * 1-5";
-const CRYPTO_NEWS_CRON = "10 * * * *";
+const CRYPTO_NEWS_CRON = "10 0 * * *";
 const CRYPTO_CRON = "5 0 * * *";
 
 const ASSET_ITEMS = [
