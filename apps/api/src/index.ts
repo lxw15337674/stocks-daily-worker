@@ -8,6 +8,7 @@ type WorkersAiBinding = {
 
 interface Env {
   STOCKS_DB?: D1Database;
+  STOCKS_BROWSER?: Fetcher;
   STOCKS_ADMIN_TOKEN?: string;
   STOCKS_WEBHOOK_URL?: string;
   STOCKS_OPENAI_BASE_URL?: string;
@@ -62,6 +63,7 @@ function rewriteRequest(request: Request, pathname: string): Request {
 function toStocksEnv(env: Env) {
   return {
     DB: env.STOCKS_DB,
+    BROWSER: env.STOCKS_BROWSER,
     ADMIN_TOKEN: env.STOCKS_ADMIN_TOKEN,
     WEBHOOK_URL: env.STOCKS_WEBHOOK_URL,
     OPENAI_BASE_URL: env.STOCKS_OPENAI_BASE_URL,

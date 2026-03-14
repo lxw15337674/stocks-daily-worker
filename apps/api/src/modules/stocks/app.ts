@@ -1,4 +1,5 @@
 import { swaggerUI } from "@hono/swagger-ui";
+import { launch, type BrowserContext, type BrowserWorker } from "@cloudflare/playwright";
 import { Readability } from "@mozilla/readability";
 import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -36,6 +37,7 @@ import { reportNews, reportQuotes, reportRuns, stocks as stocksTable } from "./s
 
 interface Env {
   DB?: D1Database;
+  BROWSER?: BrowserWorker;
   ADMIN_TOKEN?: string;
   WEBHOOK_URL?: string;
   OPENAI_BASE_URL?: string;
@@ -99,6 +101,24 @@ type ReportSummary = {
   stockSummaryBySymbol: Map<string, LocalizedText>;
   morningBriefZh: string;
   morningBriefEn: string;
+};
+
+type NewsBodyDebugSymbolSummary = {
+  symbol: string;
+  totalItems: number;
+  snippetItems: number;
+  sampleSnippet: string | null;
+  sampleLink: string | null;
+};
+
+type NewsBodyDebugSummary = {
+  enabled: boolean;
+  perStockLimit: number;
+  browserBindingConfigured: boolean;
+  browserContextReady: boolean;
+  totalItems: number;
+  snippetItems: number;
+  symbols: NewsBodyDebugSymbolSummary[];
 };
 
 type StockAdminItem = StockListItem;
@@ -644,6 +664,13 @@ app.get(
       return new Response(authError.message, { status: authError.status });
     }
 
+    const includeNewsBodyDebugRequested = parseBooleanQuery(c.req.query("debugNewsBody"));
+    const includeNewsBodyDebug = includeNewsBodyDebugRequested && isLocalDevDebugRequest(c.req.raw.url);
+    if (includeNewsBodyDebugRequested && !includeNewsBodyDebug) {
+      return c.text("debugNewsBody is only available in local development.", 403);
+    }
+    let newsBodyDebug: NewsBodyDebugSummary | null = null;
+
     const result = await trackSchedulerRun(
       c.env.STATUS_BUCKET,
       {
@@ -659,9 +686,22 @@ app.get(
           }
         })
       },
-      () => generateAndPersistReport(c.env)
+      () =>
+        generateAndPersistReport(c.env, {
+          captureNewsBodyDebug: includeNewsBodyDebug
+            ? (summary) => {
+                newsBodyDebug = summary;
+              }
+            : undefined
+        })
     );
-    return c.json(result);
+    if (!includeNewsBodyDebug) {
+      return c.json(result);
+    }
+    return c.json({
+      ...result,
+      _debugNewsBody: newsBodyDebug
+    });
   }
 );
 
@@ -1432,18 +1472,55 @@ export default {
 
 async function generateAndPersistReport(
   env: Env,
-  options?: { requireDb?: boolean }
+  options?: {
+    requireDb?: boolean;
+    captureNewsBodyDebug?: (summary: NewsBodyDebugSummary) => void;
+  }
 ): Promise<StockDailyReport> {
   const stocks = await getStockUniverse(env);
   const quotes = (await Promise.all(stocks.map((stock) => fetchQuote(stock)))).filter(
     (item): item is Quote => item !== null
   );
 
+  const newsBodyConfig = getNewsBodyFetchConfig(env);
+  let browserContext: BrowserContext | null = null;
+  let browserToClose: { close: () => Promise<void> } | null = null;
+  if (newsBodyConfig.enabled && newsBodyConfig.perStockLimit > 0) {
+    if (env.BROWSER) {
+      try {
+        const browser = await launch(env.BROWSER);
+        browserToClose = browser;
+        browserContext = await browser.newContext({
+          userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        });
+      } catch (error) {
+        console.error(`[stocks][news-body] Failed to launch browser session: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } else {
+      console.warn("[stocks][news-body] Browser binding is not configured; skipping body extraction.");
+    }
+  }
+
   const newsBySymbol = new Map<string, NewsItem[]>();
-  await Promise.all(
-    stocks.map(async (stock) => {
-      const items = await fetchGoogleNews(env, stock);
+  try {
+    for (const stock of stocks) {
+      const items = await fetchGoogleNews(env, stock, browserContext, newsBodyConfig);
       newsBySymbol.set(stock.symbol, items);
+    }
+  } finally {
+    if (browserContext) {
+      await browserContext.close().catch(() => undefined);
+    }
+    if (browserToClose) {
+      await browserToClose.close().catch(() => undefined);
+    }
+  }
+  options?.captureNewsBodyDebug?.(
+    buildNewsBodyDebugSummary(newsBySymbol, {
+      enabled: newsBodyConfig.enabled,
+      perStockLimit: newsBodyConfig.perStockLimit,
+      browserBindingConfigured: Boolean(env.BROWSER),
+      browserContextReady: Boolean(browserContext)
     })
   );
 
@@ -1520,6 +1597,16 @@ function parseBooleanQuery(value: string | undefined): boolean {
   }
   const normalized = value.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function isLocalDevDebugRequest(requestUrl: string): boolean {
+  try {
+    const { hostname } = new URL(requestUrl);
+    const normalized = hostname.trim().toLowerCase();
+    return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
+  } catch {
+    return false;
+  }
 }
 
 function createLocalizedText(zh: string | null, en: string | null): LocalizedText {
@@ -2464,7 +2551,12 @@ async function fetchQuote(stock: Stock): Promise<Quote | null> {
   }
 }
 
-async function fetchGoogleNews(env: Env, stock: Stock): Promise<NewsItem[]> {
+async function fetchGoogleNews(
+  env: Env,
+  stock: Stock,
+  browserContext?: BrowserContext | null,
+  newsBodyConfig?: { enabled: boolean; perStockLimit: number; timeoutMs: number; maxChars: number }
+): Promise<NewsItem[]> {
   try {
     const searchRequests = buildGoogleNewsSearchRequests(stock);
     const rssResponses = await Promise.all(
@@ -2485,26 +2577,46 @@ async function fetchGoogleNews(env: Env, stock: Stock): Promise<NewsItem[]> {
       .map((item) => ({ ...item, symbol: stock.symbol }));
     const deduped = dedupeNews(items).slice(0, 5);
 
-    const config = getNewsBodyFetchConfig(env);
+    const config = newsBodyConfig ?? getNewsBodyFetchConfig(env);
     if (!config.enabled || config.perStockLimit <= 0 || deduped.length === 0) {
       return deduped;
     }
 
-    return Promise.all(
-      deduped.map(async (item, index) => {
-        if (index >= config.perStockLimit) {
-          return item;
-        }
+    if (!browserContext) {
+      return deduped;
+    }
 
-        const bodySnippet = await fetchNewsBodySnippet(item.link, {
-          timeoutMs: config.timeoutMs,
-          maxChars: config.maxChars
-        });
-        return bodySnippet ? { ...item, bodySnippet } : item;
-      })
-    );
+    return enrichNewsBodySnippetsWithBrowserContext(browserContext, deduped, config);
   } catch {
     return [];
+  }
+}
+
+async function enrichNewsBodySnippetsWithBrowserContext(
+  browserContext: BrowserContext,
+  items: NewsItem[],
+  options: { perStockLimit: number; timeoutMs: number; maxChars: number }
+): Promise<NewsItem[]> {
+  try {
+    const enriched: NewsItem[] = [];
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (index >= options.perStockLimit) {
+        enriched.push(item);
+        continue;
+      }
+
+      const bodySnippet = await fetchNewsBodySnippetWithBrowserPage(browserContext, item.link, {
+        timeoutMs: options.timeoutMs,
+        maxChars: options.maxChars
+      });
+      enriched.push(bodySnippet ? { ...item, bodySnippet } : item);
+    }
+
+    return enriched;
+  } catch (error) {
+    console.error(`[stocks][news-body] Browser rendering extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+    return items;
   }
 }
 
@@ -2610,42 +2722,55 @@ function parseIntEnv(value: string | undefined, fallback: number, min: number, m
   return Math.max(min, Math.min(max, parsed));
 }
 
-async function fetchNewsBodySnippet(
+async function fetchNewsBodySnippetWithBrowserPage(
+  context: BrowserContext,
   url: string,
   options: { timeoutMs: number; maxChars: number }
 ): Promise<string | null> {
-  let timeoutHandle: number | undefined;
-  const controller = new AbortController();
+  const page = await context.newPage();
+  const redirectTimeoutMs = Math.max(1000, Math.floor(options.timeoutMs / 2));
+  const settleTimeoutMs = Math.max(600, Math.floor(options.timeoutMs / 3));
 
   try {
-    timeoutHandle = setTimeout(() => controller.abort(), options.timeoutMs) as unknown as number;
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "user-agent": "Mozilla/5.0",
-        accept: "text/html,application/xhtml+xml"
-      }
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: options.timeoutMs
     });
 
-    if (!response.ok) {
+    if (isGoogleNewsUrl(page.url())) {
+      await page
+        .waitForURL((nextUrl: URL) => !isGoogleNewsHost(nextUrl.hostname), {
+          timeout: redirectTimeoutMs
+        })
+        .catch(() => undefined);
+    }
+
+    await page.waitForLoadState("domcontentloaded", { timeout: settleTimeoutMs }).catch(() => undefined);
+
+    const finalUrl = page.url();
+    if (isGoogleNewsUrl(finalUrl)) {
       return null;
     }
 
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (!contentType.includes("text/html")) {
-      return null;
-    }
-
-    const html = await response.text();
-    return extractNewsBodySnippetFromHtml(html, options.maxChars, url);
+    return extractNewsBodySnippetFromHtml(await page.content(), options.maxChars, finalUrl);
   } catch {
     return null;
   } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
+    await page.close().catch(() => undefined);
   }
+}
+
+function isGoogleNewsUrl(url: string): boolean {
+  try {
+    return isGoogleNewsHost(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isGoogleNewsHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "news.google.com" || normalized.endsWith(".news.google.com");
 }
 
 function extractNewsBodySnippetFromHtml(html: string, maxChars: number, sourceUrl: string): string | null {
@@ -2991,6 +3116,47 @@ function buildStructuredReport(params: {
     overview,
     items,
     newsGroups
+  };
+}
+
+function buildNewsBodyDebugSummary(
+  newsBySymbol: Map<string, NewsItem[]>,
+  context: {
+    enabled: boolean;
+    perStockLimit: number;
+    browserBindingConfigured: boolean;
+    browserContextReady: boolean;
+  }
+): NewsBodyDebugSummary {
+  const symbols: NewsBodyDebugSymbolSummary[] = [];
+  let totalItems = 0;
+  let snippetItems = 0;
+
+  for (const [symbol, items] of newsBySymbol.entries()) {
+    totalItems += items.length;
+    const itemsWithSnippet = items.filter((item) => Boolean(item.bodySnippet && item.bodySnippet.trim().length > 0));
+    snippetItems += itemsWithSnippet.length;
+
+    const sample = itemsWithSnippet[0];
+    symbols.push({
+      symbol,
+      totalItems: items.length,
+      snippetItems: itemsWithSnippet.length,
+      sampleSnippet: sample?.bodySnippet ?? null,
+      sampleLink: sample?.link ?? null
+    });
+  }
+
+  symbols.sort((left, right) => left.symbol.localeCompare(right.symbol));
+
+  return {
+    enabled: context.enabled,
+    perStockLimit: context.perStockLimit,
+    browserBindingConfigured: context.browserBindingConfigured,
+    browserContextReady: context.browserContextReady,
+    totalItems,
+    snippetItems,
+    symbols
   };
 }
 
