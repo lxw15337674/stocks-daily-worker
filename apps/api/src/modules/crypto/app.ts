@@ -1121,7 +1121,6 @@ async function ensureD1Schema(db: D1Database): Promise<void> {
       snapshot_count INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_reports_date_unique ON daily_reports(report_date)`,
-    `CREATE INDEX IF NOT EXISTS idx_daily_reports_status_date ON daily_reports(status, report_date DESC)`,
     `CREATE TABLE IF NOT EXISTS daily_coin_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       report_id INTEGER NOT NULL,
