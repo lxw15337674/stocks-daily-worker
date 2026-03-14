@@ -8,12 +8,17 @@ const ET_TIMEZONE = "America/New_York";
 const STOCKS_FETCH_TIMEOUT_MS = 15_000;
 const RSS_FETCH_TIMEOUT_MS = 8_000;
 const IMPORT_FETCH_TIMEOUT_MS = 20_000;
+const AI_FETCH_TIMEOUT_MS = 25_000;
 const STOCK_CONCURRENCY = 6;
 const MAX_SEARCH_REQUESTS_PER_STOCK = 2;
 const MAX_NEWS_ITEMS_PER_STOCK = 5;
 const BODY_SNIPPET_PER_STOCK_LIMIT = 2;
 const BODY_SNIPPET_TIMEOUT_MS = 9_000;
 const BODY_SNIPPET_MAX_CHARS = 900;
+const AI_SUMMARY_CONCURRENCY = 4;
+const AI_SUMMARY_NEWS_PER_STOCK = 5;
+const AI_SUMMARY_SNIPPET_MAX_CHARS = 320;
+const OPENAI_DEFAULT_MODEL = "gpt-5.2";
 
 function assertEnv(name) {
   const value = process.env[name]?.trim();
@@ -34,6 +39,15 @@ function toEtDate(now = new Date()) {
 
 function withTrailingSlashRemoved(value) {
   return value.replace(/\/+$/, "");
+}
+
+function trimForPrompt(input, maxChars) {
+  const normalized = sanitizeParagraph(input);
+  const chars = Array.from(normalized);
+  if (chars.length <= maxChars) {
+    return normalized;
+  }
+  return `${chars.slice(0, maxChars).join("")}...`;
 }
 
 async function fetchWithTimeout(url, init, timeoutMs) {
@@ -429,9 +443,147 @@ function countSnippetItems(items) {
   return items.reduce((total, item) => total + (item.bodySnippet ? 1 : 0), 0);
 }
 
+function resolveChatCompletionsEndpoint(baseUrl) {
+  try {
+    const url = new URL(baseUrl);
+    const path = url.pathname.replace(/\/+$/, "");
+    if (path.endsWith("/chat/completions")) {
+      return url.toString();
+    }
+    if (path === "" || path === "/") {
+      url.pathname = "/v1/chat/completions";
+      return url.toString();
+    }
+    if (path.endsWith("/v1")) {
+      url.pathname = `${path}/chat/completions`;
+      return url.toString();
+    }
+    url.pathname = `${path}/chat/completions`;
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+}
+
+function buildFallbackStockAiSummary(symbol, items) {
+  const topSources = Array.from(new Set(items.map((item) => item.source)))
+    .slice(0, 2)
+    .join("、");
+  const topTitles = items
+    .slice(0, 2)
+    .map((item) => sanitizeParagraph(item.title))
+    .join("；");
+  if (!topTitles) {
+    return `${symbol}暂无可用新闻摘要。`;
+  }
+  return sanitizeParagraph(`${symbol}相关新闻主要来自${topSources || "多家媒体"}，重点包括：${topTitles}。`);
+}
+
+async function buildStockAiSummary(requestContext, aiConfig, symbol, items) {
+  const endpoint = resolveChatCompletionsEndpoint(aiConfig.baseUrl);
+  const newsLines = items
+    .slice(0, AI_SUMMARY_NEWS_PER_STOCK)
+    .map((item, index) => {
+      const snippet = item.bodySnippet ? `；正文摘要：${trimForPrompt(item.bodySnippet, AI_SUMMARY_SNIPPET_MAX_CHARS)}` : "";
+      return `${index + 1}. ${sanitizeParagraph(item.title)}（${item.source}）${snippet}`;
+    })
+    .join("\n");
+  const fallback = buildFallbackStockAiSummary(symbol, items);
+
+  try {
+    const payload = await fetchJson(
+      endpoint,
+      {
+        context: requestContext,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${aiConfig.apiKey}`
+        },
+        body: JSON.stringify({
+          model: aiConfig.model,
+          temperature: 0.2,
+          messages: [
+            {
+              role: "system",
+              content:
+                "你是股票新闻编辑。仅根据给定材料输出一段简洁中文摘要，不要标题、不要项目符号、不要投资建议，不要补充外部事实。"
+            },
+            {
+              role: "user",
+              content: [
+                `请为${symbol}生成一段不超过180字的中文新闻摘要。`,
+                "只输出摘要正文。",
+                `新闻材料:\n${newsLines}`
+              ].join("\n\n")
+            }
+          ]
+        })
+      },
+      AI_FETCH_TIMEOUT_MS
+    );
+
+    const content = sanitizeParagraph(payload?.choices?.[0]?.message?.content ?? "");
+    if (content) {
+      return {
+        summary: content.replace(/^\s*(?:摘要|总结|新闻摘要)\s*[：:]/i, ""),
+        source: "ai"
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[stocks-news-ci] ai summary failed symbol=${symbol}: ${message.slice(0, 220)}`);
+  }
+
+  return {
+    summary: fallback,
+    source: "fallback"
+  };
+}
+
+async function enrichItemsWithAiSummary(items, requestContext, aiConfig) {
+  const grouped = new Map();
+  for (const item of items) {
+    const bucket = grouped.get(item.symbol) ?? [];
+    bucket.push(item);
+    grouped.set(item.symbol, bucket);
+  }
+
+  const entries = Array.from(grouped.entries());
+  if (entries.length === 0) {
+    return items;
+  }
+
+  console.log(`[stocks-news-ci] ai summarizing ${entries.length} symbols model=${aiConfig.model}`);
+  const summaries = new Map();
+
+  await mapWithConcurrency(entries, AI_SUMMARY_CONCURRENCY, async (entry, index) => {
+    const [symbol, symbolItems] = entry;
+    const result = await buildStockAiSummary(requestContext, aiConfig, symbol, symbolItems);
+    summaries.set(symbol, result.summary);
+    console.log(
+      `[stocks-news-ci] ai progress ${index + 1}/${entries.length} symbol=${symbol} items=${symbolItems.length} source=${result.source}`
+    );
+    return null;
+  });
+
+  return items.map((item) => ({
+    ...item,
+    aiSummary: summaries.get(item.symbol) ?? null
+  }));
+}
+
 async function main() {
   const apiBaseUrl = withTrailingSlashRemoved(assertEnv("STOCKS_API_BASE_URL"));
   const adminToken = assertEnv("STOCKS_ADMIN_TOKEN");
+  const aiBaseUrl = withTrailingSlashRemoved(assertEnv("STOCKS_OPENAI_BASE_URL"));
+  const aiApiKey = assertEnv("STOCKS_OPENAI_API_KEY");
+  const aiModel = normalizeText(process.env.STOCKS_AI_MODEL) || OPENAI_DEFAULT_MODEL;
+  const aiConfig = {
+    baseUrl: aiBaseUrl,
+    apiKey: aiApiKey,
+    model: aiModel
+  };
   const requestContext = await playwrightRequest.newContext({
     userAgent: "Mozilla/5.0 (compatible; stocks-news-ci/1.0)"
   });
@@ -483,10 +635,14 @@ async function main() {
       return;
     }
 
-    console.log(`[stocks-news-ci] importing ${items.length} news rows into report_news`);
+    const aiEnrichedItems = await enrichItemsWithAiSummary(items, requestContext, aiConfig);
+    const aiSummaryItems = aiEnrichedItems.reduce((total, item) => total + (item.aiSummary ? 1 : 0), 0);
+    console.log(`[stocks-news-ci] ai summary attached ${aiSummaryItems}/${aiEnrichedItems.length} news rows`);
+
+    console.log(`[stocks-news-ci] importing ${aiEnrichedItems.length} news rows into report_news`);
     const importPayload = {
       reportDateEt: toEtDate(),
-      items
+      items: aiEnrichedItems
     };
 
     const importResponse = await fetchJson(

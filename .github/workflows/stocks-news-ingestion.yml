@@ -32,4 +32,7 @@ jobs:
         env:
           STOCKS_API_BASE_URL: ${{ secrets.STOCKS_API_BASE_URL }}
           STOCKS_ADMIN_TOKEN: ${{ secrets.STOCKS_ADMIN_TOKEN }}
+          STOCKS_OPENAI_BASE_URL: ${{ secrets.STOCKS_OPENAI_BASE_URL }}
+          STOCKS_OPENAI_API_KEY: ${{ secrets.STOCKS_OPENAI_API_KEY }}
+          STOCKS_AI_MODEL: ${{ vars.STOCKS_AI_MODEL }}
         run: bun scripts/stocks-news-crawl-import.ts

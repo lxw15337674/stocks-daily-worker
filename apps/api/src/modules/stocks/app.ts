@@ -90,6 +90,8 @@ type NewsImportItem = {
   source: string;
   publishedAt: Date;
   bodySnippet?: string;
+  aiSummary?: string;
+  aiSummaryEn?: string;
 };
 
 type StockNewsImportInput = {
@@ -1882,6 +1884,8 @@ function parseStockNewsImportInput(payload: unknown): ParseResult<StockNewsImpor
     const source = normalizeStringField(row.source, 160);
     const publishedAt = normalizePublishedAt(row.publishedAt);
     const bodySnippet = normalizeStringField(row.bodySnippet, 3000);
+    const aiSummary = normalizeStringField(row.aiSummary, 3000);
+    const aiSummaryEn = normalizeStringField(row.aiSummaryEn, 3000);
 
     if (!symbol || !title || !link || !source || !publishedAt) {
       skippedInvalid += 1;
@@ -1894,7 +1898,9 @@ function parseStockNewsImportInput(payload: unknown): ParseResult<StockNewsImpor
       link,
       source,
       publishedAt,
-      bodySnippet
+      bodySnippet,
+      aiSummary,
+      aiSummaryEn
     });
   }
 
@@ -4296,8 +4302,8 @@ async function importStockNewsIntoReportNews(dbBinding: D1Database, input: Stock
       source: item.source,
       publishedAt: item.publishedAt.toISOString(),
       bodySnippet: item.bodySnippet ?? null,
-      aiSummary: null,
-      aiSummaryEn: null
+      aiSummary: item.aiSummary ?? null,
+      aiSummaryEn: item.aiSummaryEn ?? null
     }));
     for (let index = 0; index < newsValues.length; index += REPORT_NEWS_IMPORT_BATCH_SIZE) {
       await db.insert(reportNews).values(newsValues.slice(index, index + REPORT_NEWS_IMPORT_BATCH_SIZE));
