@@ -130,7 +130,7 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
           </Alert>
         ) : null}
         {summary ? (
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-background/40 p-4">
+          <div className="space-y-3 rounded-md border border-border/70 bg-background/40 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{t("admin.marketPanelLatestStatus")}</Badge>
               <Badge variant="secondary">{summary.summaryDate}</Badge>

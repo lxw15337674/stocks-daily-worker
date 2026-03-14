@@ -1389,18 +1389,10 @@ export function getI18nOptions(language: Language) {
   } as const;
 }
 
-const I18N_INSTANCE_CACHE = new Map<Language, i18n>();
-
 export function createI18nInstance(language: Language) {
   const resolvedLanguage = resolveLanguage(language);
-  const cached = I18N_INSTANCE_CACHE.get(resolvedLanguage);
-  if (cached) {
-    return cached;
-  }
-
   const instance = createInstance();
   instance.init(getI18nOptions(resolvedLanguage), () => {});
-  I18N_INSTANCE_CACHE.set(resolvedLanguage, instance);
   return instance;
 }
 

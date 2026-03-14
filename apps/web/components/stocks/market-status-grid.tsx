@@ -66,24 +66,26 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               {primary ? (
-                <div className={`rounded-2xl border p-4 ${getMarketChangePanelClass(lang, primary.region, primary.changePct)}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? primary.nameZh : primary.nameEn}</p>
-                        <Badge variant="secondary">{t("primaryLabel")}</Badge>
+                <Card size="sm" className={getMarketChangePanelClass(lang, primary.region, primary.changePct)}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? primary.nameZh : primary.nameEn}</p>
+                          <Badge variant="secondary">{t("primaryLabel")}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs opacity-80">{primary.symbol}</p>
                       </div>
-                      <p className="mt-1 text-xs opacity-80">{primary.symbol}</p>
+                      <div className="shrink-0 text-right">
+                        <p className="text-2xl font-semibold leading-none">{formatMarketMove(primary.changePct)}</p>
+                        <p className="mt-1 text-sm opacity-80">{formatMarketPrice(primary.price, primary.currency, lang)}</p>
+                      </div>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-2xl font-semibold leading-none">{formatMarketMove(primary.changePct)}</p>
-                      <p className="mt-1 text-sm opacity-80">{formatMarketPrice(primary.price, primary.currency, lang)}</p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-xs leading-5 opacity-80">
-                    {t("updatedAtLabel")}: {formatMarketTimestamp(primary.quoteTimestamp, lang)}
-                  </p>
-                </div>
+                    <p className="mt-3 text-xs leading-5 opacity-80">
+                      {t("updatedAtLabel")}: {formatMarketTimestamp(primary.quoteTimestamp, lang)}
+                    </p>
+                  </CardContent>
+                </Card>
               ) : (
                 <Empty className="border border-dashed border-border/70 bg-background/20 py-6">
                   <EmptyHeader>
@@ -95,18 +97,20 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
               {secondary.length > 0 ? (
                 <div className="space-y-2">
                   {secondary.map((item) => (
-                    <div key={item.indexKey} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-xl border border-border/70 bg-background/45 px-3 py-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? item.nameZh : item.nameEn}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{item.symbol}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="whitespace-nowrap text-sm font-medium text-foreground">{formatMarketPrice(item.price, item.currency, lang)}</p>
-                        <p className={`mt-1 text-xs font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
-                          {formatMarketMove(item.changePct)}
-                        </p>
-                      </div>
-                    </div>
+                    <Card key={item.indexKey} size="sm" className="bg-background/45">
+                      <CardContent className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-3 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-5 text-foreground">{lang === "zh" ? item.nameZh : item.nameEn}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{item.symbol}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="whitespace-nowrap text-sm font-medium text-foreground">{formatMarketPrice(item.price, item.currency, lang)}</p>
+                          <p className={`mt-1 text-xs font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
+                            {formatMarketMove(item.changePct)}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               ) : null}
@@ -142,19 +146,21 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {summary || summaryText ? (
-          <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium text-foreground">{t("summaryTitle")}</p>
-              {summary ? (
-                <span className="text-xs text-muted-foreground">
-                  {commonT("reportDate")}: {summary.summaryDate}
-                  {" · "}
-                  {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-3 text-sm leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
-          </div>
+          <Card size="sm" className="bg-background/45">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-foreground">{t("summaryTitle")}</p>
+                {summary ? (
+                  <span className="text-xs text-muted-foreground">
+                    {commonT("reportDate")}: {summary.summaryDate}
+                    {" · "}
+                    {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-3 text-sm leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
+            </CardContent>
+          </Card>
         ) : null}
         {grid}
       </CardContent>

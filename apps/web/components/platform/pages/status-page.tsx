@@ -318,7 +318,7 @@ export default function StatusPage(props: StatusPageProps) {
                         {group.failures.map((run) => {
                           const summary = resolveRunSummary(run);
                           return (
-                            <div key={run.attemptId} className="rounded-2xl border border-border/70 bg-background/30 p-3">
+                            <div key={run.attemptId} className="rounded-md border border-border/70 bg-background/30 p-3">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline" className={resolveRunBadgeClass(run.status)}>
                                   {resolveRunStatusLabel(props.lang, run.status)}

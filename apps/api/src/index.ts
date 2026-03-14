@@ -137,6 +137,30 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    if (pathname === "/api/v1/home/briefs") {
+      try {
+        const [stocksRes, cryptoRes] = await Promise.all([
+          env.STOCKS_DB?.prepare(
+            "SELECT market_overview as zh, market_overview_en as en FROM report_runs WHERE run_type = 'daily_report' ORDER BY id DESC LIMIT 1"
+          ).first<{ zh: string; en: string }>(),
+          env.CRYPTO_DB?.prepare(
+            "SELECT summary_zh as zh, summary_en as en FROM daily_reports ORDER BY id DESC LIMIT 1"
+          ).first<{ zh: string; en: string }>()
+        ]);
+
+        return createJsonResponse({
+          ok: true,
+          items: {
+            stocks: stocksRes || null,
+            crypto: cryptoRes || null
+          }
+        });
+      } catch (e) {
+        console.error("[api][home-briefs] D1 aggregation failed:", e);
+        return createJsonResponse({ ok: false, error: "aggregation_failed" }, 500);
+      }
+    }
+
     if (pathname === "/" || pathname === "/api/v1" || pathname === "/api/v1/") {
       return createJsonResponse({
         ok: true,

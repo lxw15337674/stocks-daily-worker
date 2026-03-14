@@ -4,6 +4,7 @@ import { resolveServerApiTarget } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
 import { SSR_API_BASE_URL } from "@/lib/runtime-config";
 import type {
+  LocalizedText,
   MarketAiSummary,
   MarketAiSummaryResponse,
   MarketIndexHistoryResponse,
@@ -35,11 +36,14 @@ function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
 
-async function resolveApiTarget(): Promise<ApiTarget> {
+type ApiModule = "stocks" | "crypto" | "root";
+
+async function resolveApiTarget(module: ApiModule = "stocks"): Promise<ApiTarget> {
   const requestHeaders = await headers();
+  const defaultPathPrefix = module === "root" ? "/api/v1" : `/api/v1/${module}`;
   return resolveServerApiTarget({
     defaultBaseUrl: SSR_API_BASE_URL,
-    defaultPathPrefix: "/api/v1/stocks",
+    defaultPathPrefix,
     headers: requestHeaders
   });
 }
@@ -47,6 +51,7 @@ async function resolveApiTarget(): Promise<ApiTarget> {
 type FetchJsonOptions = {
   revalidate?: number;
   includeCookies?: boolean;
+  module?: ApiModule;
 };
 
 function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
@@ -58,7 +63,7 @@ function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookie
 }
 
 async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
-  const target = await resolveApiTarget();
+  const target = await resolveApiTarget(options.module);
   const response = await fetch(joinApiUrl(target, path), {
     method: "GET",
     next: options.revalidate ? { revalidate: options.revalidate } : undefined,
@@ -67,20 +72,42 @@ async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promi
   });
 
   if (!response.ok) {
-    console.error(`[web][stocks-api] ${path} -> ${response.status}`);
+    console.error(`[web][${options.module ?? "stocks"}-api] ${path} -> ${response.status}`);
+    return null;
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    console.error(`[web][${options.module ?? "stocks"}-api] ${path} -> non-json response (${contentType || "unknown"})`);
     return null;
   }
 
   return (await response.json()) as T;
 }
 
+export type HomeBriefsResponse = {
+  ok: boolean;
+  items: {
+    stocks: LocalizedText | null;
+    crypto: LocalizedText | null;
+  };
+};
+
+export async function fetchHomeBriefs(): Promise<HomeBriefsResponse["items"] | null> {
+  const result = await fetchJson<HomeBriefsResponse>("/home/briefs", { module: "root", revalidate: 300 });
+  return result?.items ?? null;
+}
+
 export async function fetchStockReportByDate(date: string): Promise<StockDailyReport | null> {
-  const normalized = date.trim();
+  const normalized = date?.trim?.() ?? "";
   if (!normalized) {
     return null;
   }
 
-  return fetchJson<StockDailyReport>(`/report-data/${encodeURIComponent(normalized)}`, { revalidate: 900 });
+  return fetchJson<StockDailyReport>(`/report-data/${encodeURIComponent(normalized)}`, {
+    module: "stocks",
+    revalidate: 900
+  });
 }
 
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {

@@ -169,7 +169,7 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
           ) : (
             <div className="grid gap-3 xl:grid-cols-2">
               {detail.eventTimeline.map((item) => (
-                <article key={`timeline-${item.clusterId}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <article key={`timeline-${item.clusterId}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{renderStance(item.stance, t)}</Badge>
                     <Badge variant="secondary">{t("crypto.clusterImpact", { impact: item.marketImpact })}</Badge>
@@ -226,7 +226,7 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
             ) : (
               <div className="grid gap-3 xl:grid-cols-2">
                 {(eventTimelineByDate.get(selectedReportDate) ?? []).map((item) => (
-                  <article key={`anchor-${selectedReportDate}-${item.clusterId}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                  <article key={`anchor-${selectedReportDate}-${item.clusterId}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{renderStance(item.stance, t)}</Badge>
                       <Badge variant="secondary">{t("crypto.clusterImpact", { impact: item.marketImpact })}</Badge>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
+import { StocksHomeDateToolbar } from "@/components/stocks-home-date-toolbar";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
 import { HomeContentTabs } from "@/components/home-content-tabs";
@@ -191,6 +192,13 @@ export default async function HomePage(props: HomePageProps) {
   return (
     <main className="page-shell">
       <div className="space-y-6">
+        <StocksHomeDateToolbar
+          lang={lang}
+          date={date}
+          previousDate={previousDate}
+          nextDate={nextDate}
+        />
+
         <MarketStatusGrid
           lang={lang}
           latest={marketPulse.latest}
@@ -206,8 +214,6 @@ export default async function HomePage(props: HomePageProps) {
           date={date}
           readableDate={toReadableDate(date, lang)}
           rows={enhancedRows}
-          previousDate={previousDate}
-          nextDate={nextDate}
           overview={resolveLocalizedText(report.overview.brief, lang)}
           newsGroups={report.newsGroups.map((group) => ({
             ...group,

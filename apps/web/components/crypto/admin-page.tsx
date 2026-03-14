@@ -597,7 +597,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
     return (
       <div className={className}>
         {Array.from({ length: count }, (_, index) => (
-          <div key={`metric-skeleton-${count}-${index}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+          <div key={`metric-skeleton-${count}-${index}`} className="rounded-md border border-border/70 bg-background/45 p-4">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="mt-3 h-7 w-24" />
             <Skeleton className="mt-3 h-4 w-full" />
@@ -676,7 +676,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="rounded-md border border-border/70 bg-background/45 p-4">
                   <p className="text-xs text-muted-foreground">{copy.macroRegime}</p>
                   <p className="mt-2 text-lg font-semibold">
                     {props.lang === "zh" ? macroOverview.snapshot.regime.labelZh : macroOverview.snapshot.regime.labelEn}
@@ -685,7 +685,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
                     {props.lang === "zh" ? macroOverview.snapshot.regime.summaryZh : macroOverview.snapshot.regime.summaryEn}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="rounded-md border border-border/70 bg-background/45 p-4">
                   <p className="text-xs text-muted-foreground">{copy.macroAsOf}</p>
                   <p className="mt-2 text-sm font-medium">
                     {macroOverview.snapshot.asOf ? formatDateTime(macroOverview.snapshot.asOf, props.lang) : "-"}
@@ -695,7 +695,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
                     {macroOverview.snapshot.refreshedAt ? formatDateTime(macroOverview.snapshot.refreshedAt, props.lang) : "-"}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="rounded-md border border-border/70 bg-background/45 p-4">
                   <p className="text-xs text-muted-foreground">{humanizeMacroIndicator("fear_and_greed", null, props.lang)}</p>
                   <p className="mt-2 text-2xl font-semibold">{formatMacroMetricValue({
                     metricValue: macroOverview.snapshot.fearGreed.value,
@@ -706,7 +706,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
                     {macroOverview.snapshot.fearGreed.classification ? <Badge variant="secondary">{macroOverview.snapshot.fearGreed.classification}</Badge> : null}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <div className="rounded-md border border-border/70 bg-background/45 p-4">
                   <p className="text-xs text-muted-foreground">{humanizeMacroIndicator("btc_dominance", null, props.lang)}</p>
                   <p className="mt-2 text-2xl font-semibold">{formatMacroMetricValue({
                     metricValue: macroOverview.snapshot.btcDominance.value,
@@ -784,14 +784,14 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
             loading ? renderMetricSkeleton(8, "grid gap-3 md:grid-cols-4 xl:grid-cols-8") : renderEmptyState(copy.noData)
           ) : (
             <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.pending}</p><p className="mt-2 text-2xl font-semibold">{overview.pendingRawCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.processed}</p><p className="mt-2 text-2xl font-semibold">{overview.processedRawCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.rejected}</p><p className="mt-2 text-2xl font-semibold">{overview.rejectedRawCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.failed}</p><p className="mt-2 text-2xl font-semibold">{overview.failedRawCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.display}</p><p className="mt-2 text-2xl font-semibold">{overview.displayItemCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.hidden}</p><p className="mt-2 text-2xl font-semibold">{overview.hiddenItemCount}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.latestFetch}</p><p className="mt-2 text-sm font-medium">{overview.latestFetchedAt ? formatDateTime(overview.latestFetchedAt, props.lang) : "-"}</p></div>
-              <div className="rounded-2xl border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.latestPublish}</p><p className="mt-2 text-sm font-medium">{overview.latestPublishedAt ? formatDateTime(overview.latestPublishedAt, props.lang) : "-"}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.pending}</p><p className="mt-2 text-2xl font-semibold">{overview.pendingRawCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.processed}</p><p className="mt-2 text-2xl font-semibold">{overview.processedRawCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.rejected}</p><p className="mt-2 text-2xl font-semibold">{overview.rejectedRawCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.failed}</p><p className="mt-2 text-2xl font-semibold">{overview.failedRawCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.display}</p><p className="mt-2 text-2xl font-semibold">{overview.displayItemCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.hidden}</p><p className="mt-2 text-2xl font-semibold">{overview.hiddenItemCount}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.latestFetch}</p><p className="mt-2 text-sm font-medium">{overview.latestFetchedAt ? formatDateTime(overview.latestFetchedAt, props.lang) : "-"}</p></div>
+              <div className="rounded-md border border-border/70 bg-background/45 p-4"><p className="text-xs text-muted-foreground">{copy.latestPublish}</p><p className="mt-2 text-sm font-medium">{overview.latestPublishedAt ? formatDateTime(overview.latestPublishedAt, props.lang) : "-"}</p></div>
             </div>
           )}
         </CardContent>
@@ -895,7 +895,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
             </div>
           )}
 
-          <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+          <div className="rounded-md border border-border/70 bg-background/40 p-4">
             {!clusterDetail ? (
               <p className="text-sm text-muted-foreground">{copy.clusterEmptySelection}</p>
             ) : (
@@ -919,7 +919,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
 
                 <Separator />
 
-                <div className="rounded-2xl border border-border/70 bg-background/55 p-4">
+                <div className="rounded-md border border-border/70 bg-background/55 p-4">
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{copy.clusterVerificationTitle}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link
@@ -960,7 +960,7 @@ export default function CryptoAdminPage(props: CryptoAdminPageProps) {
 
                 <div className="grid gap-3 xl:grid-cols-2">
                   {clusterDetail.members.map((member) => (
-                    <article key={`cluster-member-${member.id}`} className="rounded-2xl border border-border/70 bg-background/55 p-4">
+                    <article key={`cluster-member-${member.id}`} className="rounded-md border border-border/70 bg-background/55 p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         {member.isRepresentative ? <Badge>{copy.clusterRepresentative}</Badge> : null}
                         <Badge variant="outline">{humanizeStance(member.stance, props.lang)}</Badge>

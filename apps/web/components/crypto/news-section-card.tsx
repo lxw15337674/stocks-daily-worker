@@ -71,7 +71,7 @@ export function NewsSectionCard(props: Props) {
             {items.map((item) => {
               const summary = lang === "zh" ? item.summaryZh : item.summaryEn;
               return (
-                <article key={`news-${item.id}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <article key={`news-${item.id}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <a

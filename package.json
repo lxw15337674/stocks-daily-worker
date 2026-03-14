@@ -15,7 +15,6 @@
     "db:sync:local": "bun scripts/sync-d1-to-local.ts",
     "db:sync:local:stocks": "bun scripts/sync-d1-to-local.ts stocks --yes",
     "db:sync:local:crypto": "bun scripts/sync-d1-to-local.ts crypto --yes",
-    "dev": "bun run dev:api & bun run dev:web",
     "dev:all": "bun run dev",
     "dev:api": "wrangler dev --config apps/api/wrangler.toml",
     "dev:web": "bun scripts/select-web-config.ts local && bun run --cwd apps/web dev",

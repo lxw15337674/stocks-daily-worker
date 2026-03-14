@@ -22,6 +22,7 @@ interface Env {
   ASSETS: Fetcher;
   MARKETS_API?: Fetcher;
   MARKETS_API_BASE_URL?: string;
+  APP_ENV?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -156,8 +157,18 @@ function resolveFallbackApiBaseUrl(env: Env): string {
   return (configured && configured.length > 0 ? configured : DEFAULT_API_BASE_URL).replace(/\/+$/, "");
 }
 
+function isLocalAppEnv(env: Env): boolean {
+  return env.APP_ENV?.trim().toLowerCase() === "local";
+}
+
 function shouldUseServiceBinding(requestUrl: URL, env: Env): boolean {
   if (!env.MARKETS_API) {
+    return false;
+  }
+
+  // Local vinext/miniflare dev can intermittently hang on service binding calls.
+  // Prefer direct HTTP proxy in local mode for stability.
+  if (isLocalAppEnv(env) || isLocalDevHost(requestUrl.hostname)) {
     return false;
   }
 
@@ -310,9 +321,11 @@ async function proxyApiRequest(
     ? isLocalDevHost(fallbackApiUrl.hostname)
       ? "binding-fallback-local-api"
       : "binding-fallback"
-    : isLocalDevHost(requestUrl.hostname)
-      ? "local-dev-remote-api"
-      : "no-binding";
+    : isLocalDevHost(fallbackApiUrl.hostname)
+      ? "no-binding-local-api"
+      : isLocalDevHost(requestUrl.hostname)
+        ? "local-dev-remote-api"
+        : "no-binding";
 
   try {
     const fallbackResponse = await fetch(createProxyRequest(fallbackApiUrl.toString(), requestForFallback, injectedAdminToken));

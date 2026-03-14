@@ -77,7 +77,7 @@ export default async function MarketPage(props: MarketPageProps) {
 
               <div className="flex flex-col items-end gap-3">
                 {latest?.updatedAt ? (
-                  <div className="rounded-2xl border border-border/70 bg-background/45 px-4 py-3 text-right">
+                  <div className="rounded-md border border-border/70 bg-background/45 px-4 py-3 text-right">
                     <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t("updatedAtLabel")}</p>
                     <p className="mt-2 text-sm font-medium text-foreground">{formatMarketTimestamp(latest.updatedAt, lang)}</p>
                   </div>
@@ -120,7 +120,7 @@ export default async function MarketPage(props: MarketPageProps) {
             <p className="meta">{t("summaryDescription")}</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form action={stocksMarketPath(lang)} method="get" className="flex flex-wrap items-end gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
+            <form action={stocksMarketPath(lang)} method="get" className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-background/30 p-3">
               <input type="hidden" name="range" value={initialRange} />
               <input type="hidden" name="indexKeys" value={selectedIndexKeys.join(",")} />
               <FieldGroup className="min-w-[220px] flex-1 gap-0">
@@ -141,7 +141,7 @@ export default async function MarketPage(props: MarketPageProps) {
               </Button>
             </form>
 
-            <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
+            <div className="rounded-md border border-border/70 bg-background/45 p-4">
               <p className="leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
             </div>
             {requestedSummaryDate && !summary ? (

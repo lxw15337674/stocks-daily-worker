@@ -209,7 +209,7 @@ export function ReportView(props: ReportViewProps) {
               {lang === "zh" ? macro.regime.summaryZh : macro.regime.summaryEn}
             </p>
             <div className="grid gap-3 xl:grid-cols-2">
-              <article className="rounded-2xl border border-border/70 bg-background/45 p-4">
+              <article className="rounded-md border border-border/70 bg-background/45 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{t("crypto.fearGreedLabel")}</p>
                   <Badge variant="outline">{renderMacroStatus(macro.fearGreed, t)}</Badge>
@@ -219,7 +219,7 @@ export function ReportView(props: ReportViewProps) {
                   {macro.fearGreed.classification ?? t("crypto.macroUnavailable")} · {t("crypto.previousDeltaLabel")}: {formatMacroChange(macro.fearGreed)}
                 </p>
               </article>
-              <article className="rounded-2xl border border-border/70 bg-background/45 p-4">
+              <article className="rounded-md border border-border/70 bg-background/45 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{t("crypto.btcDominanceLabel")}</p>
                   <Badge variant="outline">{renderMacroStatus(macro.btcDominance, t)}</Badge>
@@ -287,7 +287,7 @@ export function ReportView(props: ReportViewProps) {
           {focusItems.map((item) => {
             const coin = coinByCode.get(item.code);
             return (
-              <article key={`focus-${item.code}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+              <article key={`focus-${item.code}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-foreground">{getCoinName(coin, lang)}</p>
@@ -336,7 +336,7 @@ export function ReportView(props: ReportViewProps) {
                         <p className="text-sm text-muted-foreground">{intelligenceCopy.noItems}</p>
                       ) : (
                         items.map((item) => (
-                          <article key={`intel-${item.id}`} className="rounded-2xl border border-border/70 bg-background/75 p-4">
+                          <article key={`intel-${item.id}`} className="rounded-md border border-border/70 bg-background/75 p-4">
                             <div className="flex flex-wrap items-center gap-2">
                               <Badge variant="outline" className={resolveSentimentBadgeClass(item.sentiment)}>
                                 {renderIntelligenceHeading(lang, item.sentiment)}
@@ -395,7 +395,7 @@ export function ReportView(props: ReportViewProps) {
               {intelligence.movers.map((mover) => {
                 const anchors = groupTimelineAnchors(intelligence.chartAnchors, mover.assetCode);
                 return (
-                  <article key={`mover-${mover.assetCode}`} className="rounded-2xl border border-border/70 bg-background/50 p-4">
+                  <article key={`mover-${mover.assetCode}`} className="rounded-md border border-border/70 bg-background/50 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-base font-semibold text-foreground">{lang === "zh" ? mover.assetLabelZh : mover.assetLabelEn}</p>
@@ -407,7 +407,7 @@ export function ReportView(props: ReportViewProps) {
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <div className="mt-4 rounded-md border border-border/60 bg-background/70 p-4">
                       <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{intelligenceCopy.mainCause}</p>
                       {mover.primaryCause ? (
                         <>
@@ -482,7 +482,7 @@ export function ReportView(props: ReportViewProps) {
                 const coin = coinByCode.get(item.code);
                 const newsItems = props.coinNewsByCode[item.code] ?? [];
                 return (
-                  <article key={`focus-news-${item.code}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                  <article key={`focus-news-${item.code}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-foreground">{getCoinName(coin, lang)}</p>
@@ -544,7 +544,7 @@ export function ReportView(props: ReportViewProps) {
           ) : (
             <div className="grid gap-3 lg:grid-cols-3">
               {props.clusters.map((cluster) => (
-                <article key={`cluster-${cluster.clusterId}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <article key={`cluster-${cluster.clusterId}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{t("crypto.clusterImpact", { impact: cluster.marketImpact })}</Badge>
                     <Badge variant="secondary">{t("crypto.clusterSources", { count: cluster.sourceCount })}</Badge>

@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AssetAiSummary } from "@/components/platform/asset-ai-summary";
 import { HeroPanel } from "@/components/platform/hero-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { fetchHomeBriefs } from "@/lib/api";
 import { getLocalizedAssetRegistry } from "@/lib/assets";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
@@ -25,6 +27,14 @@ export default async function PlatformHomePage(props: {
   const t = getFixedT(lang, "common");
   const assets = getLocalizedAssetRegistry(lang);
 
+  // Fetch all asset summaries in a single aggregate API call
+  const briefs = await fetchHomeBriefs();
+  const getSummary = (key: string) => {
+    if (key === "stocks") return briefs?.stocks?.[lang] ?? null;
+    if (key === "crypto") return briefs?.crypto?.[lang] ?? null;
+    return null;
+  };
+
   return (
     <main className="page-shell space-y-6">
       <HeroPanel eyebrow={t("platformTitle")} title={t("assetHubTitle")} summary={t("assetHubSubtitle")} />
@@ -43,9 +53,12 @@ export default async function PlatformHomePage(props: {
             </CardHeader>
             <CardContent>
               {asset.enabled ? (
-                <Button asChild className="w-full">
-                  <Link href={assetHomePath(lang, asset.key)}>{t("openChannel")}</Link>
-                </Button>
+                <div className="space-y-4">
+                  <AssetAiSummary summary={getSummary(asset.key)} label={t("aiInsight")} />
+                  <Button asChild className="w-full">
+                    <Link href={assetHomePath(lang, asset.key)}>{t("openChannel")}</Link>
+                  </Button>
+                </div>
               ) : (
                 <Empty className="border border-dashed border-border/70 bg-background/20 py-6">
                   <EmptyHeader>

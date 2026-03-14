@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { pickBestCompareTarget } from "@/lib/compare-target";
 import { getChangeTextClass } from "@/lib/change-color";
 import type { Language } from "@/lib/i18n";
@@ -233,61 +234,65 @@ function RankGridCard(props: {
   const { lang, section, universeRows, t } = props;
 
   return (
-    <section className="rounded-2xl border border-border/80 bg-background/35 p-4">
-      <div className="flex items-start justify-between gap-3 border-b border-border/70 pb-3">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
-          <p className="text-xs leading-5 text-muted-foreground">{section.description}</p>
+    <Card size="sm" className="bg-background/35">
+      <CardHeader className="border-b border-border/70 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="text-sm font-semibold text-foreground">{section.title}</CardTitle>
+            <p className="text-xs leading-5 text-muted-foreground">{section.description}</p>
+          </div>
+          <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+            {t("movers.topCount", { count: section.rows.length })}
+          </span>
         </div>
-        <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-          {t("movers.topCount", { count: section.rows.length })}
-        </span>
-      </div>
+      </CardHeader>
 
-      {section.rows.length === 0 ? (
-        <div className="py-6 text-sm text-muted-foreground">{t("movers.noData")}</div>
-      ) : (
-        <ol className="divide-y divide-border/60">
-          {section.rows.map((row, index) => {
-            const href = buildRowHrefForLanguage(lang, row, universeRows, section.metric);
-            const compareTarget = pickComparisonCandidate(row, universeRows, section.metric);
-            const primaryMetricValue = getPrimaryMetricValue(row, section.metric);
+      <CardContent>
+        {section.rows.length === 0 ? (
+          <div className="py-6 text-sm text-muted-foreground">{t("movers.noData")}</div>
+        ) : (
+          <ol className="divide-y divide-border/60">
+            {section.rows.map((row, index) => {
+              const href = buildRowHrefForLanguage(lang, row, universeRows, section.metric);
+              const compareTarget = pickComparisonCandidate(row, universeRows, section.metric);
+              const primaryMetricValue = getPrimaryMetricValue(row, section.metric);
 
-            return (
-              <li key={`${section.title}-${row.symbol ?? row.company}-${index}`} className="py-3">
-                <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-start gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/60 text-xs font-semibold text-muted-foreground">
-                    {index + 1}
+              return (
+                <li key={`${section.title}-${row.symbol ?? row.company}-${index}`} className="py-3">
+                  <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-start gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/60 text-xs font-semibold text-muted-foreground">
+                      {index + 1}
+                    </div>
+
+                    <div className="min-w-0 space-y-1">
+                      <div className="truncate text-sm">{renderCompanyLink(row, href)}</div>
+                      <p className="truncate text-xs text-muted-foreground">{(row.symbol ?? row.code) || t("movers.unmappedCode")}</p>
+                      {section.metaType ? <p className="text-xs text-muted-foreground">{getMetaText(t, section.metaType, row)}</p> : null}
+                      {compareTarget?.symbol && href && row.detailUrl ? (
+                        <Link href={href} className="inline-flex text-xs font-medium text-primary hover:underline">
+                          {t("movers.compareWith", { company: compareTarget.company })}
+                        </Link>
+                      ) : null}
+                    </div>
+
+                    <div className="text-right">
+                      <p className={`text-sm font-semibold ${metricTextClass(lang, primaryMetricValue)}`}>
+                        {getPrimaryMetricText(row, section.metric)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {section.metric === "fiveDay"
+                          ? t("movers.currentDayMetric", { value: getSecondaryMetricText(row, section.metric) })
+                          : getSecondaryMetricText(row, section.metric)}
+                      </p>
+                    </div>
                   </div>
-
-                  <div className="min-w-0 space-y-1">
-                    <div className="truncate text-sm">{renderCompanyLink(row, href)}</div>
-                    <p className="truncate text-xs text-muted-foreground">{(row.symbol ?? row.code) || t("movers.unmappedCode")}</p>
-                    {section.metaType ? <p className="text-xs text-muted-foreground">{getMetaText(t, section.metaType, row)}</p> : null}
-                    {compareTarget?.symbol && href && row.detailUrl ? (
-                      <Link href={href} className="inline-flex text-xs font-medium text-primary hover:underline">
-                        {t("movers.compareWith", { company: compareTarget.company })}
-                      </Link>
-                    ) : null}
-                  </div>
-
-                  <div className="text-right">
-                    <p className={`text-sm font-semibold ${metricTextClass(lang, primaryMetricValue)}`}>
-                      {getPrimaryMetricText(row, section.metric)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {section.metric === "fiveDay"
-                        ? t("movers.currentDayMetric", { value: getSecondaryMetricText(row, section.metric) })
-                        : getSecondaryMetricText(row, section.metric)}
-                    </p>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </section>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -322,32 +327,40 @@ export function HomeMoversPanel(props: { lang: Language; rows: ParsedReportStock
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-border/80 bg-card/90 p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("movers.leaderboards")}</p>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">{t("movers.title")}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{t("movers.description")}</p>
+      <Card className="bg-card/90">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("movers.leaderboards")}</p>
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">{t("movers.title")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t("movers.description")}</p>
+              </div>
             </div>
-          </div>
 
-          <div className="grid gap-2 sm:grid-cols-3">
-            <div className="rounded-xl border border-border/70 bg-background/45 px-3 py-2">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.sampleStocks")}</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{props.rows.length}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/45 px-3 py-2">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.currentDayBoards")}</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{groups[0].sections.length}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/45 px-3 py-2">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.fiveDayBoards")}</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{groups[1].sections.length}</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Card size="sm" className="bg-background/45">
+                <CardContent className="px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.sampleStocks")}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{props.rows.length}</p>
+                </CardContent>
+              </Card>
+              <Card size="sm" className="bg-background/45">
+                <CardContent className="px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.currentDayBoards")}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{groups[0].sections.length}</p>
+                </CardContent>
+              </Card>
+              <Card size="sm" className="bg-background/45">
+                <CardContent className="px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.fiveDayBoards")}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{groups[1].sections.length}</p>
+                </CardContent>
+              </Card>
             </div>
           </div>
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {groups.map((group) => (
         <section key={group.title} className="space-y-3">

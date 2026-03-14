@@ -158,7 +158,7 @@ export async function CryptoEventPageContent(props: CryptoEventPageProps) {
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {detail.coverage.map((item) => (
-                <article key={`${detail.clusterId}-${item.id}`} className="rounded-2xl border border-border/70 bg-background/45 p-4">
+                <article key={`${detail.clusterId}-${item.id}`} className="rounded-md border border-border/70 bg-background/45 p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     {item.isRepresentative ? <Badge>{t("crypto.eventRepresentativeLabel")}</Badge> : null}
                     <Badge variant="outline">{renderStance(item.stance, t)}</Badge>

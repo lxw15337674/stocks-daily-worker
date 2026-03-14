@@ -3,21 +3,19 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Bitcoin, Check, ChevronDown, Languages, TrendingUp } from "lucide-react";
+import { Bitcoin, Check, ChevronDown, Home, Languages, Menu, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from "@/components/ui/navigation-menu";
-import { ASSET_REGISTRY, getAssetDescriptor, getLocalizedAssetRegistry, type AssetKey } from "@/lib/assets";
+import { getAssetDescriptor, getLocalizedAssetRegistry, type AssetKey } from "@/lib/assets";
 import { MARKET_LANG_COOKIE, SUPPORTED_LANGUAGES, resolveLanguage, type Language } from "@/lib/i18n";
 import { resolveAsset, resolveNavItems, type SiteHeaderNavItem } from "@/lib/site-header-core";
 import { cn } from "@/lib/utils";
 import {
   assetHomePath,
-  platformHomePath,
   switchLanguagePath
 } from "@/lib/platform-routes";
 
@@ -89,129 +87,162 @@ export function SiteHeader(props: SiteHeaderProps) {
   }, [currentLang]);
 
   return (
-    <div className="site-header-shell">
-      <div className="site-header-inner">
-        <div className="site-header">
-          <div className="site-header-head">
-            <div className="site-header-leading">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className={cn("channel-switcher-trigger", currentChannelAccent.trigger)}>
-                    <span className={cn("flex size-8 items-center justify-center rounded-lg border", currentChannelAccent.iconShell)}>
-                      <CurrentChannelIcon />
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/80 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+      <div className="layout-container flex flex-col gap-2 py-2.5 md:flex-row md:flex-nowrap md:items-center md:justify-between">
+        <div className="min-w-0 md:max-w-sm md:shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-md border-border/70 bg-background/45 px-2.5 text-sm font-medium text-foreground transition hover:bg-muted/55",
+                  currentChannelAccent.trigger
+                )}
+              >
+                <CurrentChannelIcon className="h-3.5 w-3.5" />
+                <span className="flex items-center gap-1.5 truncate">
+                  <span className="text-muted-foreground/70 font-normal">
+                    {currentLang === "zh" ? "频道" : "Channel"}:
+                  </span>
+                  <span className="font-semibold">
+                    {currentChannel?.label ?? t("platformHome")}
+                  </span>
+                </span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              sideOffset={10}
+              collisionPadding={12}
+              className="min-w-[16rem] rounded-xl border border-border/90 bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+            >
+              <DropdownMenuLabel>{t("channelSwitcherLabel")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup className="space-y-1">
+                <DropdownMenuItem
+                  asChild
+                  className={cn(
+                    "w-full cursor-pointer rounded-lg px-2 py-2",
+                    !currentChannel && "bg-accent/10 text-foreground"
+                  )}
+                >
+                  <Link href={`/${currentLang}`} className="flex items-center gap-2.5">
+                    <span className="flex size-7 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                      <Home className="h-3.5 w-3.5" />
                     </span>
-                    <span className="channel-switcher-copy">
-                      <span className="channel-switcher-label">{t("channelSwitcherLabel")}</span>
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="channel-switcher-value">{currentChannel?.label ?? t("platformHome")}</span>
-                        {showCurrentChannelBadge ? (
-                          <Badge variant="secondary" className="channel-switcher-badge">
-                            {currentChannelBadge}
-                          </Badge>
-                        ) : null}
-                      </span>
-                    </span>
-                    <ChevronDown data-icon="inline-end" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" sideOffset={10} collisionPadding={12} className="channel-switcher-menu">
-                  <DropdownMenuLabel>{t("channelSwitcherLabel")}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup className="channel-switcher-menu-group">
-                    {localizedAssets.map((asset) => {
-                      const AssetIcon = resolveChannelIcon(asset.key);
-                      const accent = resolveChannelAccent(asset.key);
-                      const showAssetBadge = asset.shortLabel.trim().toLocaleLowerCase() !== asset.label.trim().toLocaleLowerCase();
-                      return (
-                        <DropdownMenuItem
-                          key={asset.key}
-                          asChild
-                          className={cn(
-                            "channel-switcher-menu-item",
-                            asset.key === currentAsset && cn(accent.itemActive, "text-foreground")
-                          )}
-                        >
-                          <Link href={assetHomePath(currentLang, asset.key)}>
-                            <span className={cn("flex size-9 items-center justify-center rounded-lg border", accent.iconShell)}>
-                              <AssetIcon />
-                            </span>
-                            <span className="flex min-w-0 flex-1 flex-col gap-1">
-                              <span className="flex min-w-0 items-center gap-2">
-                                <span className="truncate font-medium text-foreground">{asset.label}</span>
-                                {showAssetBadge ? (
-                                  <Badge variant="outline" className="channel-menu-badge">
-                                    {asset.shortLabel}
-                                  </Badge>
-                                ) : null}
-                              </span>
-                              <span className="line-clamp-2 text-xs text-muted-foreground">{asset.description}</span>
-                            </span>
-                            {asset.key === currentAsset ? <Check data-icon="inline-end" /> : null}
-                          </Link>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <span className="text-sm font-medium">{t("platformHome")}</span>
+                    {!currentChannel ? <Check className="ml-auto h-4 w-4" /> : null}
+                  </Link>
+                </DropdownMenuItem>
 
-            </div>
-          </div>
+                {localizedAssets.map((asset) => {
+                  const AssetIcon = resolveChannelIcon(asset.key);
+                  const accent = resolveChannelAccent(asset.key);
+                  const active = asset.key === currentAsset;
 
-          <div className="site-header-controls">
-            <NavigationMenu viewport={false} className="site-header-actions-menu !flex-none !w-auto">
-              <NavigationMenuList className="site-header-actions !flex-none !w-auto !justify-end">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
                   return (
-                    <NavigationMenuItem key={item.href}>
-                      <NavigationMenuLink asChild className={item.active ? "site-nav-link is-active" : "site-nav-link"}>
-                        <Link href={item.href}>
-                          <Icon className="h-3.5 w-3.5" />
-                          {item.label}
-                        </Link>
-                      </NavigationMenuLink>
-                    </NavigationMenuItem>
+                    <DropdownMenuItem
+                      key={asset.key}
+                      asChild
+                      className={cn(
+                        "w-full cursor-pointer rounded-lg px-2 py-2",
+                        active && cn(accent.itemActive, "bg-accent/10 text-foreground")
+                      )}
+                    >
+                      <Link href={assetHomePath(currentLang, asset.key)} className="flex items-center gap-2.5">
+                        <span className={cn("flex size-7 items-center justify-center rounded-md border", accent.iconShell)}>
+                          <AssetIcon className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium">{asset.label}</span>
+                        </div>
+                        {active ? <Check className="ml-auto h-4 w-4" /> : null}
+                      </Link>
+                    </DropdownMenuItem>
                   );
                 })}
-                <NavigationMenuItem>
-                  <ThemeToggle lang={currentLang} />
-                </NavigationMenuItem>
-                <NavigationMenuItem>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="site-language-trigger">
-                        <Languages className="h-3.5 w-3.5" />
-                        {getLanguageLabel(currentLang)}
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      sideOffset={10}
-                      collisionPadding={12}
-                      className="site-language-menu"
-                    >
-                      <DropdownMenuLabel>Language</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        {languageOptions.map((item) => (
-                          <DropdownMenuItem key={item.language} asChild className="site-language-menu-item w-full">
-                            <Link href={item.href}>
-                              <span className="font-medium text-foreground">{item.label}</span>
-                              {item.language === currentLang ? <Check className="ml-auto h-4 w-4" /> : null}
-                            </Link>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </NavigationMenuItem>
-              </NavigationMenuList>
-            </NavigationMenu>
-          </div>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <div className="flex min-w-0 flex-1 justify-end">
+          <nav className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 md:flex-nowrap">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border-border/70 bg-background/45 px-2.5 text-sm font-medium text-foreground transition hover:bg-muted/55"
+                >
+                  <Menu className="h-3.5 w-3.5" />
+                  {currentLang === "zh" ? "导航" : "Menu"}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={10}
+                collisionPadding={12}
+                className="min-w-[12rem] rounded-xl border border-border/90 bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+              >
+                <DropdownMenuLabel>{currentLang === "zh" ? "网站导航" : "Navigation"}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <DropdownMenuItem key={item.href} asChild className="w-full rounded-lg px-2 py-2">
+                        <Link href={item.href} className={cn("flex items-center gap-2", item.active && "bg-accent/10 text-foreground")}>
+                          <Icon className="h-4 w-4" />
+                          <span className="font-medium">{item.label}</span>
+                          {item.active ? <Check className="ml-auto h-4 w-4" /> : null}
+                        </Link>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <ThemeToggle lang={currentLang} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border-border/70 bg-background/45 px-2.5 text-sm font-medium text-foreground transition hover:bg-muted/55"
+                >
+                  <Languages className="h-3.5 w-3.5" />
+                  {getLanguageLabel(currentLang)}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={10}
+                collisionPadding={12}
+                className="min-w-[12rem] rounded-xl border border-border/90 bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+              >
+                <DropdownMenuLabel>Language</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  {languageOptions.map((item) => (
+                    <DropdownMenuItem key={item.language} asChild className="w-full rounded-lg px-2 py-2">
+                      <Link href={item.href}>
+                        <span className="font-medium text-foreground">{item.label}</span>
+                        {item.language === currentLang ? <Check className="ml-auto h-4 w-4" /> : null}
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </nav>
         </div>
       </div>
-    </div>
+    </header>
   );
 }

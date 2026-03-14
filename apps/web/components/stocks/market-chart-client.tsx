@@ -187,7 +187,7 @@ export function MarketChartClient(props: MarketChartClientProps) {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="h-[360px] rounded-2xl border border-border/70 bg-background/40 p-3">
+        <div className="h-[360px] rounded-md border border-border/70 bg-background/40 p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 12, right: 18, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="hsl(var(--border) / 0.7)" vertical={false} />
