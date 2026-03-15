@@ -127,7 +127,7 @@ export async function fetchLatestMarketSnapshot(definition: TrackedMarketIndex):
 
     const payload = (await response.json()) as YahooChartPayload;
     const result = payload.chart?.result?.[0];
-    const points = extractValidPoints(result);
+    const points = dedupeDailyPoints(extractValidPoints(result));
     if (points.length < 2) {
       return null;
     }
@@ -174,16 +174,19 @@ export async function fetchMarketIndexHistorySeries(
 
     const payload = (await response.json()) as YahooChartPayload;
     const result = payload.chart?.result?.[0];
-    const points = extractValidPoints(result);
+    const points = dedupeDailyPoints(extractValidPoints(result));
     if (points.length < 2) {
       return null;
     }
 
-    const historyPoints: MarketIndexHistoryPoint[] = points.map((point, index) => ({
-      tradingDate: toIsoDate(point.timestamp),
-      close: point.close,
-      changePct: index === 0 || points[index - 1].close === 0 ? 0 : ((point.close - points[index - 1].close) / points[index - 1].close) * 100
-    }));
+    const historyPoints: MarketIndexHistoryPoint[] = points.map((point, index) => {
+      const previous = points[index - 1];
+      return {
+        tradingDate: toIsoDate(point.timestamp),
+        close: point.close,
+        changePct: index === 0 || !previous || previous.close === 0 ? 0 : ((point.close - previous.close) / previous.close) * 100
+      };
+    });
 
     return {
       indexKey: definition.indexKey,
@@ -191,7 +194,7 @@ export async function fetchMarketIndexHistorySeries(
       region: definition.region,
       nameZh: definition.nameZh,
       nameEn: definition.nameEn,
-      points: dedupeHistoryPoints(historyPoints)
+      points: historyPoints
     };
   } catch {
     return null;
@@ -256,13 +259,19 @@ function extractValidPoints(
   return out;
 }
 
-function dedupeHistoryPoints(points: MarketIndexHistoryPoint[]): MarketIndexHistoryPoint[] {
-  const latestByDate = new Map<string, MarketIndexHistoryPoint>();
+function dedupeDailyPoints(points: Array<{ timestamp: number; close: number }>): Array<{ timestamp: number; close: number }> {
+  const latestByDate = new Map<string, { timestamp: number; close: number }>();
   for (const point of points) {
-    latestByDate.set(point.tradingDate, point);
+    const tradingDate = toIsoDate(point.timestamp);
+    const existing = latestByDate.get(tradingDate);
+    if (!existing || point.timestamp > existing.timestamp) {
+      latestByDate.set(tradingDate, point);
+    }
   }
 
-  return [...latestByDate.values()].sort((left, right) => left.tradingDate.localeCompare(right.tradingDate));
+  return [...latestByDate.entries()]
+    .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+    .map(([, point]) => point);
 }
 
 function guessCurrency(region: MarketRegion): string {
