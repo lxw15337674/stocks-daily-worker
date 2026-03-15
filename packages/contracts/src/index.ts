@@ -143,6 +143,13 @@ export type MarketIndexLiveItem = {
   previousClose: number | null;
   changeAbs: number | null;
   changePct: number | null;
+  dayOpen: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  dayVolume: number | null;
+  dayRangePct: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
   currency: string | null;
   quoteTimestamp: string | null;
   isPrimary: boolean;
@@ -189,6 +196,13 @@ export type MarketIndexSnapshot = {
   previousClose: number;
   changeAbs: number;
   changePct: number;
+  dayOpen: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  dayVolume: number | null;
+  dayRangePct: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
   currency: string;
   quoteTimestamp: string;
   isPrimary: boolean;

@@ -278,6 +278,19 @@ type StocksNamespace = {
     unavailable: string;
     priceLabel: string;
     moveLabel: string;
+    ohlLabel: string;
+    metricsLabel: string;
+    volumeLabel: string;
+    rangeLabel: string;
+    openLabel: string;
+    highLabel: string;
+    lowLabel: string;
+    prevCloseLabel: string;
+    week52HighLabel: string;
+    week52LowLabel: string;
+    openShort: string;
+    highShort: string;
+    lowShort: string;
     updatedAtLabel: string;
     regionCn: string;
     regionHk: string;
@@ -764,6 +777,19 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       unavailable: "暂无",
       priceLabel: "点位",
       moveLabel: "涨跌幅",
+      ohlLabel: "开/高/低",
+      metricsLabel: "交易指标",
+      volumeLabel: "成交量",
+      rangeLabel: "日振幅",
+      openLabel: "今开",
+      highLabel: "最高",
+      lowLabel: "最低",
+      prevCloseLabel: "昨收",
+      week52HighLabel: "52周最高",
+      week52LowLabel: "52周最低",
+      openShort: "开",
+      highShort: "高",
+      lowShort: "低",
       updatedAtLabel: "更新时间",
       regionCn: "A股",
       regionHk: "港股",
@@ -1122,6 +1148,19 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       unavailable: "Unavailable",
       priceLabel: "Level",
       moveLabel: "Move",
+      ohlLabel: "O/H/L",
+      metricsLabel: "Metrics",
+      volumeLabel: "Volume",
+      rangeLabel: "Range",
+      openLabel: "Open",
+      highLabel: "High",
+      lowLabel: "Low",
+      prevCloseLabel: "Prev Close",
+      week52HighLabel: "52W High",
+      week52LowLabel: "52W Low",
+      openShort: "O",
+      highShort: "H",
+      lowShort: "L",
       updatedAtLabel: "Updated",
       regionCn: "China",
       regionHk: "Hong Kong",

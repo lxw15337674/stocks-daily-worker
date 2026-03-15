@@ -33,6 +33,82 @@ export function formatMarketMove(value: number | null): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+export function formatMarketRangePct(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${value.toFixed(2)}%`;
+}
+
+export function formatMarketVolume(value: number | null, lang: Language): string {
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+
+  try {
+    return new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en-US", {
+      notation: "compact",
+      maximumFractionDigits: 2
+    }).format(value);
+  } catch {
+    if (value >= 1_000_000_000) {
+      return `${(value / 1_000_000_000).toFixed(2)}B`;
+    }
+    if (value >= 1_000_000) {
+      return `${(value / 1_000_000).toFixed(2)}M`;
+    }
+    if (value >= 1_000) {
+      return `${(value / 1_000).toFixed(2)}K`;
+    }
+    return value.toFixed(0);
+  }
+}
+
+export function formatMarketMetricValue(value: number | null, lang: Language): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+export function formatMarketOhl(
+  open: number | null,
+  high: number | null,
+  low: number | null,
+  lang: Language
+): { open: string; high: string; low: string } {
+  return {
+    open: formatMarketMetricValue(open, lang),
+    high: formatMarketMetricValue(high, lang),
+    low: formatMarketMetricValue(low, lang)
+  };
+}
+
+export function formatMarketTradingMetrics(
+  item: Pick<MarketIndexLiveItem, "dayOpen" | "dayHigh" | "dayLow" | "previousClose" | "fiftyTwoWeekHigh" | "fiftyTwoWeekLow">,
+  lang: Language
+): {
+  open: string;
+  high: string;
+  low: string;
+  previousClose: string;
+  fiftyTwoWeekHigh: string;
+  fiftyTwoWeekLow: string;
+} {
+  return {
+    open: formatMarketMetricValue(item.dayOpen, lang),
+    high: formatMarketMetricValue(item.dayHigh, lang),
+    low: formatMarketMetricValue(item.dayLow, lang),
+    previousClose: formatMarketMetricValue(item.previousClose, lang),
+    fiftyTwoWeekHigh: formatMarketMetricValue(item.fiftyTwoWeekHigh, lang),
+    fiftyTwoWeekLow: formatMarketMetricValue(item.fiftyTwoWeekLow, lang)
+  };
+}
+
 export function formatMarketTimestamp(value: string | null, lang: Language): string {
   if (!value) {
     return "-";

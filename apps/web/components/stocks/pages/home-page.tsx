@@ -207,6 +207,7 @@ export default async function HomePage(props: HomePageProps) {
           description={stocksT("marketPulseDescription")}
           actionHref={stocksMarketPath(lang)}
           actionLabel={stocksT("marketPulseAction")}
+          compact
         />
 
         <HomeContentTabs

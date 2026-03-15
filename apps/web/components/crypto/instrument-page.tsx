@@ -189,15 +189,15 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
                   </p>
                   <div className="mt-4 grid gap-2 sm:grid-cols-3">
                     <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionSameDayLabel")}</p>
+                      <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionSameDayLabel")}</p>
                       <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.event.change24hPct)}</p>
                     </div>
                     <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionNextLabel")}</p>
+                      <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionNextLabel")}</p>
                       <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.next.returnPct)}</p>
                     </div>
                     <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionDay3Label")}</p>
+                      <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionDay3Label")}</p>
                       <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.day3.returnPct)}</p>
                     </div>
                   </div>
@@ -236,15 +236,15 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
                     <p className="mt-2 text-xs text-muted-foreground">{item.representative.source} · {formatDateTime(item.representative.publishedAt, lang)}</p>
                     <div className="mt-4 grid gap-2 sm:grid-cols-3">
                       <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionSameDayLabel")}</p>
+                        <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionSameDayLabel")}</p>
                         <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.event.change24hPct)}</p>
                       </div>
                       <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionNextLabel")}</p>
+                        <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionNextLabel")}</p>
                         <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.next.returnPct)}</p>
                       </div>
                       <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionDay3Label")}</p>
+                        <p className=" uppercase tracking-[0.16em] text-muted-foreground">{t("crypto.eventReactionDay3Label")}</p>
                         <p className="mt-2 text-sm font-semibold">{formatOptionalSignedPercent(item.reaction.day3.returnPct)}</p>
                       </div>
                     </div>

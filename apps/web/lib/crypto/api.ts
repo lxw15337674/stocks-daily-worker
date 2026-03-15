@@ -3,7 +3,8 @@ import "server-only";
 import { headers } from "next/headers";
 import { resolveServerApiTarget } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
-import { SSR_API_BASE_URL } from "@/lib/runtime-config";
+import { APP_ENV, SSR_API_BASE_URL } from "@/lib/runtime-config";
+import { safeFetchJson } from "@/lib/server-fetch";
 
 import type {
   CoinDetail,
@@ -23,13 +24,28 @@ import type { IntelligenceWallResponse } from "@china-stocks/contracts";
 function joinApiUrl(target: ApiTarget, path: string): string {
   return `${target.baseUrl}${target.pathPrefix}${path}`;
 }
+const IS_LOCAL_RUNTIME = String(APP_ENV).toLowerCase() === "local";
 
-async function resolveApiTarget(): Promise<ApiTarget> {
-  const requestHeaders = await headers();
+async function resolveApiTarget(includeCookies = false): Promise<ApiTarget> {
+  let requestHeaders: Pick<Headers, "get"> = {
+    get(): string | null {
+      return null;
+    }
+  };
+
+  if (IS_LOCAL_RUNTIME || includeCookies) {
+    try {
+      requestHeaders = await headers();
+    } catch (error) {
+      console.warn("[web][crypto-api] headers() unavailable; request-context forwarding disabled", error);
+    }
+  }
+
   return resolveServerApiTarget({
     defaultBaseUrl: SSR_API_BASE_URL,
     defaultPathPrefix: "/api/v1/crypto",
-    headers: requestHeaders
+    headers: requestHeaders,
+    preferSameOriginInLocal: IS_LOCAL_RUNTIME
   });
 }
 
@@ -47,20 +63,16 @@ function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookie
 }
 
 async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
-  const target = await resolveApiTarget();
-  const response = await fetch(joinApiUrl(target, path), {
+  const target = await resolveApiTarget(Boolean(options.includeCookies));
+  return safeFetchJson<T>(joinApiUrl(target, path), {
     method: "GET",
     next: options.revalidate ? { revalidate: options.revalidate } : undefined,
     cache: options.revalidate ? undefined : "no-store",
     headers: buildApiRequestHeaders(target, "application/json", options.includeCookies)
+  }, {
+    logPrefix: "[web][crypto-api]",
+    pathForLog: path
   });
-
-  if (!response.ok) {
-    console.error(`[web][crypto-api] ${path} -> ${response.status}`);
-    return null;
-  }
-
-  return (await response.json()) as T;
 }
 
 export async function fetchCoins(): Promise<CoinItem[]> {

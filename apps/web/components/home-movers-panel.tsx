@@ -241,7 +241,7 @@ function RankGridCard(props: {
             <CardTitle className="text-sm font-semibold text-foreground">{section.title}</CardTitle>
             <p className="text-xs leading-5 text-muted-foreground">{section.description}</p>
           </div>
-          <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5  text-muted-foreground">
             {t("movers.topCount", { count: section.rows.length })}
           </span>
         </div>
@@ -341,19 +341,19 @@ export function HomeMoversPanel(props: { lang: Language; rows: ParsedReportStock
             <div className="grid gap-2 sm:grid-cols-3">
               <Card size="sm" className="bg-background/45">
                 <CardContent className="px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.sampleStocks")}</p>
+                  <p className=" uppercase tracking-wide text-muted-foreground">{t("movers.sampleStocks")}</p>
                   <p className="mt-1 text-lg font-semibold text-foreground">{props.rows.length}</p>
                 </CardContent>
               </Card>
               <Card size="sm" className="bg-background/45">
                 <CardContent className="px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.currentDayBoards")}</p>
+                  <p className=" uppercase tracking-wide text-muted-foreground">{t("movers.currentDayBoards")}</p>
                   <p className="mt-1 text-lg font-semibold text-foreground">{groups[0].sections.length}</p>
                 </CardContent>
               </Card>
               <Card size="sm" className="bg-background/45">
                 <CardContent className="px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t("movers.fiveDayBoards")}</p>
+                  <p className=" uppercase tracking-wide text-muted-foreground">{t("movers.fiveDayBoards")}</p>
                   <p className="mt-1 text-lg font-semibold text-foreground">{groups[1].sections.length}</p>
                 </CardContent>
               </Card>

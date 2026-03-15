@@ -43,6 +43,8 @@ const DEFAULT_API_BASE_URL = "https://china-stocks-daily-worker.404174262.worker
 const ADMIN_SESSION_API_PATH = "/api/admin/session";
 const ADMIN_SESSION_COOKIE = "stocks-admin-session";
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+const PROXY_UPSTREAM_TIMEOUT_MS = 20_000;
+const APP_HANDLER_TIMEOUT_MS = 30_000;
 const API_UPSTREAM_HEADER = "x-api-upstream";
 const API_UPSTREAM_RAY_HEADER = "x-api-upstream-cf-ray";
 const API_UPSTREAM_NOTE_HEADER = "x-api-upstream-note";
@@ -58,6 +60,13 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade"
 ]);
+
+class ResponseTimeoutError extends Error {
+  constructor(readonly label: string, readonly timeoutMs: number) {
+    super(`${label} timed out after ${timeoutMs}ms.`);
+    this.name = "ResponseTimeoutError";
+  }
+}
 
 function isLocalDevHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
@@ -161,18 +170,14 @@ function isLocalAppEnv(env: Env): boolean {
   return env.APP_ENV?.trim().toLowerCase() === "local";
 }
 
-function shouldUseServiceBinding(requestUrl: URL, env: Env): boolean {
-  if (!env.MARKETS_API) {
-    return false;
-  }
+function applyNoStoreCacheHeaders(headers: Headers): void {
+  headers.set("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("pragma", "no-cache");
+  headers.set("expires", "0");
+}
 
-  // Local vinext/miniflare dev can intermittently hang on service binding calls.
-  // Prefer direct HTTP proxy in local mode for stability.
-  if (isLocalAppEnv(env) || isLocalDevHost(requestUrl.hostname)) {
-    return false;
-  }
-
-  return true;
+function shouldUseServiceBinding(env: Env): boolean {
+  return Boolean(env.MARKETS_API);
 }
 
 async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
@@ -184,9 +189,18 @@ async function shouldFallbackToPublicApi(response: Response): Promise<boolean> {
   return response.status === 502 || response.status === 503 || response.status === 504 || body.includes("local dev session");
 }
 
-function withApiProxyHeaders(response: Response, source: ApiUpstreamSource, note?: string, sessionCookie?: string): Response {
+function withApiProxyHeaders(
+  response: Response,
+  source: ApiUpstreamSource,
+  note?: string,
+  sessionCookie?: string,
+  disableCache = false
+): Response {
   const headers = new Headers(response.headers);
   headers.set(API_UPSTREAM_HEADER, source);
+  if (disableCache) {
+    applyNoStoreCacheHeaders(headers);
+  }
 
   const upstreamCfRay = response.headers.get("cf-ray");
   if (upstreamCfRay) {
@@ -253,19 +267,43 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function createApiProxyErrorResponse(source: ApiProxyErrorSource, message: string, note?: string): Response {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new ResponseTimeoutError(label, timeoutMs)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function createApiProxyErrorResponse(
+  source: ApiProxyErrorSource,
+  message: string,
+  note?: string,
+  disableCache = false,
+  status = 502
+): Response {
   const headers = new Headers({
     "content-type": "text/plain; charset=utf-8",
     [API_UPSTREAM_HEADER]: source
   });
+  if (disableCache) {
+    applyNoStoreCacheHeaders(headers);
+  }
 
   if (note) {
     headers.set(API_UPSTREAM_NOTE_HEADER, note);
   }
 
   return new Response(message, {
-    status: 502,
-    statusText: "Bad Gateway",
+    status,
+    statusText: status === 504 ? "Gateway Timeout" : "Bad Gateway",
     headers
   });
 }
@@ -283,10 +321,11 @@ async function proxyApiRequest(
 
   const serviceBinding = env.MARKETS_API;
   const upstreamUrl = new URL(`https://markets-api.internal${target.upstreamPath}${requestUrl.search}`);
-  const useServiceBinding = shouldUseServiceBinding(requestUrl, env);
+  const useServiceBinding = shouldUseServiceBinding(env);
   const explicitAdminToken = request.headers.get("x-admin-token");
   const sessionAdminToken = getAdminSessionToken(request);
   const injectedAdminToken = explicitAdminToken ?? options?.overrideAdminToken ?? sessionAdminToken ?? undefined;
+  const disableCache = isLocalAppEnv(env) || isLocalDevHost(requestUrl.hostname);
   const shouldClearSessionOnUnauthorized = !explicitAdminToken && !!sessionAdminToken;
   const sessionCookieToClear = shouldClearSessionOnUnauthorized ? buildAdminSessionCookie(requestUrl, null) : undefined;
   const requestForServiceBinding = useServiceBinding && serviceBinding ? request.clone() : null;
@@ -294,15 +333,20 @@ async function proxyApiRequest(
 
   if (useServiceBinding && serviceBinding && requestForServiceBinding) {
     try {
-      const proxied = await serviceBinding.fetch(
-        createProxyRequest(upstreamUrl.toString(), requestForServiceBinding, injectedAdminToken)
+      const proxied = await withTimeout(
+        serviceBinding.fetch(
+          createProxyRequest(upstreamUrl.toString(), requestForServiceBinding, injectedAdminToken)
+        ),
+        PROXY_UPSTREAM_TIMEOUT_MS,
+        `service-binding ${requestUrl.pathname}`
       );
       if (!(await shouldFallbackToPublicApi(proxied))) {
         const tagged = withApiProxyHeaders(
           proxied,
           "service-binding",
           undefined,
-          proxied.status === 401 ? sessionCookieToClear : undefined
+          proxied.status === 401 ? sessionCookieToClear : undefined,
+          disableCache
         );
         console.log(`[API_PROXY] ${requestUrl.pathname} -> service-binding (${tagged.status})`);
         return tagged;
@@ -328,19 +372,30 @@ async function proxyApiRequest(
         : "no-binding";
 
   try {
-    const fallbackResponse = await fetch(createProxyRequest(fallbackApiUrl.toString(), requestForFallback, injectedAdminToken));
+    const fallbackResponse = await withTimeout(
+      fetch(createProxyRequest(fallbackApiUrl.toString(), requestForFallback, injectedAdminToken)),
+      PROXY_UPSTREAM_TIMEOUT_MS,
+      `fallback-public-api ${requestUrl.pathname}`
+    );
     const tagged = withApiProxyHeaders(
       fallbackResponse,
       "fallback-public-api",
       note,
-      fallbackResponse.status === 401 ? sessionCookieToClear : undefined
+      fallbackResponse.status === 401 ? sessionCookieToClear : undefined,
+      disableCache
     );
     console.log(`[API_PROXY] ${requestUrl.pathname} -> fallback-public-api (${tagged.status}, ${note})`);
     return tagged;
   } catch (error) {
     const message = `API proxy request failed for ${requestUrl.pathname}: ${toErrorMessage(error)}`;
     console.error(`[API_PROXY] ${requestUrl.pathname} fallback-public-api error (${note}): ${toErrorMessage(error)}`);
-    return createApiProxyErrorResponse("fallback-public-api-error", message, note);
+    return createApiProxyErrorResponse(
+      "fallback-public-api-error",
+      message,
+      note,
+      disableCache,
+      error instanceof ResponseTimeoutError ? 504 : 502
+    );
   }
 }
 
@@ -449,30 +504,61 @@ async function handleAdminSessionRequest(request: Request, requestUrl: URL, env:
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    try {
+      if (url.pathname === ADMIN_SESSION_API_PATH) {
+        return await withTimeout(
+          handleAdminSessionRequest(request, url, env),
+          PROXY_UPSTREAM_TIMEOUT_MS,
+          `admin-session ${url.pathname}`
+        );
+      }
 
-    if (url.pathname === ADMIN_SESSION_API_PATH) {
-      return handleAdminSessionRequest(request, url, env);
+      if (resolveApiTarget(url.pathname)) {
+        return await withTimeout(proxyApiRequest(request, url, env), PROXY_UPSTREAM_TIMEOUT_MS, `api-proxy ${url.pathname}`);
+      }
+
+      if (url.pathname === "/_vinext/image") {
+        const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
+        return await withTimeout(
+          handleImageOptimization(
+            request,
+            {
+              fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
+              transformImage: async (body, { width, format, quality }) => {
+                const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+                return result.response();
+              }
+            },
+            allowedWidths
+          ),
+          APP_HANDLER_TIMEOUT_MS,
+          "image-optimization"
+        );
+      }
+
+      return await withTimeout(handler.fetch(request), APP_HANDLER_TIMEOUT_MS, `app-handler ${url.pathname}`);
+    } catch (error) {
+      const headers = new Headers({ "content-type": "text/plain; charset=utf-8" });
+      if (isLocalAppEnv(env) || isLocalDevHost(url.hostname)) {
+        applyNoStoreCacheHeaders(headers);
+      }
+
+      if (error instanceof ResponseTimeoutError) {
+        console.error(`[WORKER_TIMEOUT] ${url.pathname}: ${error.message}`);
+        return new Response(`Worker timeout: ${error.message}`, {
+          status: 504,
+          statusText: "Gateway Timeout",
+          headers
+        });
+      }
+
+      const message = toErrorMessage(error);
+      console.error(`[WORKER_ERROR] ${url.pathname}: ${message}`);
+      return new Response(`Worker request failed: ${message}`, {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers
+      });
     }
-
-    if (resolveApiTarget(url.pathname)) {
-      return proxyApiRequest(request, url, env);
-    }
-
-    if (url.pathname === "/_vinext/image") {
-      const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(
-        request,
-        {
-          fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
-          transformImage: async (body, { width, format, quality }) => {
-            const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
-            return result.response();
-          }
-        },
-        allowedWidths
-      );
-    }
-
-    return handler.fetch(request);
   }
 };

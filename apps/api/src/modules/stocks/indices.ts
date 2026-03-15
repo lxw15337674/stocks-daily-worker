@@ -295,6 +295,13 @@ async function getLatestPersistedSummaryRecord(dbBinding: D1Database): Promise<M
         previousClose: row.previousClose,
         changeAbs: row.changeAbs,
         changePct: row.changePct,
+        dayOpen: null,
+        dayHigh: null,
+        dayLow: null,
+        dayVolume: null,
+        dayRangePct: null,
+        fiftyTwoWeekHigh: null,
+        fiftyTwoWeekLow: null,
         currency: row.currency,
         quoteTimestamp: row.quoteTimestamp,
         isPrimary: definition?.isPrimary ?? false
@@ -372,6 +379,13 @@ async function getPersistedSummaryRecordByDate(
         previousClose: row.previousClose,
         changeAbs: row.changeAbs,
         changePct: row.changePct,
+        dayOpen: null,
+        dayHigh: null,
+        dayLow: null,
+        dayVolume: null,
+        dayRangePct: null,
+        fiftyTwoWeekHigh: null,
+        fiftyTwoWeekLow: null,
         currency: row.currency,
         quoteTimestamp: row.quoteTimestamp,
         isPrimary: definition?.isPrimary ?? false
@@ -399,7 +413,7 @@ async function buildMarketSummary(env: Env, items: MarketIndexSnapshot[]): Promi
 
   const aiRaw = await callAiCompatible(
     env,
-    "You are a market editor. Summarize only from the provided global index snapshot. Return strict JSON with keys summaryZh and summaryEn. Keep both concise, factual, and free of investment advice.",
+    "You are a market editor. Summarize only from the provided global index snapshot and trading metrics. Return strict JSON with keys summaryZh and summaryEn. Keep both concise, factual, and free of investment advice.",
     buildSummaryPrompt(items)
   );
 
@@ -420,10 +434,18 @@ async function buildMarketSummary(env: Env, items: MarketIndexSnapshot[]): Promi
 }
 
 function buildSummaryPrompt(items: MarketIndexSnapshot[]): string {
+  const primaryLines = REGION_ORDER.map((region) => pickPrimarySnapshot(items, region))
+    .filter((item): item is MarketIndexSnapshot => item !== null)
+    .map(
+      (item) =>
+        `- ${regionLabelEn(item.region)} | ${item.nameEn} | change=${formatSignedPct(item.changePct)} | O/H/L=${formatPromptNumber(item.dayOpen)}/${formatPromptNumber(item.dayHigh)}/${formatPromptNumber(item.dayLow)} | vol=${formatPromptVolume(item.dayVolume)} | range=${formatPromptPct(item.dayRangePct)}`
+    )
+    .join("\n");
+
   const lines = items
     .map(
       (item) =>
-        `- ${item.region.toUpperCase()} | ${item.indexKey} | ${item.nameEn} | close=${item.close.toFixed(2)} | change=${formatSignedPct(item.changePct)}`
+        `- ${item.region.toUpperCase()} | ${item.indexKey} | ${item.nameEn} | close=${item.close.toFixed(2)} | change=${formatSignedPct(item.changePct)} | range=${formatPromptPct(item.dayRangePct)}`
     )
     .join("\n");
 
@@ -433,7 +455,9 @@ function buildSummaryPrompt(items: MarketIndexSnapshot[]): string {
     "1. summaryZh <= 90 Chinese characters.",
     "2. summaryEn <= 220 English characters.",
     "3. Mention relative strength or weakness across CN, HK, and US markets when possible.",
-    "4. Do not infer macro causes that are not in the data.",
+    "4. Mention intraday trading metrics (range or O/H/L/volume) when useful.",
+    "5. Do not infer macro causes that are not in the data.",
+    `Primary metrics:\n${primaryLines || "- No primary metrics"}`,
     `Snapshot:\n${lines || "- No snapshot data"}`
   ].join("\n");
 }
@@ -447,11 +471,16 @@ function buildFallbackSummaryZh(items: MarketIndexSnapshot[]): string {
     const primary = pickPrimarySnapshot(items, region);
     return primary ? `${regionLabelZh(region)}${formatSignedPct(primary.changePct)}` : null;
   }).filter((item): item is string => item !== null);
+  const ranges = REGION_ORDER.map((region) => {
+    const primary = pickPrimarySnapshot(items, region);
+    return primary && primary.dayRangePct !== null ? `${regionLabelZh(region)}振幅${primary.dayRangePct.toFixed(2)}%` : null;
+  }).filter((item): item is string => item !== null);
 
   const leader = [...items].sort((left, right) => right.changePct - left.changePct)[0];
   const laggard = [...items].sort((left, right) => left.changePct - right.changePct)[0];
+  const rangeClause = ranges.length > 0 ? `；当日振幅参考：${ranges.join("，")}` : "";
 
-  return `全球指数快照显示${grouped.join("，")}；表现最强的是${leader.nameZh}${formatSignedPct(leader.changePct)}，最弱的是${laggard.nameZh}${formatSignedPct(laggard.changePct)}。`;
+  return `全球指数快照显示${grouped.join("，")}；表现最强的是${leader.nameZh}${formatSignedPct(leader.changePct)}，最弱的是${laggard.nameZh}${formatSignedPct(laggard.changePct)}${rangeClause}。`;
 }
 
 function buildFallbackSummaryEn(items: MarketIndexSnapshot[]): string {
@@ -463,11 +492,16 @@ function buildFallbackSummaryEn(items: MarketIndexSnapshot[]): string {
     const primary = pickPrimarySnapshot(items, region);
     return primary ? `${regionLabelEn(region)} ${formatSignedPct(primary.changePct)}` : null;
   }).filter((item): item is string => item !== null);
+  const ranges = REGION_ORDER.map((region) => {
+    const primary = pickPrimarySnapshot(items, region);
+    return primary && primary.dayRangePct !== null ? `${regionLabelEn(region)} range ${primary.dayRangePct.toFixed(2)}%` : null;
+  }).filter((item): item is string => item !== null);
 
   const leader = [...items].sort((left, right) => right.changePct - left.changePct)[0];
   const laggard = [...items].sort((left, right) => left.changePct - right.changePct)[0];
+  const rangeClause = ranges.length > 0 ? ` Intraday ranges: ${ranges.join(", ")}.` : "";
 
-  return `Global indices showed ${grouped.join(", ")}. The strongest move came from ${leader.nameEn} at ${formatSignedPct(leader.changePct)}, while ${laggard.nameEn} was weakest at ${formatSignedPct(laggard.changePct)}.`;
+  return `Global indices showed ${grouped.join(", ")}. The strongest move came from ${leader.nameEn} at ${formatSignedPct(leader.changePct)}, while ${laggard.nameEn} was weakest at ${formatSignedPct(laggard.changePct)}.${rangeClause}`;
 }
 
 function pickPrimarySnapshot(items: MarketIndexSnapshot[], region: MarketRegion): MarketIndexSnapshot | null {
@@ -599,6 +633,30 @@ function sanitizeParagraph(value: string): string {
 
 function formatSignedPct(value: number): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatPromptNumber(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? "-" : value.toFixed(2);
+}
+
+function formatPromptPct(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? "-" : `${value.toFixed(2)}%`;
+}
+
+function formatPromptVolume(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "-";
+  }
+  if (value >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(2)}K`;
+  }
+  return value.toFixed(0);
 }
 
 function regionLabelZh(region: MarketRegion): string {

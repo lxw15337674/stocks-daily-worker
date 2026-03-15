@@ -176,11 +176,11 @@ export function HomeContentTabs(props: HomeContentTabsProps) {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClass(lang, item.tone)}`}>
+                              <span className={`rounded-full border px-2.5 py-1  font-medium ${toneClass(lang, item.tone)}`}>
                                 {item.label}
                               </span>
                               {item.row.businessType ? (
-                                <span className="text-[11px] text-muted-foreground">{item.row.businessType}</span>
+                                <span className=" text-muted-foreground">{item.row.businessType}</span>
                               ) : null}
                             </div>
                             <Link href={item.row.detailUrl ?? "#"} className="mt-3 block text-base font-medium text-foreground hover:text-primary">

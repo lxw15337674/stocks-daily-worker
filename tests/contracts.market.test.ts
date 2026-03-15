@@ -35,6 +35,13 @@ test("market AI archive record shape can represent localized summaries and snaps
         previousClose: 3180,
         changeAbs: 20,
         changePct: 0.63,
+        dayOpen: 3185,
+        dayHigh: 3210,
+        dayLow: 3178,
+        dayVolume: 123456789,
+        dayRangePct: 1.0,
+        fiftyTwoWeekHigh: 3600,
+        fiftyTwoWeekLow: 2800,
         currency: "CNY",
         quoteTimestamp: "2026-03-12T01:23:45.000Z",
         isPrimary: true

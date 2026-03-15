@@ -39,6 +39,13 @@ export async function getLiveMarketIndicesLatest(): Promise<MarketIndexLatestRes
             previousClose: snapshot?.previousClose ?? null,
             changeAbs: snapshot?.changeAbs ?? null,
             changePct: snapshot?.changePct ?? null,
+            dayOpen: snapshot?.dayOpen ?? null,
+            dayHigh: snapshot?.dayHigh ?? null,
+            dayLow: snapshot?.dayLow ?? null,
+            dayVolume: snapshot?.dayVolume ?? null,
+            dayRangePct: snapshot?.dayRangePct ?? null,
+            fiftyTwoWeekHigh: snapshot?.fiftyTwoWeekHigh ?? null,
+            fiftyTwoWeekLow: snapshot?.fiftyTwoWeekLow ?? null,
             currency: snapshot?.currency ?? null,
             quoteTimestamp: snapshot?.quoteTimestamp ?? null,
             isPrimary: definition.isPrimary

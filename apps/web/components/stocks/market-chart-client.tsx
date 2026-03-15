@@ -174,7 +174,7 @@ export function MarketChartClient(props: MarketChartClientProps) {
           <ToggleGroupItem key={item.indexKey} value={item.indexKey} className="h-auto min-h-8 px-3 py-2">
             <span className="flex flex-col items-start gap-1 text-left leading-none">
               <span>{lang === "zh" ? item.nameZh : item.nameEn}</span>
-              {item.isPrimary ? <span className="text-[11px] opacity-75">{t("market.primaryLabel")}</span> : null}
+              {item.isPrimary ? <span className=" opacity-75">{t("market.primaryLabel")}</span> : null}
             </span>
           </ToggleGroupItem>
         ))}

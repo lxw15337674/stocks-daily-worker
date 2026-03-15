@@ -6,7 +6,10 @@ import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
 import {
   formatMarketMove,
   formatMarketPrice,
+  formatMarketRangePct,
+  formatMarketTradingMetrics,
   formatMarketTimestamp,
+  formatMarketVolume,
   getMarketChangeTextClass,
   hasMarketContent
 } from "@/components/stocks/market-utils";
@@ -193,37 +196,59 @@ export default async function MarketPage(props: MarketPageProps) {
               </Empty>
             ) : (
               <div className="overflow-x-auto">
-                <Table className="min-w-[780px]">
+                <Table className="min-w-[1080px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>{commonT("tableName")}</TableHead>
                       <TableHead>{commonT("tableCode")}</TableHead>
                       <TableHead className="text-right">{t("priceLabel")}</TableHead>
                       <TableHead className="text-right">{t("moveLabel")}</TableHead>
+                      <TableHead className="text-right">{t("metricsLabel")}</TableHead>
+                      <TableHead className="text-right">{t("volumeLabel")}</TableHead>
+                      <TableHead className="text-right">{t("rangeLabel")}</TableHead>
                       <TableHead className="text-right">{t("updatedAtLabel")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.map((item) => (
-                      <TableRow key={item.indexKey}>
-                        <TableCell>
-                          <div className="font-medium">{lang === "zh" ? item.nameZh : item.nameEn}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {item.isPrimary ? t("primaryLabel") : t("latestLabel")}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{item.symbol}</TableCell>
-                        <TableCell className="whitespace-nowrap text-right">
-                          {formatMarketPrice(item.price, item.currency, lang)}
-                        </TableCell>
-                        <TableCell className={`whitespace-nowrap text-right font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
-                          {formatMarketMove(item.changePct)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-right text-muted-foreground">
-                          {formatMarketTimestamp(item.quoteTimestamp, lang)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {items.map((item) => {
+                      const metrics = formatMarketTradingMetrics(item, lang);
+                      return (
+                        <TableRow key={item.indexKey}>
+                          <TableCell>
+                            <div className="font-medium">{lang === "zh" ? item.nameZh : item.nameEn}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {item.isPrimary ? t("primaryLabel") : t("latestLabel")}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{item.symbol}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right">
+                            {formatMarketPrice(item.price, item.currency, lang)}
+                          </TableCell>
+                          <TableCell className={`whitespace-nowrap text-right font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
+                            {formatMarketMove(item.changePct)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right text-xs leading-5">
+                            <div>
+                              {t("highShort")} {metrics.high} / {t("openShort")} {metrics.open} / {t("week52HighLabel")}{" "}
+                              {metrics.fiftyTwoWeekHigh}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {t("lowShort")} {metrics.low} / {t("prevCloseLabel")} {metrics.previousClose} / {t("week52LowLabel")}{" "}
+                              {metrics.fiftyTwoWeekLow}
+                            </div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right">
+                            {formatMarketVolume(item.dayVolume, lang)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right">
+                            {formatMarketRangePct(item.dayRangePct)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right text-muted-foreground">
+                            {formatMarketTimestamp(item.quoteTimestamp, lang)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

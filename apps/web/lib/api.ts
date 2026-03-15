@@ -2,7 +2,8 @@ import "server-only";
 import { headers } from "next/headers";
 import { resolveServerApiTarget } from "@/lib/api-target";
 import type { ApiTarget } from "@/lib/api-target";
-import { SSR_API_BASE_URL } from "@/lib/runtime-config";
+import { APP_ENV, DISABLE_DEV_CACHE, SSR_API_BASE_URL } from "@/lib/runtime-config";
+import { safeFetchJson } from "@/lib/server-fetch";
 import type {
   LocalizedText,
   MarketAiSummary,
@@ -37,14 +38,36 @@ function joinApiUrl(target: ApiTarget, path: string): string {
 }
 
 type ApiModule = "stocks" | "crypto" | "root";
+const IS_LOCAL_RUNTIME = String(APP_ENV).toLowerCase() === "local";
 
-async function resolveApiTarget(module: ApiModule = "stocks"): Promise<ApiTarget> {
-  const requestHeaders = await headers();
+async function resolveApiTarget(module: ApiModule = "stocks", includeCookies = false): Promise<ApiTarget> {
+  const emptyHeaders: Pick<Headers, "get"> = {
+    get(): string | null {
+      return null;
+    }
+  };
+
+  let requestHeaders: Pick<Headers, "get"> = emptyHeaders;
+  if (includeCookies) {
+    try {
+      requestHeaders = await headers();
+    } catch (error) {
+      console.warn(`[web][${module}-api] headers() unavailable; falling back to default target`, error);
+    }
+  } else if (IS_LOCAL_RUNTIME) {
+    try {
+      requestHeaders = await headers();
+    } catch (error) {
+      console.warn(`[web][${module}-api] headers() unavailable; local same-origin inference disabled`, error);
+    }
+  }
+
   const defaultPathPrefix = module === "root" ? "/api/v1" : `/api/v1/${module}`;
   return resolveServerApiTarget({
     defaultBaseUrl: SSR_API_BASE_URL,
     defaultPathPrefix,
-    headers: requestHeaders
+    headers: requestHeaders,
+    preferSameOriginInLocal: IS_LOCAL_RUNTIME
   });
 }
 
@@ -63,26 +86,17 @@ function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookie
 }
 
 async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
-  const target = await resolveApiTarget(options.module);
-  const response = await fetch(joinApiUrl(target, path), {
+  const target = await resolveApiTarget(options.module, Boolean(options.includeCookies));
+  const forceNoStore = DISABLE_DEV_CACHE;
+  return safeFetchJson<T>(joinApiUrl(target, path), {
     method: "GET",
-    next: options.revalidate ? { revalidate: options.revalidate } : undefined,
-    cache: options.revalidate ? undefined : "no-store",
+    next: forceNoStore ? { revalidate: 0 } : options.revalidate ? { revalidate: options.revalidate } : undefined,
+    cache: forceNoStore ? "no-store" : options.revalidate ? undefined : "no-store",
     headers: buildApiRequestHeaders(target, "application/json", options.includeCookies)
+  }, {
+    logPrefix: `[web][${options.module ?? "stocks"}-api]`,
+    pathForLog: path
   });
-
-  if (!response.ok) {
-    console.error(`[web][${options.module ?? "stocks"}-api] ${path} -> ${response.status}`);
-    return null;
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    console.error(`[web][${options.module ?? "stocks"}-api] ${path} -> non-json response (${contentType || "unknown"})`);
-    return null;
-  }
-
-  return (await response.json()) as T;
 }
 
 export type HomeBriefsResponse = {

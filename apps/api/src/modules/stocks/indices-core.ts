@@ -21,15 +21,30 @@ type YahooChartPayload = {
     result?: Array<{
       meta?: {
         currency?: string;
+        fiftyTwoWeekHigh?: number;
+        fiftyTwoWeekLow?: number;
       };
       timestamp?: number[];
       indicators?: {
         quote?: Array<{
+          open?: Array<number | null>;
+          high?: Array<number | null>;
+          low?: Array<number | null>;
           close?: Array<number | null>;
+          volume?: Array<number | null>;
         }>;
       };
     }>;
   };
+};
+
+type RawIndexPoint = {
+  timestamp: number;
+  close: number;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
 };
 
 export const REGION_ORDER: MarketRegion[] = ["cn", "hk", "us"];
@@ -38,6 +53,22 @@ const HISTORY_RANGE_MAP: Record<MarketIndexRange, string> = {
   "1m": "1mo",
   "3m": "3mo",
   "1y": "1y"
+};
+
+const EASTMONEY_SECID_BY_INDEX_KEY: Partial<Record<MarketIndexKey, string>> = {
+  cn_sse: "1.000001",
+  cn_csi300: "1.000300",
+  cn_szse: "0.399001",
+  hk_hsi: "100.HSI",
+  hk_hstech: "116.03032"
+};
+
+const SINA_SYMBOL_BY_INDEX_KEY: Partial<Record<MarketIndexKey, string>> = {
+  cn_sse: "sh000001",
+  cn_csi300: "sh000300",
+  cn_szse: "sz399001",
+  hk_hsi: "hkHSI",
+  hk_hstech: "hk03032"
 };
 
 export const TRACKED_MARKET_INDICES: TrackedMarketIndex[] = [
@@ -51,7 +82,7 @@ export const TRACKED_MARKET_INDICES: TrackedMarketIndex[] = [
   },
   {
     indexKey: "cn_csi300",
-    symbol: "000300.SH",
+    symbol: "000300.SS",
     region: "cn",
     nameZh: "沪深300",
     nameEn: "CSI 300",
@@ -75,10 +106,10 @@ export const TRACKED_MARKET_INDICES: TrackedMarketIndex[] = [
   },
   {
     indexKey: "hk_hstech",
-    symbol: "^HSTECH",
+    symbol: "3032.HK",
     region: "hk",
-    nameZh: "恒生科技指数",
-    nameEn: "Hang Seng Tech Index",
+    nameZh: "恒生科技ETF（3032.HK）",
+    nameEn: "Hang Seng Tech ETF (3032.HK)",
     isPrimary: false
   },
   {
@@ -137,6 +168,10 @@ export async function fetchLatestMarketSnapshot(definition: TrackedMarketIndex):
     const changeAbs = latest.close - previous.close;
     const changePct = previous.close === 0 ? 0 : (changeAbs / previous.close) * 100;
 
+    const dayVolume = await resolveDayVolume(definition, latest.volume, toIsoDate(latest.timestamp));
+    const fiftyTwoWeekHigh = normalizeOptionalNumber(result?.meta?.fiftyTwoWeekHigh);
+    const fiftyTwoWeekLow = normalizeOptionalNumber(result?.meta?.fiftyTwoWeekLow);
+
     return {
       indexKey: definition.indexKey,
       symbol: definition.symbol,
@@ -147,6 +182,13 @@ export async function fetchLatestMarketSnapshot(definition: TrackedMarketIndex):
       previousClose: previous.close,
       changeAbs,
       changePct,
+      dayOpen: latest.open,
+      dayHigh: latest.high,
+      dayLow: latest.low,
+      dayVolume,
+      dayRangePct: calculateDayRangePct(latest.open, latest.high, latest.low),
+      fiftyTwoWeekHigh,
+      fiftyTwoWeekLow,
       currency: result?.meta?.currency ?? guessCurrency(definition.region),
       quoteTimestamp: new Date(latest.timestamp * 1000).toISOString(),
       isPrimary: definition.isPrimary
@@ -237,41 +279,72 @@ function extractValidPoints(
         };
         indicators?: {
           quote?: Array<{
+            open?: Array<number | null>;
+            high?: Array<number | null>;
+            low?: Array<number | null>;
             close?: Array<number | null>;
+            volume?: Array<number | null>;
           }>;
         };
       }
     | undefined
-): Array<{ timestamp: number; close: number }> {
+): RawIndexPoint[] {
   const timestamps = result?.timestamp ?? [];
+  const opens = result?.indicators?.quote?.[0]?.open ?? [];
+  const highs = result?.indicators?.quote?.[0]?.high ?? [];
+  const lows = result?.indicators?.quote?.[0]?.low ?? [];
   const closes = result?.indicators?.quote?.[0]?.close ?? [];
-  const out: Array<{ timestamp: number; close: number }> = [];
+  const volumes = result?.indicators?.quote?.[0]?.volume ?? [];
+  const out: RawIndexPoint[] = [];
 
   for (let index = 0; index < Math.min(timestamps.length, closes.length); index += 1) {
     const timestamp = timestamps[index];
+    const open = opens[index];
+    const high = highs[index];
+    const low = lows[index];
     const close = closes[index];
+    const volume = volumes[index];
     if (typeof timestamp !== "number" || typeof close !== "number" || !Number.isFinite(close)) {
       continue;
     }
-    out.push({ timestamp, close });
+    out.push({
+      timestamp,
+      close,
+      open: typeof open === "number" && Number.isFinite(open) ? open : null,
+      high: typeof high === "number" && Number.isFinite(high) ? high : null,
+      low: typeof low === "number" && Number.isFinite(low) ? low : null,
+      volume: typeof volume === "number" && Number.isFinite(volume) ? volume : null
+    });
   }
 
   return out;
 }
 
-function dedupeDailyPoints(points: Array<{ timestamp: number; close: number }>): Array<{ timestamp: number; close: number }> {
-  const latestByDate = new Map<string, { timestamp: number; close: number }>();
+function dedupeDailyPoints(points: RawIndexPoint[]): RawIndexPoint[] {
+  const pointsByDate = new Map<string, RawIndexPoint[]>();
   for (const point of points) {
     const tradingDate = toIsoDate(point.timestamp);
-    const existing = latestByDate.get(tradingDate);
-    if (!existing || point.timestamp > existing.timestamp) {
-      latestByDate.set(tradingDate, point);
-    }
+    const existing = pointsByDate.get(tradingDate) ?? [];
+    existing.push(point);
+    pointsByDate.set(tradingDate, existing);
   }
 
-  return [...latestByDate.entries()]
+  return [...pointsByDate.entries()]
     .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
-    .map(([, point]) => point);
+    .map(([, dailyPoints]) => {
+      const sorted = [...dailyPoints].sort((left, right) => left.timestamp - right.timestamp);
+      const latest = sorted[sorted.length - 1];
+      const latestPositiveVolume = [...sorted]
+        .reverse()
+        .find((point) => point.volume !== null && Number.isFinite(point.volume) && point.volume > 0);
+
+      return {
+        ...latest,
+        // Yahoo can append a same-day duplicate point after close with volume=0.
+        // Keep the latest OHLC/close timestamp but preserve the day's last valid positive volume.
+        volume: latestPositiveVolume?.volume ?? latest.volume
+      };
+    });
 }
 
 function guessCurrency(region: MarketRegion): string {
@@ -286,4 +359,148 @@ function guessCurrency(region: MarketRegion): string {
 
 function toIsoDate(timestampSeconds: number): string {
   return new Date(timestampSeconds * 1000).toISOString().slice(0, 10);
+}
+
+function normalizeDayVolume(value: number | null): number | null {
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return value;
+}
+
+async function resolveDayVolume(
+  definition: TrackedMarketIndex,
+  yahooVolume: number | null,
+  tradingDate: string
+): Promise<number | null> {
+  if (definition.region === "us") {
+    return normalizeDayVolume(yahooVolume);
+  }
+
+  const external = await fetchCnHkStableDayVolume(definition.indexKey, tradingDate);
+  if (external !== null) {
+    return external;
+  }
+
+  // CN/HK fallback policy: avoid exposing potentially misleading Yahoo volume.
+  return null;
+}
+
+async function fetchCnHkStableDayVolume(indexKey: MarketIndexKey, tradingDate: string): Promise<number | null> {
+  const eastmoneySecid = EASTMONEY_SECID_BY_INDEX_KEY[indexKey];
+  if (eastmoneySecid) {
+    const eastmoneyVolume = await fetchEastmoneyDayVolume(eastmoneySecid, tradingDate);
+    if (eastmoneyVolume !== null) {
+      return eastmoneyVolume;
+    }
+  }
+
+  const sinaSymbol = SINA_SYMBOL_BY_INDEX_KEY[indexKey];
+  if (!sinaSymbol) {
+    return null;
+  }
+  return fetchSinaLatestVolume(indexKey, sinaSymbol);
+}
+
+async function fetchEastmoneyDayVolume(secid: string, tradingDate: string): Promise<number | null> {
+  const day = tradingDate.replaceAll("-", "");
+  const endpoint = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(
+    secid
+  )}&klt=101&fqt=0&beg=${day}&end=${day}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61`;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        "user-agent": "Mozilla/5.0"
+      }
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      data?: {
+        klines?: string[];
+      };
+    };
+    const kline = payload.data?.klines?.[0];
+    if (!kline) {
+      return null;
+    }
+
+    const parts = kline.split(",");
+    const volume = Number(parts[5]);
+    return normalizeDayVolume(Number.isFinite(volume) ? volume : null);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSinaLatestVolume(indexKey: MarketIndexKey, symbol: string): Promise<number | null> {
+  const endpoint = `https://hq.sinajs.cn/list=${encodeURIComponent(symbol)}`;
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        "user-agent": "Mozilla/5.0",
+        referer: "https://finance.sina.com.cn"
+      }
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const content = await response.text();
+    const match = content.match(/="([^"]*)"/);
+    if (!match) {
+      return null;
+    }
+    const fields = match[1]?.split(",") ?? [];
+    const normalized = normalizeSinaVolume(indexKey, fields);
+    return normalizeDayVolume(normalized);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSinaVolume(indexKey: MarketIndexKey, fields: string[]): number | null {
+  if (indexKey === "hk_hsi" || indexKey === "hk_hstech") {
+    return parseNumericField(fields[12]);
+  }
+
+  if (indexKey === "cn_sse" || indexKey === "cn_csi300") {
+    return parseNumericField(fields[8]);
+  }
+
+  if (indexKey === "cn_szse") {
+    const raw = parseNumericField(fields[8]);
+    if (raw === null) {
+      return null;
+    }
+    // Sina's SZ index volume field is reported about 100x Eastmoney's day-kline scale.
+    return raw / 100;
+  }
+
+  return null;
+}
+
+function parseNumericField(raw: string | undefined): number | null {
+  if (!raw) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function normalizeOptionalNumber(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function calculateDayRangePct(open: number | null, high: number | null, low: number | null): number | null {
+  if (open === null || high === null || low === null || open <= 0) {
+    return null;
+  }
+  return ((high - low) / open) * 100;
 }
