@@ -5,6 +5,7 @@ import type {
   CoinDetail,
   CoinItem,
   CoinNewsItem,
+  CryptoMarketBoardResponse,
   CryptoMacroSnapshot,
   DailyReport,
   MarketNewsItem,
@@ -39,6 +40,14 @@ export async function fetchLatestReport(): Promise<DailyReport | null> {
 
 export async function fetchHomeSnapshot(): Promise<CryptoHomeSnapshot | null> {
   return fetchJson<CryptoHomeSnapshot>("/home-snapshot");
+}
+
+export async function fetchMarketBoard(reportDate?: string | null): Promise<CryptoMarketBoardResponse | null> {
+  const normalizedDate = reportDate?.trim();
+  if (normalizedDate) {
+    return fetchJson<CryptoMarketBoardResponse>(`/market/board?date=${encodeURIComponent(normalizedDate)}`);
+  }
+  return fetchJson<CryptoMarketBoardResponse>("/market/board");
 }
 
 export async function fetchReportByDate(date: string): Promise<DailyReport | null> {
@@ -155,6 +164,14 @@ export function useCoins() {
 
 export function useHomeSnapshot() {
   return useSWR<CryptoHomeSnapshot | null>("crypto-home-snapshot", fetchHomeSnapshot);
+}
+
+export function useMarketBoard(reportDate?: string | null) {
+  const normalizedDate = reportDate?.trim();
+  const key = normalizedDate ? ["crypto-market-board", normalizedDate] : "crypto-market-board-latest";
+  return useSWR<CryptoMarketBoardResponse | null>(key, () => fetchMarketBoard(normalizedDate), {
+    refreshInterval: normalizedDate ? 0 : 15_000
+  });
 }
 
 export function useLatestReport() {

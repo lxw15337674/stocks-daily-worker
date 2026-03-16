@@ -7,7 +7,7 @@ import { NotFoundView } from "@/components/platform/not-found-view";
 import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
-import { useCoins, useIntelligenceReportByDate, useReportByDate, useReportDateNews } from "@/lib/crypto/api";
+import { useCoins, useIntelligenceReportByDate, useMarketBoard, useReportByDate, useReportDateNews } from "@/lib/crypto/api";
 import { isValidReportDate } from "@/lib/date";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
@@ -29,8 +29,9 @@ export function CryptoReportDatePageContent(props: CryptoReportDatePageProps) {
   const { data: report, isLoading: isReportLoading } = useReportByDate(date);
   const { data: reportNews, isLoading: isReportNewsLoading } = useReportDateNews(date);
   const { data: intelligence, isLoading: isIntelligenceLoading } = useIntelligenceReportByDate(date);
+  const { data: marketBoard, isLoading: isMarketBoardLoading } = useMarketBoard(date);
 
-  if (isCoinsLoading || isReportLoading || isReportNewsLoading || isIntelligenceLoading) {
+  if (isCoinsLoading || isReportLoading || isReportNewsLoading || isIntelligenceLoading || isMarketBoardLoading) {
     return <RouteSegmentLoading title="Loading crypto report" description={channelT("loading")} />;
   }
 
@@ -50,6 +51,7 @@ export function CryptoReportDatePageContent(props: CryptoReportDatePageProps) {
         lang={lang}
         report={report}
         coins={coins}
+        marketBoard={marketBoard ?? null}
         macro={reportNews?.macro ?? null}
         marketNews={reportNews?.marketNews ?? []}
         clusters={reportNews?.clusters ?? []}

@@ -48,16 +48,14 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
 
   function renderMetricCell(label: string, value: string, compactView = false) {
     return (
-      <Card size="sm" className="bg-background/50 ring-border/50">
-        <CardContent className={compactView ? "flex items-center justify-between gap-2 px-2 py-1" : "flex flex-col gap-1 px-2.5 py-2"}>
-          <p className={compactView ? "truncate  font-normal uppercase tracking-wide text-muted-foreground" : " font-normal uppercase tracking-wide text-muted-foreground"}>
+        <div className={compactView ? "flex items-center justify-between gap-2 py-1" : "flex flex-col gap-1 px-2.5 py-2"}>
+          <p className={compactView ? "font-normal tracking-wide text-muted-foreground" : " font-normal uppercase tracking-wide text-muted-foreground"}>
             {label}
           </p>
-          <p className={compactView ? "whitespace-nowrap text-xs leading-4 font-semibold text-foreground" : "text-sm leading-5 font-semibold text-foreground"}>
+          <p className={compactView ? "whitespace-nowrap  leading-4 font-semibold text-foreground" : "leading-5 font-semibold text-foreground"}>
             {value}
           </p>
-        </CardContent>
-      </Card>
+        </div>
     );
   }
 
@@ -75,7 +73,6 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
     ];
 
     return (
-      <Card size="sm" className="bg-background/30 ring-border/60">
         <CardContent className={compactView ? "flex flex-col gap-2 p-2.5" : "flex flex-col gap-2.5 p-3"}>
           <div className="flex items-center justify-between">
             <p className=" font-medium uppercase tracking-wide text-muted-foreground">{t("metricsLabel")}</p>
@@ -85,7 +82,7 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
           </div>
 
           {compactView ? (
-            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {compactMetricItems.map((metricItem) => (
                 <div key={`${item.indexKey}-${metricItem.label}`}>{renderMetricCell(metricItem.label, metricItem.value, true)}</div>
               ))}
@@ -113,7 +110,6 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
             </>
           )}
         </CardContent>
-      </Card>
     );
   }
 

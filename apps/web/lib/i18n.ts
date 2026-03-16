@@ -45,6 +45,9 @@ type CommonBaseCopy = {
   tablePrice: string;
   tableChange24h: string;
   tableVolume24h: string;
+  tableChange7d: string;
+  tableChange30d: string;
+  tableTrend7d: string;
   tableShare: string;
   focusMoves: string;
   annualShare: string;
@@ -357,7 +360,10 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     tableCode: "代码",
     tablePrice: "价格",
     tableChange24h: "24h",
-    tableVolume24h: "24h 交易额",
+    tableVolume24h: "24h 成交量",
+    tableChange7d: "7d",
+    tableChange30d: "30d",
+    tableTrend7d: "过去7天",
     tableShare: "交易占比",
     focusMoves: "焦点异动",
     annualShare: "全年交易占比",
@@ -498,6 +504,9 @@ export const COMMON_DICTIONARIES: Record<Language, CommonNamespace> = {
     tablePrice: "Price",
     tableChange24h: "24h",
     tableVolume24h: "24h Volume",
+    tableChange7d: "7d",
+    tableChange30d: "30d",
+    tableTrend7d: "Last 7d",
     tableShare: "Trade Share",
     focusMoves: "Focus Movers",
     annualShare: "Annual Trade Share",

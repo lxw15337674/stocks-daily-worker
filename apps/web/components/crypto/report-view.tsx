@@ -3,13 +3,22 @@ import type { IntelligenceItem, IntelligenceTimelineAnchor, IntelligenceWallResp
 
 import { HeroPanel } from "@/components/platform/hero-panel";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
+import { MiniSparkline } from "@/components/crypto/mini-sparkline";
 import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getChangeTextClass } from "@/lib/change-color";
-import type { CoinItem, CoinNewsItem, CryptoMacroSnapshot, DailyReport, MarketNewsItem, NewsClusterItem } from "@/lib/crypto/types";
+import type {
+  CoinItem,
+  CoinNewsItem,
+  CryptoMacroSnapshot,
+  CryptoMarketBoardResponse,
+  DailyReport,
+  MarketNewsItem,
+  NewsClusterItem
+} from "@/lib/crypto/types";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetEventPath, assetInstrumentPath } from "@/lib/platform-routes";
@@ -19,6 +28,7 @@ type ReportViewProps = {
   report: DailyReport;
   coins: CoinItem[];
   macro: CryptoMacroSnapshot | null;
+  marketBoard: CryptoMarketBoardResponse | null;
   marketNews: MarketNewsItem[];
   clusters: NewsClusterItem[];
   coinNewsByCode: Record<string, CoinNewsItem[]>;
@@ -145,12 +155,16 @@ function groupTimelineAnchors(anchors: IntelligenceTimelineAnchor[], assetCode: 
   return anchors.filter((anchor) => anchor.assetCode === assetCode).slice(0, 3);
 }
 
+function formatNullablePercent(value: number | null): string {
+  return value === null ? "-" : formatSignedPercent(value);
+}
+
 function resolveIntelligenceTarget(item: IntelligenceItem, lang: Language): string {
   return lang === "zh" ? item.targetLabelZh : item.targetLabelEn;
 }
 
 export function ReportView(props: ReportViewProps) {
-  const { intelligence, lang, report, coins, macro } = props;
+  const { intelligence, lang, report, coins, macro, marketBoard } = props;
   const t = getFixedT(lang, "common");
   const intelligenceCopy = INTELLIGENCE_COPY[lang];
   const coinByCode = new Map(coins.map((coin) => [coin.code, coin]));
@@ -159,6 +173,24 @@ export function ReportView(props: ReportViewProps) {
     .slice(0, 3);
 
   const summary = lang === "zh" ? report.summaryZh : report.summaryEn;
+  const marketRows =
+    marketBoard?.items ??
+    report.items.map((item) => {
+      const coin = coinByCode.get(item.code);
+      return {
+        rank: coin?.rank ?? Number.MAX_SAFE_INTEGER,
+        code: item.code,
+        pair: item.pair,
+        nameZh: coin?.nameZh ?? item.code,
+        nameEn: coin?.nameEn ?? item.code,
+        priceUsdt: item.priceUsdt,
+        quoteVolume24hUsdt: item.quoteVolume24hUsdt,
+        change24hPct: item.change24hPct,
+        change7dPct: null,
+        change30dPct: null,
+        sparkline7d: [item.priceUsdt]
+      };
+    });
 
   return (
     <div className="space-y-6">
@@ -245,31 +277,49 @@ export function ReportView(props: ReportViewProps) {
                 <TableRow>
                   <TableHead>{t("tableRank")}</TableHead>
                   <TableHead>{t("tableName")}</TableHead>
-                  <TableHead>{t("tableCode")}</TableHead>
                   <TableHead className="text-right">{t("tablePrice")}</TableHead>
-                  <TableHead className="text-right">{t("tableChange24h")}</TableHead>
                   <TableHead className="text-right">{t("tableVolume24h")}</TableHead>
-                  <TableHead className="text-right">{t("tableShare")}</TableHead>
+                  <TableHead className="text-right">{t("tableChange24h")}</TableHead>
+                  <TableHead className="text-right">{t("tableChange7d")}</TableHead>
+                  <TableHead className="text-right">{t("tableChange30d")}</TableHead>
+                  <TableHead className="text-right">{t("tableTrend7d")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {report.items.map((item) => {
-                  const coin = coinByCode.get(item.code);
+                {marketRows.map((item) => {
                   return (
-                    <TableRow key={`${report.reportDate}-${item.code}`}>
-                      <TableCell>{coin?.rank ?? "-"}</TableCell>
+                    <TableRow key={`${marketBoard?.reportDate ?? report.reportDate}-${item.code}`}>
+                      <TableCell>{Number.isFinite(item.rank) ? item.rank : "-"}</TableCell>
                       <TableCell className="font-medium">
                         <Link href={assetInstrumentPath(lang, "crypto", item.code)} className="hover:text-primary hover:underline">
-                          {getCoinName(coin, lang)}
+                          {lang === "zh" ? item.nameZh : item.nameEn}
                         </Link>
+                        <div className="mt-1 text-xs text-muted-foreground">{item.code}</div>
                       </TableCell>
-                      <TableCell>{item.code}</TableCell>
                       <TableCell className="text-right">{formatPrice(item.priceUsdt, lang)}</TableCell>
+                      <TableCell className="text-right">{formatCompactCurrency(item.quoteVolume24hUsdt, lang)}</TableCell>
                       <TableCell className={`text-right font-semibold ${getChangeTextClass(lang, item.change24hPct)}`}>
                         {formatSignedPercent(item.change24hPct)}
                       </TableCell>
-                      <TableCell className="text-right">{formatCompactCurrency(item.quoteVolume24hUsdt, lang)}</TableCell>
-                      <TableCell className="text-right">{formatShare(item.tradeSharePct)}</TableCell>
+                      <TableCell
+                        className={`text-right font-semibold ${
+                          item.change7dPct === null ? "text-muted-foreground" : getChangeTextClass(lang, item.change7dPct)
+                        }`}
+                      >
+                        {formatNullablePercent(item.change7dPct)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right font-semibold ${
+                          item.change30dPct === null ? "text-muted-foreground" : getChangeTextClass(lang, item.change30dPct)
+                        }`}
+                      >
+                        {formatNullablePercent(item.change30dPct)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="ml-auto w-[120px]">
+                          <MiniSparkline points={item.sparkline7d} />
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })}

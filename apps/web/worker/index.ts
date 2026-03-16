@@ -502,7 +502,7 @@ async function handleAdminSessionRequest(request: Request, requestUrl: URL, env:
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     try {
       if (url.pathname === ADMIN_SESSION_API_PATH) {
@@ -536,7 +536,7 @@ export default {
         );
       }
 
-      return await withTimeout(handler.fetch(request), APP_HANDLER_TIMEOUT_MS, `app-handler ${url.pathname}`);
+      return await withTimeout(handler.fetch(request, env, ctx), APP_HANDLER_TIMEOUT_MS, `app-handler ${url.pathname}`);
     } catch (error) {
       const headers = new Headers({ "content-type": "text/plain; charset=utf-8" });
       if (isLocalAppEnv(env) || isLocalDevHost(url.hostname)) {

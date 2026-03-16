@@ -107,6 +107,32 @@ type ReportListItem = {
   flatCount: number;
 };
 
+type MarketBoardItem = {
+  rank: number;
+  code: string;
+  pair: string;
+  nameZh: string;
+  nameEn: string;
+  priceUsdt: number;
+  quoteVolume24hUsdt: number;
+  change24hPct: number;
+  change7dPct: number | null;
+  change30dPct: number | null;
+  sparkline7d: number[];
+};
+
+type MarketBoardResponse = {
+  reportDate: string;
+  generatedAt: string;
+  items: MarketBoardItem[];
+};
+
+type PriceHistoryRow = {
+  reportDate: string;
+  code: string;
+  priceUsdt: number;
+};
+
 const CF_AI_MODEL = "@cf/zai-org/glm-4.7-flash";
 const CRYPTO_NEWS_CRON = "10 0 * * *";
 const REPORT_TIMEZONE = "UTC";
@@ -352,6 +378,24 @@ app.get("/coin/:code", async (c) => {
     history,
     eventTimeline
   });
+});
+
+app.get("/market/board", async (c) => {
+  if (!c.env.DB) {
+    return c.json({ message: "DB binding is required." }, 500);
+  }
+
+  const reportDate = c.req.query("date")?.trim() ?? null;
+  if (reportDate && !isIsoDate(reportDate)) {
+    return c.json({ message: "Invalid report date." }, 400);
+  }
+
+  const payload = await getMarketBoard(c.env.DB, reportDate);
+  if (!payload) {
+    return c.json({ message: "Report not found." }, 404);
+  }
+
+  return c.json(payload);
 });
 
 app.get("/macro/latest", async (c) => {
@@ -745,6 +789,7 @@ app.get("/", (c) =>
       "/report/:date",
       "/reports",
       "/coin/:code",
+      "/market/board",
       "/macro/latest",
       "/macro/report/:date",
       "/macro/admin/overview",
@@ -1594,6 +1639,121 @@ async function getCoinHistory(db: D1Database, code: string, limit: number): Prom
     .all<DailySnapshot>();
 
   return result.results ?? [];
+}
+
+function calculateReturnPct(currentPrice: number, referencePrice: number | null): number | null {
+  if (referencePrice === null || !Number.isFinite(referencePrice) || referencePrice === 0) {
+    return null;
+  }
+  return ((currentPrice - referencePrice) / referencePrice) * 100;
+}
+
+async function getMarketBoard(db: D1Database, reportDate: string | null): Promise<MarketBoardResponse | null> {
+  await ensureD1Schema(db);
+  await seedCoins(db);
+
+  const report = reportDate ? await getReportByDate(db, reportDate) : await getLatestReport(db);
+  if (!report) {
+    return null;
+  }
+
+  const recentDatesResult = await db
+    .prepare(
+      `SELECT report_date AS reportDate
+      FROM daily_reports
+      WHERE status = 'ready' AND snapshot_count > 0 AND report_date <= ?
+      ORDER BY report_date DESC
+      LIMIT 31`
+    )
+    .bind(report.reportDate)
+    .all<{ reportDate: string }>();
+  const recentDates = (recentDatesResult.results ?? []).map((row) => row.reportDate);
+
+  const coinRecords = await listCoins(db);
+  const coinByCode = new Map(coinRecords.map((coin) => [coin.code, coin]));
+
+  if (recentDates.length === 0) {
+    return {
+      reportDate: report.reportDate,
+      generatedAt: report.generatedAt,
+      items: report.items.map((item) => {
+        const coin = coinByCode.get(item.code);
+        return {
+          rank: coin?.rank ?? Number.MAX_SAFE_INTEGER,
+          code: item.code,
+          pair: item.pair,
+          nameZh: coin?.nameZh ?? item.code,
+          nameEn: coin?.nameEn ?? item.code,
+          priceUsdt: item.priceUsdt,
+          quoteVolume24hUsdt: item.quoteVolume24hUsdt,
+          change24hPct: item.change24hPct,
+          change7dPct: null,
+          change30dPct: null,
+          sparkline7d: [item.priceUsdt]
+        };
+      })
+    };
+  }
+
+  const placeholders = recentDates.map(() => "?").join(", ");
+  const historyResult = await db
+    .prepare(
+      `SELECT
+        r.report_date AS reportDate,
+        s.code AS code,
+        s.price_usdt AS priceUsdt
+      FROM daily_coin_snapshots s
+      INNER JOIN daily_reports r ON r.id = s.report_id
+      WHERE r.report_date IN (${placeholders})
+        AND r.status = 'ready'
+        AND r.snapshot_count > 0
+      ORDER BY s.code ASC, r.report_date DESC`
+    )
+    .bind(...recentDates)
+    .all<PriceHistoryRow>();
+
+  const historyByCode = new Map<string, PriceHistoryRow[]>();
+  for (const row of historyResult.results ?? []) {
+    const bucket = historyByCode.get(row.code);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      historyByCode.set(row.code, [row]);
+    }
+  }
+
+  const items = report.items
+    .map((item) => {
+      const coin = coinByCode.get(item.code);
+      const history = historyByCode.get(item.code) ?? [];
+      const change7dPct = calculateReturnPct(item.priceUsdt, history[6]?.priceUsdt ?? null);
+      const change30dPct = calculateReturnPct(item.priceUsdt, history[29]?.priceUsdt ?? null);
+      const sparkline7d = history
+        .slice(0, 7)
+        .map((row) => row.priceUsdt)
+        .reverse();
+
+      return {
+        rank: coin?.rank ?? Number.MAX_SAFE_INTEGER,
+        code: item.code,
+        pair: item.pair,
+        nameZh: coin?.nameZh ?? item.code,
+        nameEn: coin?.nameEn ?? item.code,
+        priceUsdt: item.priceUsdt,
+        quoteVolume24hUsdt: item.quoteVolume24hUsdt,
+        change24hPct: item.change24hPct,
+        change7dPct,
+        change30dPct,
+        sparkline7d: sparkline7d.length > 0 ? sparkline7d : [item.priceUsdt]
+      };
+    })
+    .sort((a, b) => a.rank - b.rank || a.code.localeCompare(b.code));
+
+  return {
+    reportDate: report.reportDate,
+    generatedAt: report.generatedAt,
+    items
+  };
 }
 
 function formatDate(date: Date): string {

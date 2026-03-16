@@ -321,6 +321,7 @@ test("route coverage matrix exercises stocks and crypto endpoints", async (t) =>
     { path: "/api/v1/crypto/report/bad-date", status: 400 },
     { path: "/api/v1/crypto/reports?limit=5", status: 200 },
     { path: "/api/v1/crypto/coin/BTC", status: 200 },
+    { path: "/api/v1/crypto/market/board", status: 500 },
     { path: "/api/v1/crypto/macro/latest", status: 200 },
     { path: "/api/v1/crypto/macro/report/bad-date", status: 400 },
     { path: "/api/v1/crypto/macro/admin/overview", status: 401 },

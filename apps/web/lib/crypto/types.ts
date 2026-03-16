@@ -42,6 +42,26 @@ export type DailyReport = {
   items: DailySnapshot[];
 };
 
+export type CryptoMarketBoardItem = {
+  rank: number;
+  code: string;
+  pair: string;
+  nameZh: string;
+  nameEn: string;
+  priceUsdt: number;
+  quoteVolume24hUsdt: number;
+  change24hPct: number;
+  change7dPct: number | null;
+  change30dPct: number | null;
+  sparkline7d: number[];
+};
+
+export type CryptoMarketBoardResponse = {
+  reportDate: string;
+  generatedAt: string;
+  items: CryptoMarketBoardItem[];
+};
+
 export type ReportListItem = {
   reportDate: string;
   generatedAt: string;
