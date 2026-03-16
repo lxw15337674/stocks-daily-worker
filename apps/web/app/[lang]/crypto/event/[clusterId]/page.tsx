@@ -1,29 +1,14 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import type { Metadata } from "next";
-
-import { notFound } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import { CryptoEventPageContent } from "@/components/crypto/event-page";
-import type { Language } from "@/lib/i18n";
-import { buildCryptoEventMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language; clusterId: string }>;
-}): Promise<Metadata> {
-  const { lang, clusterId } = await props.params;
-  const parsed = Number.parseInt(clusterId, 10);
-  return buildCryptoEventMetadata(lang, Number.isInteger(parsed) && parsed > 0 ? parsed : 0);
-}
-
-export default async function CryptoEventPage(props: {
-  params: Promise<{ lang: Language; clusterId: string }>;
-}) {
-  const { lang, clusterId } = await props.params;
-  const parsed = Number.parseInt(clusterId, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    notFound();
-  }
+export default function CryptoEventPage() {
+  const params = useParams<{ lang?: string; clusterId?: string }>();
+  const lang = resolveLanguage(params?.lang);
+  const parsed = Number.parseInt(params?.clusterId ?? "", 10);
 
   return <CryptoEventPageContent lang={lang} clusterId={parsed} />;
 }

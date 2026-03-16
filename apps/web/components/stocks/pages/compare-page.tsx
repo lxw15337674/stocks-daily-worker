@@ -1,8 +1,16 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo } from "react";
 import { ArrowLeftRight, CalendarDays, ChevronLeft, Newspaper, TrendingUp } from "lucide-react";
 import type { TFunction } from "i18next";
 
-import { fetchReportList, fetchStockList, fetchStockReportByDate, type ReportListItem } from "@/lib/api";
+import {
+  type ReportListItem,
+  useReportList,
+  useStockList,
+  useStockReportByDate
+} from "@/lib/api";
 import { toReadableDate, isValidReportDate } from "@/lib/date";
 import { type ParsedReportStockRow } from "@/lib/report-parser";
 import { assetHomePath, assetInstrumentPath, stocksComparePath } from "@/lib/platform-routes";
@@ -13,6 +21,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getChangeTextClass } from "@/lib/change-color";
 import { getFixedT, type Language } from "@/lib/i18n";
@@ -20,7 +29,8 @@ import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stoc
 
 type ComparePageProps = {
   lang?: Language;
-  searchParams: Promise<{ date?: string; compareDate?: string }>;
+  date?: string;
+  compareDate?: string;
 };
 
 type ComparisonRow = {
@@ -177,16 +187,25 @@ function renderCompanyCell(row: { company: string; detailUrl: string | null }) {
   );
 }
 
-export default async function ComparePage(props: ComparePageProps) {
+export default function ComparePage(props: ComparePageProps) {
   const lang = props.lang ?? "zh";
   const t = getFixedT(lang, "stocks", "compare");
-  const { date: dateRaw, compareDate: compareDateRaw } = await props.searchParams;
-  const [history, stockItems] = await Promise.all([fetchReportList(120), fetchStockList()]);
+  const dateRaw = props.date;
+  const compareDateRaw = props.compareDate;
+  const { data: history = [], isLoading: isHistoryLoading } = useReportList(120);
+  const { data: stockItems = [], isLoading: isStockItemsLoading } = useStockList();
   const stockItemBySymbol = new Map(stockItems.map((item) => [item.symbol, item]));
   const availableDates = pickDistinctDates(history);
 
   const date = resolveDate(dateRaw, availableDates, 0);
   const compareDate = resolveDate(compareDateRaw, availableDates, 1);
+
+  const { data: currentReport, isLoading: isCurrentLoading } = useStockReportByDate(date);
+  const { data: previousReport, isLoading: isPreviousLoading } = useStockReportByDate(compareDate);
+
+  if (isHistoryLoading || isStockItemsLoading || isCurrentLoading || isPreviousLoading) {
+    return <RouteSegmentLoading title="Loading comparison" description={t("loading")} />;
+  }
 
   if (!date || !compareDate) {
     return (
@@ -207,7 +226,6 @@ export default async function ComparePage(props: ComparePageProps) {
     );
   }
 
-  const [currentReport, previousReport] = await Promise.all([fetchStockReportByDate(date), fetchStockReportByDate(compareDate)]);
   if (!currentReport || !previousReport) {
     return (
       <main className="page-shell">
@@ -231,19 +249,25 @@ export default async function ComparePage(props: ComparePageProps) {
   const currentBrief = resolveLocalizedText(currentReport.overview.brief, lang);
   const previousBrief = resolveLocalizedText(previousReport.overview.brief, lang);
 
-  const currentRows =
-    buildParsedRowsFromStockReport(currentReport, lang).map((row) => ({
-      ...row,
-      detailUrl: row.symbol ? assetInstrumentPath(lang, "stocks", row.symbol) : row.detailUrl,
-      businessType: row.symbol ? (stockItemBySymbol.get(row.symbol)?.businessType ?? null) : null,
-      newsCount: row.symbol ? (row.newsCount ?? 0) : 0
-    }));
-  const previousRows =
-    buildParsedRowsFromStockReport(previousReport, lang).map((row) => ({
-      ...row,
-      detailUrl: row.symbol ? assetInstrumentPath(lang, "stocks", row.symbol) : row.detailUrl,
-      businessType: row.symbol ? (stockItemBySymbol.get(row.symbol)?.businessType ?? null) : null
-    }));
+  const currentRows = useMemo(
+    () =>
+      buildParsedRowsFromStockReport(currentReport, lang).map((row) => ({
+        ...row,
+        detailUrl: row.symbol ? assetInstrumentPath(lang, "stocks", row.symbol) : row.detailUrl,
+        businessType: row.symbol ? (stockItemBySymbol.get(row.symbol)?.businessType ?? null) : null,
+        newsCount: row.symbol ? (row.newsCount ?? 0) : 0
+      })),
+    [currentReport, lang, stockItemBySymbol]
+  );
+  const previousRows = useMemo(
+    () =>
+      buildParsedRowsFromStockReport(previousReport, lang).map((row) => ({
+        ...row,
+        detailUrl: row.symbol ? assetInstrumentPath(lang, "stocks", row.symbol) : row.detailUrl,
+        businessType: row.symbol ? (stockItemBySymbol.get(row.symbol)?.businessType ?? null) : null
+      })),
+    [previousReport, lang, stockItemBySymbol]
+  );
 
   const comparisonRows = buildComparisonRows(currentRows, previousRows);
   const newlyAdded = findUniqueRows(currentRows, previousRows);

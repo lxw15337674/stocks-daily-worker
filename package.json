@@ -19,7 +19,7 @@
     "dev:web": "bun scripts/select-web-config.ts local && bun run --cwd apps/web dev",
     "build": "bun run --cwd apps/web build",
     "check": "bun run check:api && bun run check:web",
-    "test": "bun test tests/contracts.market.test.ts tests/api.indices.test.ts tests/api.scheduler-status.test.ts tests/api.routes.test.ts tests/web.market-loaders.test.ts tests/web.status-loaders.test.ts tests/web.api-targets.test.ts",
+    "test": "bun test tests/contracts.market.test.ts tests/api.indices.test.ts tests/api.scheduler-status.test.ts tests/api.routes.test.ts tests/web.market-loaders.test.ts tests/web.status-loaders.test.ts tests/web.client-fetch.test.ts tests/web.client-hooks.test.tsx",
     "check:api": "bun run --cwd apps/api check",
     "check:web": "bun scripts/select-web-config.ts remote && bun run --cwd apps/web check",
     "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",

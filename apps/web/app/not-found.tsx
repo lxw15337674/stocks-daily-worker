@@ -1,33 +1,14 @@
-import Link from "next/link";
+"use client";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPreferredLanguage } from "@/lib/legacy-routing";
-import { getFixedT } from "@/lib/i18n";
+import { usePathname } from "next/navigation";
 
-export default async function NotFoundPage() {
-  const lang = await getPreferredLanguage();
-  const t = getFixedT(lang, "common", "notFound");
+import { NotFoundView } from "@/components/platform/not-found-view";
+import { resolveLanguage } from "@/lib/i18n";
 
-  return (
-    <main className="page-shell">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("title")}</CardTitle>
-          <CardDescription>{t("description")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button asChild className="w-full">
-            <Link href="/">{t("backHome")}</Link>
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/archive">{t("openArchive")}</Link>
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/stocks">{t("openAdmin")}</Link>
-          </Button>
-        </CardContent>
-      </Card>
-    </main>
-  );
+export default function NotFoundPage() {
+  const pathname = usePathname();
+  const firstSegment = pathname.split("/").filter(Boolean)[0] ?? "";
+  const lang = resolveLanguage(firstSegment);
+  return <NotFoundView lang={lang} />;
 }
+

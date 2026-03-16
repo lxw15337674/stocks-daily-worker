@@ -1,21 +1,21 @@
-import type { Metadata } from "next";
+"use client";
 
-import type { Language } from "@/lib/i18n";
-import { buildStockInstrumentMetadata } from "@/lib/route-metadata";
+import { useParams, useSearchParams } from "next/navigation";
+
 import StockDetailPage from "@/components/stocks/pages/instrument-page";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language; symbol: string }>;
-}): Promise<Metadata> {
-  const { lang, symbol } = await props.params;
-  return buildStockInstrumentMetadata(lang, symbol);
+export default function LocalizedStockInstrumentPage() {
+  const params = useParams<{ lang?: string; symbol?: string }>();
+  const searchParams = useSearchParams();
+  const lang = resolveLanguage(params?.lang);
+
+  return (
+    <StockDetailPage
+      lang={lang}
+      symbol={params?.symbol ?? ""}
+      compare={searchParams.get("compare") ?? undefined}
+    />
+  );
 }
 
-export default async function LocalizedStockInstrumentPage(props: {
-  params: Promise<{ lang: Language; symbol: string }>;
-  searchParams: Promise<{ compare?: string }>;
-}) {
-  const { lang, symbol } = await props.params;
-
-  return StockDetailPage({ lang, params: Promise.resolve({ symbol }), searchParams: props.searchParams });
-}

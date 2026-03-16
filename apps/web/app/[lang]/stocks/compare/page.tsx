@@ -1,21 +1,21 @@
-import type { Metadata } from "next";
+"use client";
 
-import type { Language } from "@/lib/i18n";
-import { buildStocksCompareMetadata } from "@/lib/route-metadata";
+import { useParams, useSearchParams } from "next/navigation";
+
 import ComparePage from "@/components/stocks/pages/compare-page";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildStocksCompareMetadata(lang);
+export default function LocalizedStocksComparePage() {
+  const params = useParams<{ lang?: string }>();
+  const searchParams = useSearchParams();
+  const lang = resolveLanguage(params?.lang);
+
+  return (
+    <ComparePage
+      lang={lang}
+      date={searchParams.get("date") ?? undefined}
+      compareDate={searchParams.get("compareDate") ?? undefined}
+    />
+  );
 }
 
-export default async function LocalizedStocksComparePage(props: {
-  params: Promise<{ lang: Language }>;
-  searchParams: Promise<{ date?: string; compareDate?: string }>;
-}) {
-  const { lang } = await props.params;
-
-  return <ComparePage lang={lang} searchParams={props.searchParams} />;
-}

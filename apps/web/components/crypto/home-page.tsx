@@ -1,9 +1,12 @@
+"use client";
+
 import Link from "next/link";
 
 import { ReportView } from "@/components/crypto/report-view";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
-import { fetchCoins, fetchHomeSnapshot } from "@/lib/crypto/api";
+import { useCoins, useHomeSnapshot } from "@/lib/crypto/api";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
 
@@ -11,11 +14,15 @@ type CryptoHomePageProps = {
   lang: Language;
 };
 
-export async function CryptoHomePageContent(props: CryptoHomePageProps) {
+export function CryptoHomePageContent(props: CryptoHomePageProps) {
   const { lang } = props;
   const channelT = getFixedT(lang, "channel", "crypto");
+  const { data: coins = [], isLoading: isCoinsLoading } = useCoins();
+  const { data: snapshot, isLoading: isSnapshotLoading } = useHomeSnapshot();
 
-  const [coins, snapshot] = await Promise.all([fetchCoins(), fetchHomeSnapshot()]);
+  if (isCoinsLoading || isSnapshotLoading) {
+    return <RouteSegmentLoading title="Loading crypto" description="Preparing report, archive, and event data." />;
+  }
 
   if (!snapshot) {
     return (
@@ -44,3 +51,4 @@ export async function CryptoHomePageContent(props: CryptoHomePageProps) {
     </main>
   );
 }
+

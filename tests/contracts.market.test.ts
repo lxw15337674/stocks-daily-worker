@@ -11,6 +11,7 @@ test("market contracts expose stable runtime keys and ranges", () => {
   assert.deepEqual(MARKET_INDEX_RANGES, ["1m", "3m", "1y"]);
   assert.equal(new Set(MARKET_INDEX_KEYS).size, MARKET_INDEX_KEYS.length);
   assert.ok(MARKET_INDEX_KEYS.includes("cn_sse"));
+  assert.ok(MARKET_INDEX_KEYS.includes("hk_hscei"));
   assert.ok(MARKET_INDEX_KEYS.includes("us_sp500"));
 });
 
@@ -54,3 +55,5 @@ test("market AI archive record shape can represent localized summaries and snaps
   assert.equal(sample.items[0].indexKey, "cn_sse");
   assert.equal(sample.items[0].isPrimary, true);
 });
+
+

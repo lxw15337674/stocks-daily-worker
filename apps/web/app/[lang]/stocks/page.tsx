@@ -1,20 +1,15 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useParams, useSearchParams } from "next/navigation";
 
 import HomePage from "@/components/stocks/pages/home-page";
-import type { Language } from "@/lib/i18n";
-import { buildAssetHomeMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildAssetHomeMetadata(lang, "stocks");
+export default function StocksHomePage() {
+  const params = useParams<{ lang?: string }>();
+  const searchParams = useSearchParams();
+  const lang = resolveLanguage(params?.lang);
+
+  return <HomePage lang={lang} date={searchParams.get("date") ?? undefined} />;
 }
 
-export default async function StocksHomePage(props: {
-  params: Promise<{ lang: Language }>;
-  searchParams: Promise<{ date?: string }>;
-}) {
-  const { lang } = await props.params;
-  return <HomePage lang={lang} searchParams={props.searchParams} />;
-}

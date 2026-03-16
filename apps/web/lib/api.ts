@@ -1,9 +1,6 @@
-import "server-only";
-import { headers } from "next/headers";
-import { resolveServerApiTarget } from "@/lib/api-target";
-import type { ApiTarget } from "@/lib/api-target";
-import { APP_ENV, DISABLE_DEV_CACHE, SSR_API_BASE_URL } from "@/lib/runtime-config";
-import { safeFetchJson } from "@/lib/server-fetch";
+import useSWR from "swr";
+
+import { clientFetchJson } from "@/lib/client-fetch";
 import type {
   LocalizedText,
   MarketAiSummary,
@@ -33,72 +30,6 @@ export type {
   StockListItem
 } from "@china-stocks/contracts";
 
-function joinApiUrl(target: ApiTarget, path: string): string {
-  return `${target.baseUrl}${target.pathPrefix}${path}`;
-}
-
-type ApiModule = "stocks" | "crypto" | "root";
-const IS_LOCAL_RUNTIME = String(APP_ENV).toLowerCase() === "local";
-
-async function resolveApiTarget(module: ApiModule = "stocks", includeCookies = false): Promise<ApiTarget> {
-  const emptyHeaders: Pick<Headers, "get"> = {
-    get(): string | null {
-      return null;
-    }
-  };
-
-  let requestHeaders: Pick<Headers, "get"> = emptyHeaders;
-  if (includeCookies) {
-    try {
-      requestHeaders = await headers();
-    } catch (error) {
-      console.warn(`[web][${module}-api] headers() unavailable; falling back to default target`, error);
-    }
-  } else if (IS_LOCAL_RUNTIME) {
-    try {
-      requestHeaders = await headers();
-    } catch (error) {
-      console.warn(`[web][${module}-api] headers() unavailable; local same-origin inference disabled`, error);
-    }
-  }
-
-  const defaultPathPrefix = module === "root" ? "/api/v1" : `/api/v1/${module}`;
-  return resolveServerApiTarget({
-    defaultBaseUrl: SSR_API_BASE_URL,
-    defaultPathPrefix,
-    headers: requestHeaders,
-    preferSameOriginInLocal: IS_LOCAL_RUNTIME
-  });
-}
-
-type FetchJsonOptions = {
-  revalidate?: number;
-  includeCookies?: boolean;
-  module?: ApiModule;
-};
-
-function buildApiRequestHeaders(target: ApiTarget, accept: string, includeCookies = false): Headers {
-  const requestHeaders = new Headers({ accept });
-  if (includeCookies && target.cookieHeader) {
-    requestHeaders.set("cookie", target.cookieHeader);
-  }
-  return requestHeaders;
-}
-
-async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T | null> {
-  const target = await resolveApiTarget(options.module, Boolean(options.includeCookies));
-  const forceNoStore = DISABLE_DEV_CACHE;
-  return safeFetchJson<T>(joinApiUrl(target, path), {
-    method: "GET",
-    next: forceNoStore ? { revalidate: 0 } : options.revalidate ? { revalidate: options.revalidate } : undefined,
-    cache: forceNoStore ? "no-store" : options.revalidate ? undefined : "no-store",
-    headers: buildApiRequestHeaders(target, "application/json", options.includeCookies)
-  }, {
-    logPrefix: `[web][${options.module ?? "stocks"}-api]`,
-    pathForLog: path
-  });
-}
-
 export type HomeBriefsResponse = {
   ok: boolean;
   items: {
@@ -107,9 +38,17 @@ export type HomeBriefsResponse = {
   };
 };
 
+function joinStocksApi(path: string): string {
+  return `/api/v1/stocks${path}`;
+}
+
+function joinRootApi(path: string): string {
+  return `/api/v1${path}`;
+}
+
 export async function fetchHomeBriefs(): Promise<HomeBriefsResponse["items"] | null> {
-  const result = await fetchJson<HomeBriefsResponse>("/home/briefs", { module: "root", revalidate: 300 });
-  return result?.items ?? null;
+  const result = await clientFetchJson<HomeBriefsResponse>(joinRootApi("/home/briefs"));
+  return result.items ?? null;
 }
 
 export async function fetchStockReportByDate(date: string): Promise<StockDailyReport | null> {
@@ -118,22 +57,31 @@ export async function fetchStockReportByDate(date: string): Promise<StockDailyRe
     return null;
   }
 
-  return fetchJson<StockDailyReport>(`/report-data/${encodeURIComponent(normalized)}`, {
-    module: "stocks",
-    revalidate: 900
-  });
+  try {
+    return await clientFetchJson<StockDailyReport>(joinStocksApi(`/report-data/${encodeURIComponent(normalized)}`));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchReportList(limit = 60): Promise<ReportListItem[]> {
-  const result = await fetchJson<ReportListResponse>(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`, {
-    revalidate: 300
-  });
-  return result?.items ?? [];
+  try {
+    const result = await clientFetchJson<ReportListResponse>(
+      joinStocksApi(`/reports?limit=${Math.max(1, Math.min(limit, 200))}`)
+    );
+    return result.items ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchStockList(): Promise<StockListItem[]> {
-  const result = await fetchJson<StockListResponse>("/stocks", { revalidate: 3600 });
-  return result?.items ?? [];
+  try {
+    const result = await clientFetchJson<StockListResponse>(joinStocksApi("/stocks"));
+    return result.items ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchStockDetail(symbol: string): Promise<StockDetailResult | null> {
@@ -141,7 +89,12 @@ export async function fetchStockDetail(symbol: string): Promise<StockDetailResul
   if (!normalized) {
     return null;
   }
-  return fetchJson<StockDetailResult>(`/stock/${encodeURIComponent(normalized)}`, { revalidate: 300 });
+
+  try {
+    return await clientFetchJson<StockDetailResult>(joinStocksApi(`/stock/${encodeURIComponent(normalized)}`));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchStockDetails(symbols: string[]): Promise<StockDetailResult[]> {
@@ -150,15 +103,21 @@ export async function fetchStockDetails(symbols: string[]): Promise<StockDetailR
     return [];
   }
 
-  const query = new URLSearchParams({
-    symbols: normalized.join(",")
-  });
-  const result = await fetchJson<StockDetailListResponse>(`/stocks/details?${query.toString()}`, { revalidate: 300 });
-  return result?.items ?? [];
+  try {
+    const query = new URLSearchParams({ symbols: normalized.join(",") });
+    const result = await clientFetchJson<StockDetailListResponse>(joinStocksApi(`/stocks/details?${query.toString()}`));
+    return result.items ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchStockIndicesLatest(): Promise<MarketIndexLatestResponse | null> {
-  return fetchJson<MarketIndexLatestResponse>("/indices/latest", { revalidate: 60 });
+  try {
+    return await clientFetchJson<MarketIndexLatestResponse>(joinStocksApi("/indices/latest"));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchStockIndicesHistory(
@@ -170,12 +129,21 @@ export async function fetchStockIndicesHistory(
   if (normalized.length > 0) {
     query.set("indexKeys", normalized.join(","));
   }
-  return fetchJson<MarketIndexHistoryResponse>(`/indices/history?${query.toString()}`, { revalidate: 300 });
+
+  try {
+    return await clientFetchJson<MarketIndexHistoryResponse>(joinStocksApi(`/indices/history?${query.toString()}`));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchStockIndicesSummaryLatest(): Promise<MarketAiSummary | null> {
-  const result = await fetchJson<MarketAiSummaryResponse>("/indices/summary/latest", { revalidate: 300 });
-  return result?.item ?? null;
+  try {
+    const result = await clientFetchJson<MarketAiSummaryResponse>(joinStocksApi("/indices/summary/latest"));
+    return result.item ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchStockIndicesSummaryByDate(date: string): Promise<MarketAiSummary | null> {
@@ -184,8 +152,59 @@ export async function fetchStockIndicesSummaryByDate(date: string): Promise<Mark
     return null;
   }
 
-  const result = await fetchJson<MarketAiSummaryResponse>(`/indices/summary/${encodeURIComponent(normalized)}`, {
-    revalidate: 3600
-  });
-  return result?.item ?? null;
+  try {
+    const result = await clientFetchJson<MarketAiSummaryResponse>(
+      joinStocksApi(`/indices/summary/${encodeURIComponent(normalized)}`)
+    );
+    return result.item ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function useHomeBriefs() {
+  return useSWR<HomeBriefsResponse["items"] | null>("home-briefs", fetchHomeBriefs);
+}
+
+export function useStockReportByDate(date: string | null) {
+  return useSWR<StockDailyReport | null>(date ? ["stocks-report-by-date", date] : null, () => fetchStockReportByDate(date ?? ""));
+}
+
+export function useReportList(limit = 60) {
+  return useSWR<ReportListItem[]>(["stocks-report-list", limit], () => fetchReportList(limit));
+}
+
+export function useStockList() {
+  return useSWR<StockListItem[]>("stocks-list", fetchStockList);
+}
+
+export function useStockDetail(symbol: string | null) {
+  return useSWR<StockDetailResult | null>(symbol ? ["stock-detail", symbol] : null, () => fetchStockDetail(symbol ?? ""));
+}
+
+export function useStockDetails(symbols: string[]) {
+  const normalized = Array.from(new Set(symbols.map((item) => item.trim()).filter((item) => item.length > 0)));
+  const key = normalized.length > 0 ? ["stock-details", normalized.join(",")] : null;
+  return useSWR<StockDetailResult[]>(key, () => fetchStockDetails(normalized));
+}
+
+export function useStockIndicesLatest() {
+  return useSWR<MarketIndexLatestResponse | null>("stock-indices-latest", fetchStockIndicesLatest);
+}
+
+export function useStockIndicesHistory(indexKeys: string[], range: MarketIndexRange) {
+  const normalized = Array.from(new Set(indexKeys.map((item) => item.trim()).filter((item) => item.length > 0)));
+  const key = ["stock-indices-history", range, normalized.join(",")];
+  return useSWR<MarketIndexHistoryResponse | null>(key, () => fetchStockIndicesHistory(normalized, range));
+}
+
+export function useStockIndicesSummaryLatest() {
+  return useSWR<MarketAiSummary | null>("stock-indices-summary-latest", fetchStockIndicesSummaryLatest);
+}
+
+export function useStockIndicesSummaryByDate(date: string | null) {
+  return useSWR<MarketAiSummary | null>(
+    date ? ["stock-indices-summary-by-date", date] : null,
+    () => fetchStockIndicesSummaryByDate(date ?? "")
+  );
 }

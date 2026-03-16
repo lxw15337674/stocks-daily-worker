@@ -1,28 +1,13 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import type { Metadata } from "next";
-
-import { notFound } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import { CryptoReportDatePageContent } from "@/components/crypto/report-date-page";
-import type { Language } from "@/lib/i18n";
-import { buildCryptoReportMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language; date: string }>;
-}): Promise<Metadata> {
-  const { lang, date } = await props.params;
-  return buildCryptoReportMetadata(lang, date);
-}
+export default function CryptoReportDatePage() {
+  const params = useParams<{ lang?: string; date?: string }>();
+  const lang = resolveLanguage(params?.lang);
 
-export default async function CryptoReportDatePage(props: {
-  params: Promise<{ lang: Language; date: string }>;
-}) {
-  const { lang, date } = await props.params;
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    notFound();
-  }
-
-  return <CryptoReportDatePageContent lang={lang} date={date} />;
+  return <CryptoReportDatePageContent lang={lang} date={params?.date ?? ""} />;
 }

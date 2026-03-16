@@ -1,22 +1,20 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import type { Metadata } from "next";
+import { useParams, useSearchParams } from "next/navigation";
 
 import { CryptoInstrumentPageContent } from "@/components/crypto/instrument-page";
-import type { Language } from "@/lib/i18n";
-import { buildCryptoInstrumentMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language; code: string }>;
-}): Promise<Metadata> {
-  const { lang, code } = await props.params;
-  return buildCryptoInstrumentMetadata(lang, code);
-}
+export default function CryptoInstrumentPage() {
+  const params = useParams<{ lang?: string; code?: string }>();
+  const searchParams = useSearchParams();
+  const lang = resolveLanguage(params?.lang);
 
-export default async function CryptoInstrumentPage(props: {
-  params: Promise<{ lang: Language; code: string }>;
-  searchParams: Promise<{ date?: string }>;
-}) {
-  const { lang, code } = await props.params;
-  return <CryptoInstrumentPageContent lang={lang} code={code} searchParams={props.searchParams} />;
+  return (
+    <CryptoInstrumentPageContent
+      lang={lang}
+      code={params?.code ?? ""}
+      date={searchParams.get("date") ?? undefined}
+    />
+  );
 }

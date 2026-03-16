@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { ChevronLeft, Globe2, LineChart, Newspaper } from "lucide-react";
 
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { MarketChartClient } from "@/components/stocks/market-chart-client";
 import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
 import {
@@ -20,18 +23,21 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { MarketAiSummary } from "@china-stocks/contracts";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath, stocksAdminPath, stocksMarketPath } from "@/lib/platform-routes";
-import { buildMarketPageSearch, loadMarketPageData } from "@/lib/stocks-market";
+import { buildMarketPageSearch, useMarketPageData } from "@/lib/stocks-market";
 
 type MarketPageProps = {
   lang?: Language;
-  searchParams?: Promise<{ range?: string; indexKeys?: string; summaryDate?: string }>;
+  range?: string;
+  indexKeys?: string;
+  summaryDate?: string;
 };
 
 function resolveSummaryText(
   lang: Language,
-  summary: Awaited<ReturnType<typeof loadMarketPageData>>["summary"]
+  summary: MarketAiSummary | null | undefined
 ): string | null {
   if (!summary) {
     return null;
@@ -40,13 +46,21 @@ function resolveSummaryText(
   return (lang === "zh" ? summary.summaryZh : summary.summaryEn) ?? summary.summaryZh ?? summary.summaryEn ?? null;
 }
 
-export default async function MarketPage(props: MarketPageProps) {
+export default function MarketPage(props: MarketPageProps) {
   const lang = props.lang ?? "zh";
   const t = getFixedT(lang, "stocks", "market");
   const commonT = getFixedT(lang, "common");
-  const searchParams = props.searchParams ? await props.searchParams : {};
-  const { history, initialRange, latest, requestedSummaryDate, selectedIndexKeys, summary } =
-    await loadMarketPageData(searchParams);
+  const { data, isLoading } = useMarketPageData({
+    range: props.range,
+    indexKeys: props.indexKeys,
+    summaryDate: props.summaryDate
+  });
+
+  if (!data || isLoading) {
+    return <RouteSegmentLoading title="Loading market" description={t("chartLoading")} />;
+  }
+
+  const { history, initialRange, latest, requestedSummaryDate, selectedIndexKeys, summary } = data;
 
   const summaryText = resolveSummaryText(lang, summary);
   const items = latest?.regions.flatMap((region) => region.items) ?? [];

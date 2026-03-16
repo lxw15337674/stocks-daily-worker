@@ -10,6 +10,7 @@ import type {
 export type TrackedMarketIndex = {
   indexKey: MarketIndexKey;
   symbol: string;
+  yahooSymbol?: string;
   region: MarketRegion;
   nameZh: string;
   nameEn: string;
@@ -60,6 +61,7 @@ const EASTMONEY_SECID_BY_INDEX_KEY: Partial<Record<MarketIndexKey, string>> = {
   cn_csi300: "1.000300",
   cn_szse: "0.399001",
   hk_hsi: "100.HSI",
+  hk_hscei: "100.HSCEI",
   hk_hstech: "116.03032"
 };
 
@@ -68,6 +70,7 @@ const SINA_SYMBOL_BY_INDEX_KEY: Partial<Record<MarketIndexKey, string>> = {
   cn_csi300: "sh000300",
   cn_szse: "sz399001",
   hk_hsi: "hkHSI",
+  hk_hscei: "hkHSCEI",
   hk_hstech: "hk03032"
 };
 
@@ -103,6 +106,15 @@ export const TRACKED_MARKET_INDICES: TrackedMarketIndex[] = [
     nameZh: "恒生指数",
     nameEn: "Hang Seng Index",
     isPrimary: true
+  },
+  {
+    indexKey: "hk_hscei",
+    symbol: "HSCEI",
+    yahooSymbol: "^HSCE",
+    region: "hk",
+    nameZh: "恒生中国企业指数",
+    nameEn: "Hang Seng China Enterprises Index",
+    isPrimary: false
   },
   {
     indexKey: "hk_hstech",
@@ -144,7 +156,7 @@ export async function fetchLatestMarketSnapshots(): Promise<MarketIndexSnapshot[
 }
 
 export async function fetchLatestMarketSnapshot(definition: TrackedMarketIndex): Promise<MarketIndexSnapshot | null> {
-  const endpoint = buildYahooChartUrl(definition.symbol, "5d");
+  const endpoint = buildYahooChartUrl(definition.yahooSymbol ?? definition.symbol, "5d");
 
   try {
     const response = await fetch(endpoint, {
@@ -202,7 +214,7 @@ export async function fetchMarketIndexHistorySeries(
   definition: TrackedMarketIndex,
   range: MarketIndexRange
 ): Promise<MarketIndexHistorySeries | null> {
-  const endpoint = buildYahooChartUrl(definition.symbol, HISTORY_RANGE_MAP[range]);
+  const endpoint = buildYahooChartUrl(definition.yahooSymbol ?? definition.symbol, HISTORY_RANGE_MAP[range]);
 
   try {
     const response = await fetch(endpoint, {
@@ -463,7 +475,7 @@ async function fetchSinaLatestVolume(indexKey: MarketIndexKey, symbol: string): 
 }
 
 function normalizeSinaVolume(indexKey: MarketIndexKey, fields: string[]): number | null {
-  if (indexKey === "hk_hsi" || indexKey === "hk_hstech") {
+  if (indexKey === "hk_hsi" || indexKey === "hk_hscei" || indexKey === "hk_hstech") {
     return parseNumericField(fields[12]);
   }
 

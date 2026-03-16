@@ -126,6 +126,7 @@ export const MARKET_INDEX_KEYS = [
   "us_nasdaq",
   "us_dow",
   "hk_hsi",
+  "hk_hscei",
   "hk_hstech",
   "cn_sse",
   "cn_csi300",

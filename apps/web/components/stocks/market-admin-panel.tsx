@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClientFetchError, clientFetchJson } from "@/lib/client-fetch";
 import type { Language } from "@/lib/i18n";
 import { stocksMarketPath } from "@/lib/platform-routes";
 import { formatMarketTimestamp } from "./market-utils";
@@ -31,21 +32,13 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/indices/summary/latest", {
-        cache: "no-store"
-      });
-      if (response.status === 401) {
+      const payload = await clientFetchJson<{ item?: MarketAiSummary | null }>("/api/indices/summary/latest");
+      setSummary(payload.item ?? null);
+    } catch (cause) {
+      if (cause instanceof ClientFetchError && cause.status === 401) {
         onUnauthorized?.();
         return;
       }
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || t("admin.marketPanelLoadFailed"));
-      }
-
-      const payload = (await response.json()) as { item?: MarketAiSummary | null };
-      setSummary(payload.item ?? null);
-    } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("admin.marketPanelLoadFailed"));
     } finally {
       setLoading(false);
@@ -62,23 +55,16 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
     setError("");
     setSuccessMessage("");
     try {
-      const response = await fetch("/api/indices/admin/run", {
-        method: "GET",
-        cache: "no-store"
+      const payload = await clientFetchJson<MarketIndicesAdminRunResponse>("/api/indices/admin/run", {
+        method: "GET"
       });
-      if (response.status === 401) {
-        onUnauthorized?.();
-        return;
-      }
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || t("admin.marketPanelRunFailed"));
-      }
-
-      const payload = (await response.json()) as MarketIndicesAdminRunResponse;
       setSummary(payload.summary);
       setSuccessMessage(t("admin.marketPanelRunSuccess", { date: payload.summaryDate }));
     } catch (cause) {
+      if (cause instanceof ClientFetchError && cause.status === 401) {
+        onUnauthorized?.();
+        return;
+      }
       setError(cause instanceof Error ? cause.message : t("admin.marketPanelRunFailed"));
     } finally {
       setRunning(false);

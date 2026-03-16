@@ -1,3 +1,5 @@
+import useSWR from "swr";
+
 import {
   buildMarketPageSearch,
   loadHomeMarketPulse as loadHomeMarketPulseCore,
@@ -37,4 +39,15 @@ export async function loadMarketPageData(query: MarketPageQuery) {
 
 export async function loadHomeMarketPulse() {
   return loadHomeMarketPulseCore(defaultDeps);
+}
+
+export function useMarketPageData(query: MarketPageQuery) {
+  const range = query.range ?? "";
+  const indexKeys = query.indexKeys ?? "";
+  const summaryDate = query.summaryDate ?? "";
+  return useSWR(["stocks-market-page-data", range, indexKeys, summaryDate], () => loadMarketPageData(query));
+}
+
+export function useHomeMarketPulse() {
+  return useSWR("stocks-home-market-pulse", loadHomeMarketPulse);
 }

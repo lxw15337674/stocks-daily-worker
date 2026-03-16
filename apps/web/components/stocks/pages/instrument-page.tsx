@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -8,9 +11,10 @@ import {
   TrendingDown,
   TrendingUp
 } from "lucide-react";
-import { notFound } from "next/navigation";
 
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
+import { NotFoundView } from "@/components/platform/not-found-view";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { InstrumentCompareSelect } from "@/components/stocks/instrument-compare-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,10 +22,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  fetchStockDetail,
-  fetchStockDetails,
-  fetchStockList,
-  fetchStockReportByDate,
+  useStockDetail,
+  useStockDetails,
+  useStockList,
+  useStockReportByDate,
   type LocalizedText,
   type StockDetailResult,
   type StockHistoryPoint
@@ -38,8 +42,8 @@ import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stoc
 
 type StockDetailPageProps = {
   lang?: Language;
-  params: Promise<{ symbol: string }>;
-  searchParams: Promise<{ compare?: string }>;
+  symbol: string;
+  compare?: string;
 };
 
 type ComparisonRow = {
@@ -266,44 +270,61 @@ function buildPoolRows(
     .filter((row): row is RankedPoolRow => row !== null);
 }
 
-export default async function StockDetailPage(props: StockDetailPageProps) {
+export default function StockDetailPage(props: StockDetailPageProps) {
   const lang = props.lang ?? "zh";
   const t = getFixedT(lang, "stocks", "instrument");
-  const { symbol: rawSymbol } = await props.params;
-  const { compare: rawCompare } = await props.searchParams;
-  const symbol = rawSymbol.trim();
-  const compareSymbol = rawCompare?.trim() || "";
+  const symbol = props.symbol.trim();
+  const compareSymbol = props.compare?.trim() || "";
+  if (!symbol) {
+    return <NotFoundView lang={lang} />;
+  }
+
   const normalizedCompareSymbol =
     compareSymbol && compareSymbol.toUpperCase() !== symbol.toUpperCase() ? compareSymbol : "";
 
-  const [detail, stockItems, compareTarget] = await Promise.all([
-    fetchStockDetail(symbol),
-    fetchStockList(),
-    normalizedCompareSymbol ? fetchStockDetail(normalizedCompareSymbol) : Promise.resolve(null)
-  ]);
-  if (!detail) {
-    notFound();
-  }
-  const recentNewsSummary = resolveCurrentLanguageText(detail.latestAiSummary, lang);
+  const { data: detail, isLoading: isDetailLoading } = useStockDetail(symbol);
+  const { data: stockItems = [], isLoading: isStockItemsLoading } = useStockList();
+  const { data: compareTarget, isLoading: isCompareLoading } = useStockDetail(normalizedCompareSymbol || null);
 
-  let poolRows: RankedPoolRow[] = [];
-  if (detail.latestReportDateEt) {
-    const latestReport = await fetchStockReportByDate(detail.latestReportDateEt);
-    if (latestReport) {
-      const newsCountBySymbol = new Map(latestReport.newsGroups.map((item) => [item.symbol, item.items.length]));
-      const parsedTable = buildParsedRowsFromStockReport(latestReport, lang);
-      const tableSymbols = Array.from(
+  if (isDetailLoading || isStockItemsLoading || isCompareLoading) {
+    return <RouteSegmentLoading title="Loading stock detail" description={t("loading")} />;
+  }
+
+  if (!detail) {
+    return <NotFoundView lang={lang} />;
+  }
+
+  const recentNewsSummary = resolveCurrentLanguageText(detail.latestAiSummary, lang);
+  const { data: latestReport, isLoading: isLatestReportLoading } = useStockReportByDate(detail.latestReportDateEt ?? null);
+  const parsedTable = useMemo(
+    () => (latestReport ? buildParsedRowsFromStockReport(latestReport, lang) : []),
+    [latestReport, lang]
+  );
+  const tableSymbols = useMemo(
+    () =>
+      Array.from(
         new Set(
           parsedTable
             .map((row) => row.symbol)
             .filter((item): item is string => typeof item === "string" && item.length > 0)
         )
-      );
-      const poolDetails = await fetchStockDetails(tableSymbols);
-      const detailBySymbol = new Map(poolDetails.map((item) => [item.stock.symbol, item]));
-      poolRows = buildPoolRows(detailBySymbol, parsedTable, newsCountBySymbol);
-    }
+      ),
+    [parsedTable]
+  );
+  const { data: poolDetails = [], isLoading: isPoolDetailsLoading } = useStockDetails(tableSymbols);
+
+  if (isLatestReportLoading || isPoolDetailsLoading) {
+    return <RouteSegmentLoading title="Loading stock context" description={t("loading")} />;
   }
+
+  const poolRows: RankedPoolRow[] = useMemo(() => {
+    if (!latestReport) {
+      return [];
+    }
+    const newsCountBySymbol = new Map(latestReport.newsGroups.map((item) => [item.symbol, item.items.length]));
+    const detailBySymbol = new Map(poolDetails.map((item) => [item.stock.symbol, item]));
+    return buildPoolRows(detailBySymbol, parsedTable, newsCountBySymbol);
+  }, [latestReport, poolDetails, parsedTable]);
 
   const currentPoolRow = poolRows.find((row) => row.symbol === detail.stock.symbol) ?? null;
   const relativeMetrics = currentPoolRow

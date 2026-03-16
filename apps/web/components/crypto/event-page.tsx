@@ -1,12 +1,15 @@
+"use client";
+
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusCard } from "@/components/platform/status-card";
 import { getChangeTextClass } from "@/lib/change-color";
-import { fetchCoins, fetchNewsEventDetail } from "@/lib/crypto/api";
+import { useCoins, useNewsEventDetail } from "@/lib/crypto/api";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetArchivePath, assetInstrumentPath } from "@/lib/platform-routes";
@@ -26,11 +29,17 @@ function renderStance(value: "bullish" | "bearish" | "neutral", t: (key: string)
   return t("crypto.stanceNeutral");
 }
 
-export async function CryptoEventPageContent(props: CryptoEventPageProps) {
+export function CryptoEventPageContent(props: CryptoEventPageProps) {
   const { clusterId, lang } = props;
   const t = getFixedT(lang, "common");
 
-  const [detail, coins] = await Promise.all([fetchNewsEventDetail(clusterId), fetchCoins()]);
+  const normalizedClusterId = Number.isInteger(clusterId) && clusterId > 0 ? clusterId : null;
+  const { data: detail, isLoading: isDetailLoading } = useNewsEventDetail(normalizedClusterId);
+  const { data: coins = [], isLoading: isCoinsLoading } = useCoins();
+
+  if (isDetailLoading || isCoinsLoading) {
+    return <RouteSegmentLoading title="Loading event" description={t("loading")} />;
+  }
 
   if (!detail) {
     return <StatusCard title={t("crypto.eventDetailTitle")} body={t("crypto.eventNotFound")} />;

@@ -1,19 +1,13 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useParams } from "next/navigation";
 
 import ArchivePage from "@/components/stocks/pages/archive-page";
-import type { Language } from "@/lib/i18n";
-import { buildAssetArchiveMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildAssetArchiveMetadata(lang, "stocks");
-}
-
-export default async function StocksArchivePage(props: {
-  params: Promise<{ lang: Language }>;
-}) {
-  const { lang } = await props.params;
+export default function StocksArchivePage() {
+  const params = useParams<{ lang?: string }>();
+  const lang = resolveLanguage(params?.lang);
   return <ArchivePage lang={lang} />;
 }
+

@@ -1,20 +1,13 @@
-import type { Metadata } from "next";
+"use client";
 
-import type { Language } from "@/lib/i18n";
-import { buildStocksAdminMetadata } from "@/lib/route-metadata";
+import { useParams } from "next/navigation";
+
 import AdminPage from "@/components/stocks/pages/admin-page";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildStocksAdminMetadata(lang);
-}
-
-export default async function LocalizedStocksAdminPage(props: {
-  params: Promise<{ lang: Language }>;
-}) {
-  const { lang } = await props.params;
-
+export default function LocalizedStocksAdminPage() {
+  const params = useParams<{ lang?: string }>();
+  const lang = resolveLanguage(params?.lang);
   return <AdminPage lang={lang} />;
 }
+

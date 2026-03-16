@@ -1,20 +1,22 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useParams, useSearchParams } from "next/navigation";
 
 import MarketPage from "@/components/stocks/pages/market-page";
-import type { Language } from "@/lib/i18n";
-import { buildStocksMarketMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildStocksMarketMetadata(lang);
+export default function StocksMarketPage() {
+  const params = useParams<{ lang?: string }>();
+  const searchParams = useSearchParams();
+  const lang = resolveLanguage(params?.lang);
+
+  return (
+    <MarketPage
+      lang={lang}
+      range={searchParams.get("range") ?? undefined}
+      indexKeys={searchParams.get("indexKeys") ?? undefined}
+      summaryDate={searchParams.get("summaryDate") ?? undefined}
+    />
+  );
 }
 
-export default async function StocksMarketPage(props: {
-  params: Promise<{ lang: Language }>;
-  searchParams: Promise<{ range?: string; indexKeys?: string; summaryDate?: string }>;
-}) {
-  const { lang } = await props.params;
-  return <MarketPage lang={lang} searchParams={props.searchParams} />;
-}

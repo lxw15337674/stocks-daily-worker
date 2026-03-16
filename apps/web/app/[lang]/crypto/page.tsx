@@ -1,21 +1,13 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import type { Metadata } from "next";
+import { useParams } from "next/navigation";
 
 import { CryptoHomePageContent } from "@/components/crypto/home-page";
-import type { Language } from "@/lib/i18n";
-import { buildAssetHomeMetadata } from "@/lib/route-metadata";
+import { resolveLanguage } from "@/lib/i18n";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildAssetHomeMetadata(lang, "crypto");
-}
-
-export default async function CryptoHomePage(props: {
-  params: Promise<{ lang: Language }>;
-}) {
-  const { lang } = await props.params;
+export default function CryptoHomePage() {
+  const params = useParams<{ lang?: string }>();
+  const lang = resolveLanguage(params?.lang);
   return <CryptoHomePageContent lang={lang} />;
 }
+

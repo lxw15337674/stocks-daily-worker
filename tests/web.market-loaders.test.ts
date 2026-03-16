@@ -37,7 +37,7 @@ function createSummary(date: string): MarketAiSummary {
 }
 
 test("parseMarketIndexKeys filters unknown keys and falls back to defaults", () => {
-  assert.deepEqual(parseMarketIndexKeys("cn_sse,us_sp500,unknown,cn_sse"), ["cn_sse", "us_sp500"]);
+  assert.deepEqual(parseMarketIndexKeys("cn_sse,hk_hscei,us_sp500,unknown,cn_sse"), ["cn_sse", "hk_hscei", "us_sp500"]);
   assert.deepEqual(parseMarketIndexKeys(undefined), ["cn_sse", "hk_hsi", "us_sp500"]);
   assert.equal(resolveMarketIndexRange("bad"), "3m");
 });
@@ -117,3 +117,4 @@ test("loadHomeMarketPulse fetches homepage market pulse data", async () => {
   assert.equal(result.latest, latest);
   assert.equal(result.summary, summary);
 });
+

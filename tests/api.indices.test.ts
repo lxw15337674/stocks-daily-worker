@@ -101,9 +101,12 @@ test("getLiveMarketIndicesLatest returns grouped region snapshots", async (t) =>
     ["cn", "hk", "us"]
   );
   assert.equal(result.regions[0].items.length, 3);
-  assert.equal(result.regions[1].items.length, 2);
+  assert.equal(result.regions[1].items.length, 3);
   assert.equal(result.regions[2].items.length, 3);
   assert.equal(result.regions[0].items[0].indexKey, "cn_sse");
+  assert.equal(result.regions[1].items[0].indexKey, "hk_hsi");
+  assert.equal(result.regions[1].items[1].indexKey, "hk_hscei");
+  assert.equal(result.regions[1].items[1].symbol, "HSCEI");
   assert.equal(result.regions[2].items[0].indexKey, "us_sp500");
   assert.equal(result.regions[0].items[0].price, 105);
   assert.equal(result.regions[0].items[0].previousClose, 100);
@@ -381,3 +384,29 @@ test("getLiveMarketIndicesHistory for hk_hstech uses 3032.HK and returns a valid
   assert.ok(result.series[0].points.length >= 2);
   assert.deepEqual(requestedSymbols, ["3032.HK"]);
 });
+
+
+test("getLiveMarketIndicesLatest uses ^HSCE upstream while exposing HSCEI symbol", async (t) => {
+  const requestedSymbols: string[] = [];
+  globalThis.fetch = async (input) => {
+    const chartRequest = parseChartRequest(input);
+    if (chartRequest) {
+      requestedSymbols.push(chartRequest.symbol);
+      return Response.json(createChartPayload([100, 101], "2026-03-12T00:00:00Z"));
+    }
+
+    return Response.json({ data: { klines: [] } });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await getLiveMarketIndicesLatest();
+  const hscei = result.regions.flatMap((region) => region.items).find((item) => item.indexKey === "hk_hscei");
+
+  assert.ok(hscei);
+  assert.equal(hscei?.symbol, "HSCEI");
+  assert.equal(requestedSymbols.includes("^HSCE"), true);
+  assert.equal(requestedSymbols.includes("HSCEI"), false);
+});
+

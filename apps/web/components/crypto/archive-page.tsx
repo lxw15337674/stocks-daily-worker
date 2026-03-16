@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 
 import { ArchiveTableCard } from "@/components/platform/archive-table-card";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchReports } from "@/lib/crypto/api";
+import { useReports } from "@/lib/crypto/api";
 import { formatCompactCurrency, formatDate, formatDateTime } from "@/lib/crypto/format";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetReportPath } from "@/lib/platform-routes";
@@ -11,11 +14,15 @@ type CryptoArchivePageProps = {
   lang: Language;
 };
 
-export async function CryptoArchivePageContent(props: CryptoArchivePageProps) {
+export function CryptoArchivePageContent(props: CryptoArchivePageProps) {
   const { lang } = props;
   const t = getFixedT(lang, "common");
   const channelT = getFixedT(lang, "channel", "crypto");
-  const reports = await fetchReports(120);
+  const { data: reports = [], isLoading } = useReports(120);
+
+  if (isLoading) {
+    return <RouteSegmentLoading title="Loading crypto archive" description={channelT("loading")} />;
+  }
 
   return (
     <main className="page-shell">
@@ -40,7 +47,10 @@ export async function CryptoArchivePageContent(props: CryptoArchivePageProps) {
               {reports.map((report) => (
                 <TableRow key={report.reportDate}>
                   <TableCell>
-                    <Link href={assetReportPath(lang, "crypto", report.reportDate)} className="font-medium text-primary hover:underline">
+                    <Link
+                      href={assetReportPath(lang, "crypto", report.reportDate)}
+                      className="font-medium text-primary hover:underline"
+                    >
                       {formatDate(report.reportDate, lang)}
                     </Link>
                   </TableCell>
@@ -62,3 +72,4 @@ export async function CryptoArchivePageContent(props: CryptoArchivePageProps) {
     </main>
   );
 }
+

@@ -1,16 +1,19 @@
+"use client";
+
 import Link from "next/link";
 
 import { NewsSectionCard } from "@/components/crypto/news-section-card";
 import { CryptoInstrumentDateForm } from "@/components/crypto/instrument-date-form";
 import { HeroPanel } from "@/components/platform/hero-panel";
 import { MetricCard, MetricGrid } from "@/components/platform/metric-grid";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { StatusCard } from "@/components/platform/status-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getChangeTextClass } from "@/lib/change-color";
-import { fetchCoinDetail, fetchCoinNews, fetchMacroSnapshot } from "@/lib/crypto/api";
+import { useCoinDetail, useCoinNews, useMacroSnapshot } from "@/lib/crypto/api";
 import { formatCompactCurrency, formatDate, formatDateTime, formatPrice, formatShare, formatSignedPercent } from "@/lib/crypto/format";
 import { isValidReportDate } from "@/lib/date";
 import { getFixedT, type Language } from "@/lib/i18n";
@@ -19,7 +22,7 @@ import { assetEventPath } from "@/lib/platform-routes";
 type CryptoInstrumentPageProps = {
   lang: Language;
   code: string;
-  searchParams: Promise<{ date?: string }>;
+  date?: string;
 };
 
 const ANCHOR_COPY = {
@@ -49,11 +52,15 @@ function formatOptionalSignedPercent(value: number | null): string {
   return value === null ? "-" : formatSignedPercent(value);
 }
 
-export async function CryptoInstrumentPageContent(props: CryptoInstrumentPageProps) {
+export function CryptoInstrumentPageContent(props: CryptoInstrumentPageProps) {
   const { code, lang } = props;
   const t = getFixedT(lang, "common");
-  const { date: rawDate } = await props.searchParams;
-  const detail = await fetchCoinDetail(code);
+  const rawDate = props.date;
+  const { data: detail, isLoading: isDetailLoading } = useCoinDetail(code);
+
+  if (isDetailLoading) {
+    return <RouteSegmentLoading title="Loading crypto instrument" description={t("loading")} />;
+  }
 
   if (!detail) {
     return <StatusCard title={code.toUpperCase()} body={t("noData")} />;
@@ -66,12 +73,12 @@ export async function CryptoInstrumentPageContent(props: CryptoInstrumentPagePro
       ? requestedDate
       : defaultReportDate;
 
-  const [newsItems, macro] = selectedReportDate
-    ? await Promise.all([
-        fetchCoinNews(code, 8, 72, selectedReportDate),
-        fetchMacroSnapshot(selectedReportDate)
-      ])
-    : [[], null];
+  const { data: newsItems = [], isLoading: isNewsLoading } = useCoinNews(code, 8, 72, selectedReportDate);
+  const { data: macro, isLoading: isMacroLoading } = useMacroSnapshot(selectedReportDate);
+
+  if (isNewsLoading || isMacroLoading) {
+    return <RouteSegmentLoading title="Loading coin context" description={t("loading")} />;
+  }
 
   const name = lang === "zh" ? detail.coin.nameZh : detail.coin.nameEn;
   const corePosition = lang === "zh" ? detail.coin.corePositionZh : detail.coin.corePositionEn;

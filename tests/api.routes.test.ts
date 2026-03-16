@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import axios from "axios";
 
 import worker from "../apps/api/src/index.ts";
 import { trackSchedulerRun, type SchedulerStatusBucket } from "../apps/api/src/scheduler-status.ts";
@@ -56,6 +57,8 @@ type TestEnv = {
 };
 
 const originalFetch = globalThis.fetch;
+const originalAxiosGet = axios.get;
+const originalAxiosPost = axios.post;
 
 function createYahooChartPayload() {
   const startTimestamp = Math.floor(new Date("2026-03-10T00:00:00Z").getTime() / 1000);
@@ -152,6 +155,76 @@ function installStocksRunFetchMock(aiContent: string) {
 
     return new Response("not found", { status: 404 });
   };
+
+  Object.defineProperty(axios, "get", {
+    configurable: true,
+    writable: true,
+    value: async (url: string) => {
+      if (url.includes("query1.finance.yahoo.com/v8/finance/chart/")) {
+        return {
+          data: createYahooChartPayload(),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config: {}
+        };
+      }
+
+      if (url.includes("news.google.com/rss/search")) {
+        return {
+          data: createGoogleNewsRss("Alibaba earnings update keeps AI and cloud focus in view"),
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "application/rss+xml; charset=utf-8"
+          },
+          config: {}
+        };
+      }
+
+      throw new Error(`unexpected axios.get url in stocks run test: ${url}`);
+    }
+  });
+
+  Object.defineProperty(axios, "post", {
+    configurable: true,
+    writable: true,
+    value: async (url: string) => {
+      if (url.includes("/v1/chat/completions") || url.includes("/chat/completions")) {
+        return {
+          data: {
+            choices: [
+              {
+                message: {
+                  content: aiContent
+                }
+              }
+            ]
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config: {}
+        };
+      }
+
+      throw new Error(`unexpected axios.post url in stocks run test: ${url}`);
+    }
+  });
+}
+
+function restoreStocksRunHttpMocks() {
+  globalThis.fetch = originalFetch;
+  Object.defineProperty(axios, "get", {
+    configurable: true,
+    writable: true,
+    value: originalAxiosGet
+  });
+  Object.defineProperty(axios, "post", {
+    configurable: true,
+    writable: true,
+    value: originalAxiosPost
+  });
 }
 
 async function request(path: string, init: RequestInit = {}, env = createEnv()): Promise<Response> {
@@ -326,7 +399,7 @@ test("crypto auxiliary endpoints return stable payload shapes for aliases and re
 test("stocks run returns the new morning brief field when AI output is valid", async (t) => {
   installStocksRunFetchMock(createValidMorningBrief());
   t.after(() => {
-    globalThis.fetch = originalFetch;
+    restoreStocksRunHttpMocks();
   });
 
   const env = createEnv(new FakeR2Bucket(), {
@@ -362,7 +435,7 @@ test("stocks run returns the new morning brief field when AI output is valid", a
 test("stocks run falls back when the AI morning brief violates guardrails", async (t) => {
   installStocksRunFetchMock("建议买入科技龙头，预计指数将会继续上涨，相关个股值得关注。");
   t.after(() => {
-    globalThis.fetch = originalFetch;
+    restoreStocksRunHttpMocks();
   });
 
   const env = createEnv(new FakeR2Bucket(), {

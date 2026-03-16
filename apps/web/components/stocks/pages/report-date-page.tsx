@@ -1,21 +1,36 @@
-import { notFound, redirect } from "next/navigation";
+"use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { NotFoundView } from "@/components/platform/not-found-view";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { isValidReportDate } from "@/lib/date";
 import { assetHomePath } from "@/lib/platform-routes";
 import type { Language } from "@/lib/i18n";
 
 type ReportDatePageProps = {
   lang?: Language;
-  params: Promise<{ date: string }>;
+  date: string;
 };
 
-export default async function ReportDatePage(props: ReportDatePageProps) {
+export default function ReportDatePage(props: ReportDatePageProps) {
+  const router = useRouter();
   const lang = props.lang ?? "zh";
-  const { date: rawDate } = await props.params;
-  const date = rawDate?.trim();
+  const date = props.date?.trim();
+
+  useEffect(() => {
+    if (!date || !isValidReportDate(date)) {
+      return;
+    }
+
+    router.replace(`${assetHomePath(lang, "stocks")}?date=${encodeURIComponent(date)}`);
+  }, [date, lang, router]);
+
   if (!date || !isValidReportDate(date)) {
-    notFound();
+    return <NotFoundView lang={lang} />;
   }
 
-  redirect(`${assetHomePath(lang, "stocks")}?date=${encodeURIComponent(date)}`);
+  return <RouteSegmentLoading title="Redirecting" description="Opening the requested report date." />;
 }
+

@@ -1,17 +1,23 @@
-import { notFound } from "next/navigation";
+"use client";
+
+import { useParams } from "next/navigation";
 
 import { I18nProvider } from "@/components/providers/i18n-provider";
 import { SiteHeader } from "@/components/site-header";
-import { isLanguage } from "@/lib/i18n";
+import { NotFoundView } from "@/components/platform/not-found-view";
+import { isLanguage, resolveLanguage } from "@/lib/i18n";
 
-export default async function LocalizedLayout(props: {
-  children: React.ReactNode;
-  params: Promise<{ lang: string }>;
-}) {
-  const { lang } = await props.params;
+export default function LocalizedLayout(props: { children: React.ReactNode }) {
+  const params = useParams<{ lang?: string }>();
+  const rawLang = params?.lang ?? "";
+  const lang = resolveLanguage(rawLang);
 
-  if (!isLanguage(lang)) {
-    notFound();
+  if (!isLanguage(rawLang)) {
+    return (
+      <I18nProvider lang={lang}>
+        <NotFoundView lang={lang} />
+      </I18nProvider>
+    );
   }
 
   return (
@@ -21,3 +27,4 @@ export default async function LocalizedLayout(props: {
     </I18nProvider>
   );
 }
+

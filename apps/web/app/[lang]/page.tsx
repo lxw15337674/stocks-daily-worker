@@ -1,5 +1,7 @@
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
 
 import { AssetAiSummary } from "@/components/platform/asset-ai-summary";
 import { HeroPanel } from "@/components/platform/hero-panel";
@@ -7,28 +9,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { fetchHomeBriefs } from "@/lib/api";
+import { useHomeBriefs } from "@/lib/api";
 import { getLocalizedAssetRegistry } from "@/lib/assets";
-import { getFixedT, type Language } from "@/lib/i18n";
+import { getFixedT, resolveLanguage } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
-import { buildPlatformMetadata } from "@/lib/route-metadata";
 
-export async function generateMetadata(props: {
-  params: Promise<{ lang: Language }>;
-}): Promise<Metadata> {
-  const { lang } = await props.params;
-  return buildPlatformMetadata(lang);
-}
-
-export default async function PlatformHomePage(props: {
-  params: Promise<{ lang: Language }>;
-}) {
-  const { lang } = await props.params;
+export default function PlatformHomePage() {
+  const params = useParams<{ lang?: string }>();
+  const lang = resolveLanguage(params?.lang);
   const t = getFixedT(lang, "common");
   const assets = getLocalizedAssetRegistry(lang);
+  const { data: briefs } = useHomeBriefs();
 
-  // Fetch all asset summaries in a single aggregate API call
-  const briefs = await fetchHomeBriefs();
   const getSummary = (key: string) => {
     if (key === "stocks") return briefs?.stocks?.[lang] ?? null;
     if (key === "crypto") return briefs?.crypto?.[lang] ?? null;
@@ -73,3 +65,4 @@ export default async function PlatformHomePage(props: {
     </main>
   );
 }
+

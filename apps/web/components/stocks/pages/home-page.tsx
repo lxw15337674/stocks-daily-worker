@@ -1,26 +1,30 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
 import { StocksHomeDateToolbar } from "@/components/stocks-home-date-toolbar";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
 import { HomeContentTabs } from "@/components/home-content-tabs";
 import {
-  fetchReportList,
-  fetchStockDetails,
-  fetchStockList,
-  fetchStockReportByDate
+  useReportList,
+  useStockDetails,
+  useStockList,
+  useStockReportByDate
 } from "@/lib/api";
 import { addDaysToReportDate, isValidReportDate, toReadableDate } from "@/lib/date";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath, assetInstrumentPath, stocksMarketPath } from "@/lib/platform-routes";
-import { loadHomeMarketPulse } from "@/lib/stocks-market";
+import { useHomeMarketPulse } from "@/lib/stocks-market";
 import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stocks-report";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
 
 type HomePageProps = {
   lang?: Language;
-  searchParams: Promise<{ date?: string }>;
+  date?: string;
 };
 
 function getTodayEtDateString(): string {
@@ -114,25 +118,36 @@ function countRecentNewsByDays(publishedAtValues: string[], reportDate: string, 
   }).length;
 }
 
-export default async function HomePage(props: HomePageProps) {
+export default function HomePage(props: HomePageProps) {
   const lang = props.lang ?? "zh";
   const channelT = getFixedT(lang, "channel", "stocks");
   const stocksT = getFixedT(lang, "stocks", "home");
-  const { date: queryDateRaw } = await props.searchParams;
-  const queryDate = queryDateRaw?.trim() ?? "";
-
-  const historyPromise = fetchReportList(120);
-  const stockItemsPromise = fetchStockList();
-  const marketPulsePromise = loadHomeMarketPulse();
-  const history = await historyPromise;
+  const queryDate = props.date?.trim() ?? "";
+  const { data: history = [], isLoading: isHistoryLoading } = useReportList(120);
+  const { data: stockItems = [], isLoading: isStockItemsLoading } = useStockList();
+  const { data: marketPulse, isLoading: isMarketPulseLoading } = useHomeMarketPulse();
 
   const date = isValidReportDate(queryDate) ? queryDate : history[0]?.reportDateEt ?? getTodayEtDateString();
+  const { data: report, isLoading: isReportLoading } = useStockReportByDate(date);
 
-  const [report, stockItems, marketPulse] = await Promise.all([
-    fetchStockReportByDate(date),
-    stockItemsPromise,
-    marketPulsePromise
-  ]);
+  const reportRows = useMemo(() => (report ? buildParsedRowsFromStockReport(report, lang) : []), [report, lang]);
+  const tableSymbols = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          reportRows
+            .map((row) => row.symbol)
+            .filter((symbol): symbol is string => typeof symbol === "string" && symbol.length > 0)
+        )
+      ),
+    [reportRows]
+  );
+  const { data: stockDetails = [], isLoading: isStockDetailsLoading } = useStockDetails(tableSymbols);
+
+  if (isHistoryLoading || isStockItemsLoading || isMarketPulseLoading || isReportLoading || isStockDetailsLoading || !marketPulse) {
+    return <RouteSegmentLoading title="Loading stocks" description={channelT("loading")} />;
+  }
+
   if (!report) {
     return (
       <StatusCard title={channelT("missingReportTitle")} body={channelT("missingReportDescription")}>
@@ -145,17 +160,7 @@ export default async function HomePage(props: HomePageProps) {
 
   const previousDate = addDaysToReportDate(date, -1);
   const nextDate = addDaysToReportDate(date, 1);
-  const reportRows = buildParsedRowsFromStockReport(report, lang);
   const stockItemBySymbol = new Map(stockItems.map((item) => [item.symbol, item]));
-
-  const tableSymbols = Array.from(
-    new Set(
-      reportRows
-        .map((row) => row.symbol)
-        .filter((symbol): symbol is string => typeof symbol === "string" && symbol.length > 0)
-    )
-  );
-  const stockDetails = await fetchStockDetails(tableSymbols);
   const detailBySymbol = new Map(stockDetails.map((detail) => [detail.stock.symbol, detail]));
   const streakBySymbol = new Map(
     tableSymbols.map((symbol) => [symbol, calculateLatestStreak((detailBySymbol.get(symbol)?.history ?? []).map((item) => item.changePct))])

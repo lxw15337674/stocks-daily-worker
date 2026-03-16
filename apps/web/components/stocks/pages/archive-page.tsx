@@ -1,9 +1,12 @@
+"use client";
+
 import Link from "next/link";
 
 import { ArchiveTableCard } from "@/components/platform/archive-table-card";
+import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchReportList } from "@/lib/api";
+import { useReportList } from "@/lib/api";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath } from "@/lib/platform-routes";
 
@@ -11,11 +14,15 @@ type ArchivePageProps = {
   lang?: Language;
 };
 
-export default async function ArchivePage(props: ArchivePageProps) {
+export default function ArchivePage(props: ArchivePageProps) {
   const lang = props.lang ?? "zh";
   const t = getFixedT(lang, "common");
   const channelT = getFixedT(lang, "channel", "stocks");
-  const reports = await fetchReportList(200);
+  const { data: reports = [], isLoading } = useReportList(200);
+
+  if (isLoading) {
+    return <RouteSegmentLoading title="Loading stocks archive" description={t("loading")} />;
+  }
 
   return (
     <main className="page-shell">
