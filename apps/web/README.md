@@ -18,22 +18,22 @@ It now lives inside the workspace monorepo at `apps/web`.
 From the repository root:
 
 ```bash
-bun run dev:web
-bun run check:web
-bun run deploy:web
+pnpm dev:web
+pnpm check:web
+pnpm deploy:web
 ```
 
 From this directory:
 
 ```bash
-bun run dev
-bun run check
-bun run build
-bun run deploy
+pnpm dev
+pnpm check
+pnpm build
+pnpm deploy
 ```
 
-`bun run deploy` now builds locally and then calls Wrangler via
-`bunx wrangler`, so Cloudflare CLI usage stays centralized at the
+`pnpm deploy` now builds locally and then calls Wrangler via
+`pnpm exec wrangler`, so Cloudflare CLI usage stays centralized at the
 workspace root.
 
 ## Environment Config
@@ -42,7 +42,7 @@ Web runtime config is now split explicitly between local and remote modes.
 
 - `wrangler.local.jsonc` + `lib/runtime-config.local.ts` are used for local development
 - `wrangler.remote.jsonc` + `lib/runtime-config.remote.ts` are used for build/deploy
-- `wrangler.jsonc` + `lib/runtime-config.ts` are the active generated copies switched by `bun ../../scripts/select-web-config.ts <local|remote>`
+- `wrangler.jsonc` + `lib/runtime-config.ts` are the active generated copies switched by `node --experimental-strip-types ../../scripts/select-web-config.ts <local|remote>`
 
 The important behavioral rule is:
 

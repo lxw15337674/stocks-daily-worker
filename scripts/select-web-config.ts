@@ -10,7 +10,7 @@ const appDir = path.join(rootDir, "apps", "web");
 const target = process.argv[2];
 
 if (target !== "local" && target !== "remote") {
-  console.error('Usage: bun scripts/select-web-config.ts <local|remote>');
+  console.error("Usage: node --experimental-strip-types scripts/select-web-config.ts <local|remote>");
   process.exit(1);
 }
 

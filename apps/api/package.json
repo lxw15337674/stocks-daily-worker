@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bunx wrangler dev --config wrangler.toml",
-    "deploy": "bunx wrangler deploy --config wrangler.toml",
+    "dev": "pnpm exec wrangler dev --local --config wrangler.toml",
+    "deploy": "pnpm exec wrangler deploy --config wrangler.toml",
     "check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio"

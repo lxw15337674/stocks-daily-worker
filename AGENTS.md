@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This is a Bun workspace monorepo:
+This is a pnpm workspace monorepo:
 - `apps/api`: Cloudflare Worker backend (Hono + Drizzle) under `src/modules/{stocks,crypto}`.
 - `apps/web`: Vinext/Next frontend (`app/`, `components/`, `lib/`) plus worker proxy code in `worker/index.ts`.
 - `packages/contracts`: shared TypeScript contracts.
@@ -10,13 +10,13 @@ This is a Bun workspace monorepo:
 
 ## Build, Test, and Development Commands
 Run from repo root:
-- `bun install`: install workspace dependencies.
-- `bun run dev:api`: start API worker via Wrangler.
-- `bun run dev:web`: start web app in local config mode.
-- `bun run check`: run TypeScript checks for API and web.
-- `bun run test`: execute the curated Bun test suite in `tests/`.
-- `bun run build`: build `apps/web` for deployment.
-- `bun run deploy:api` / `bun run deploy:web`: deploy workers.
+- `pnpm install`: install workspace dependencies.
+- `pnpm dev:api`: start API worker via Wrangler.
+- `pnpm dev:web`: start web app in local config mode.
+- `pnpm check`: run TypeScript checks for API and web.
+- `pnpm test`: execute the curated test suite in `tests/`.
+- `pnpm build`: build `apps/web` for deployment.
+- `pnpm deploy:api` / `pnpm deploy:web`: deploy workers.
 
 ## Coding Style & Naming Conventions
 - Language: strict TypeScript (`tsconfig.base.json` has `"strict": true`).
@@ -28,12 +28,12 @@ Run from repo root:
 - Prefer shared contracts from `packages/contracts` over duplicated types.
 
 ## Testing Guidelines
-- Test runner is Bun (`bun test`), using `node:test` + `assert` patterns.
+- Tests are run via `pnpm test`, using Bun's test runner under the hood with `node:test` + `assert` patterns.
 - Add tests in `tests/*.test.ts`; mirror domain naming (`api.*.test.ts`, `web.*.test.ts`).
 - Keep external I/O mocked/stubbed in tests; avoid live network dependencies.
 - Frontend validation should use Agent Browser for end-to-end checks (navigation, forms, locale routes, screenshots).
-  Example: `bun run dev:web` -> `agent-browser open http://127.0.0.1:3000/zh` -> `agent-browser snapshot -i` -> `agent-browser screenshot`.
-- Before opening a PR, run: `bun run check && bun run test`.
+  Example: `pnpm dev:web` -> `agent-browser open http://127.0.0.1:3000/zh` -> `agent-browser snapshot -i` -> `agent-browser screenshot`.
+- Before opening a PR, run: `pnpm check && pnpm test`.
 
 ## Commit & Pull Request Guidelines
 - Follow the repository’s established style: Conventional Commit prefixes (`feat:`, `fix:`, `refactor:`, `chore:`).

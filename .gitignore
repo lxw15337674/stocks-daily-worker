@@ -10,6 +10,8 @@ apps/*/.dev.vars
 apps/*/dist/
 apps/*/.next/
 apps/*/tsconfig.tsbuildinfo
+**/.tmp-sync/
+backups/
 coins-daily/
 npm-debug.log*
 yarn-debug.log*

@@ -50,12 +50,11 @@ function createLatest(): MarketIndexLatestResponse {
   };
 }
 
-test("MarketStatusGrid renders expanded trading metrics labels", () => {
+test("MarketStatusGrid renders trading metrics labels", () => {
   const html = renderToStaticMarkup(
     MarketStatusGrid({
       lang: "zh",
-      latest: createLatest(),
-      compact: true
+      latest: createLatest()
     })
   );
 

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { CalendarDays, Globe2, Newspaper, ScrollText, TrendingUp } from "lucide-react";
 
 import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
 import { StocksHomeDateToolbar } from "@/components/stocks-home-date-toolbar";
@@ -9,6 +11,19 @@ import { RouteSegmentLoading } from "@/components/platform/route-segment-loading
 import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
 import { HomeContentTabs } from "@/components/home-content-tabs";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar
+} from "@/components/ui/sidebar";
 import {
   useReportList,
   useStockDetails,
@@ -25,6 +40,21 @@ import type { ParsedReportStockRow } from "@/lib/report-parser";
 type HomePageProps = {
   lang?: Language;
   date?: string;
+};
+
+const HOME_SECTION_IDS = {
+  date: "stocks-home-date",
+  marketPulse: "stocks-home-market-pulse",
+  featured: "stocks-home-featured",
+  report: "stocks-home-report",
+  news: "stocks-home-news",
+  movers: "stocks-home-movers"
+} as const;
+
+type HomeQuickNavItem = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
 };
 
 function getTodayEtDateString(): string {
@@ -118,10 +148,43 @@ function countRecentNewsByDays(publishedAtValues: string[], reportDate: string, 
   }).length;
 }
 
+function HomeQuickNav(props: { items: HomeQuickNavItem[]; activeId: string; groupLabel: string }) {
+  const { items, activeId, groupLabel } = props;
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  return (
+    <SidebarContent>
+      <SidebarGroup>
+        <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.id}>
+              <SidebarMenuButton asChild isActive={activeId === item.id}>
+                <a
+                  href={`#${item.id}`}
+                  onClick={() => {
+                    if (isMobile) {
+                      setOpenMobile(false);
+                    }
+                  }}
+                >
+                  <item.icon />
+                  <span>{item.label}</span>
+                </a>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroup>
+    </SidebarContent>
+  );
+}
+
 export default function HomePage(props: HomePageProps) {
   const lang = props.lang ?? "zh";
   const channelT = getFixedT(lang, "channel", "stocks");
   const stocksT = getFixedT(lang, "stocks", "home");
+  const moversT = getFixedT(lang, "stocks", "movers");
   const queryDate = props.date?.trim() ?? "";
   const { data: history = [], isLoading: isHistoryLoading } = useReportList(120);
   const { data: stockItems = [], isLoading: isStockItemsLoading } = useStockList();
@@ -143,6 +206,49 @@ export default function HomePage(props: HomePageProps) {
     [reportRows]
   );
   const { data: stockDetails = [], isLoading: isStockDetailsLoading } = useStockDetails(tableSymbols);
+  const quickNavItems = useMemo<HomeQuickNavItem[]>(
+    () => [
+      { id: HOME_SECTION_IDS.date, label: stocksT("tradingDate"), icon: CalendarDays },
+      { id: HOME_SECTION_IDS.marketPulse, label: stocksT("marketPulseTitle"), icon: Globe2 },
+      { id: HOME_SECTION_IDS.featured, label: stocksT("featuredTitle"), icon: Newspaper },
+      { id: HOME_SECTION_IDS.report, label: stocksT("fullReport"), icon: ScrollText },
+      { id: HOME_SECTION_IDS.news, label: stocksT("companyNewsTitle"), icon: TrendingUp },
+      { id: HOME_SECTION_IDS.movers, label: moversT("title"), icon: TrendingUp }
+    ],
+    [moversT, stocksT]
+  );
+  const [activeQuickNavId, setActiveQuickNavId] = useState<string>(HOME_SECTION_IDS.date);
+  const quickNavLabel = lang === "zh" ? "快速定位" : "Quick Navigation";
+
+  useEffect(() => {
+    const sections = quickNavItems
+      .map((item) => document.getElementById(item.id))
+      .filter((section): section is HTMLElement => section !== null);
+
+    if (sections.length === 0) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const activeEntries = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        if (activeEntries[0]?.target.id) {
+          setActiveQuickNavId(activeEntries[0].target.id);
+        }
+      },
+      {
+        threshold: [0.2, 0.5, 0.8],
+        rootMargin: "-20% 0px -60% 0px"
+      }
+    );
+
+    sections.forEach((section) => observer.observe(section));
+
+    return () => observer.disconnect();
+  }, [quickNavItems]);
 
   if (isHistoryLoading || isStockItemsLoading || isMarketPulseLoading || isReportLoading || isStockDetailsLoading || !marketPulse) {
     return <RouteSegmentLoading title="Loading stocks" description={channelT("loading")} />;
@@ -195,43 +301,64 @@ export default function HomePage(props: HomePageProps) {
     }));
 
   return (
-    <main className="page-shell">
-      <div className="space-y-6">
-        <StocksHomeDateToolbar
-          lang={lang}
-          date={date}
-          previousDate={previousDate}
-          nextDate={nextDate}
-        />
+    <SidebarProvider defaultOpen>
+      <Sidebar side="left" collapsible="offcanvas">
+        <HomeQuickNav items={quickNavItems} activeId={activeQuickNavId} groupLabel={quickNavLabel} />
+      </Sidebar>
+      <SidebarInset>
+        <main className="page-shell">
+          <div className="mb-3 flex items-center gap-2 md:hidden">
+            <SidebarTrigger />
+            <span className="text-sm text-muted-foreground">{quickNavLabel}</span>
+          </div>
 
-        <MarketStatusGrid
-          lang={lang}
-          latest={marketPulse.latest}
-          summary={marketPulse.summary}
-          title={stocksT("marketPulseTitle")}
-          description={stocksT("marketPulseDescription")}
-          actionHref={stocksMarketPath(lang)}
-          actionLabel={stocksT("marketPulseAction")}
-          compact
-        />
+          <div className="space-y-6">
+            <section id={HOME_SECTION_IDS.date} className="scroll-mt-24">
+              <StocksHomeDateToolbar
+                lang={lang}
+                date={date}
+                previousDate={previousDate}
+                nextDate={nextDate}
+              />
+            </section>
 
-        <HomeContentTabs
-          lang={lang}
-          date={date}
-          readableDate={toReadableDate(date, lang)}
-          rows={enhancedRows}
-          overview={resolveLocalizedText(report.overview.brief, lang)}
-          newsGroups={report.newsGroups.map((group) => ({
-            ...group,
-            detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
-          }))}
-          reportMeta={{
-            generatedAt: report.createdAt,
-            sampleScope: String(report.sampleSize),
-            validQuotes: String(report.validQuoteCount)
-          }}
-        />
-      </div>
-    </main>
+            <section id={HOME_SECTION_IDS.marketPulse} className="scroll-mt-24">
+              <MarketStatusGrid
+                lang={lang}
+                latest={marketPulse.latest}
+                summary={marketPulse.summary}
+                title={stocksT("marketPulseTitle")}
+                description={stocksT("marketPulseDescription")}
+                actionHref={stocksMarketPath(lang)}
+                actionLabel={stocksT("marketPulseAction")}
+              />
+            </section>
+
+            <HomeContentTabs
+              lang={lang}
+              date={date}
+              readableDate={toReadableDate(date, lang)}
+              rows={enhancedRows}
+              overview={resolveLocalizedText(report.overview.brief, lang)}
+              newsGroups={report.newsGroups.map((group) => ({
+                ...group,
+                detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
+              }))}
+              reportMeta={{
+                generatedAt: report.createdAt,
+                sampleScope: String(report.sampleSize),
+                validQuotes: String(report.validQuoteCount)
+              }}
+              sectionIds={{
+                featured: HOME_SECTION_IDS.featured,
+                report: HOME_SECTION_IDS.report,
+                news: HOME_SECTION_IDS.news,
+                movers: HOME_SECTION_IDS.movers
+              }}
+            />
+          </div>
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

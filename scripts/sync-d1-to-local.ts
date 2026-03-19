@@ -74,7 +74,7 @@ const dbConfigs: Record<DbTarget, DbConfig> = {
 
 function usage() {
   console.log(`Usage:
-  bun run db:sync:local -- <stocks|crypto|all> [--dry-run] [--yes] [--keep-export]
+  pnpm db:sync:local -- <stocks|crypto|all> [--dry-run] [--yes] [--keep-export]
 
 Options:
   --dry-run      Print the Wrangler commands without executing them.
@@ -82,9 +82,9 @@ Options:
   --keep-export  Keep exported SQL files instead of deleting the temp directory.
 
 Examples:
-  bun run db:sync:local -- all --dry-run
-  bun run db:sync:local -- stocks --yes
-  bun run db:sync:local:crypto
+  pnpm db:sync:local -- all --dry-run
+  pnpm db:sync:local -- stocks --yes
+  pnpm db:sync:local:crypto
 `);
 }
 
@@ -125,7 +125,7 @@ function parseArgs(argv: string[]): ParsedOptions {
 }
 
 function resolveRunnerCommand(): string {
-  return process.platform === "win32" ? "bunx.cmd" : "bunx";
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
 function stringifyCommand(command: string, args: string[]): string {
@@ -172,7 +172,7 @@ function runCommand(command: string, args: string[], options: RunOptions = {}) {
 }
 
 function wranglerArgs(args: string[]): string[] {
-  return ["wrangler", ...args, "--config", "apps/api/wrangler.toml"];
+  return ["exec", "wrangler", ...args, "--config", "apps/api/wrangler.toml"];
 }
 
 function ensureDirectory(dirPath: string): void {
