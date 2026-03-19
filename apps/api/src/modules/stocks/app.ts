@@ -9,10 +9,12 @@ import { parseHTML } from "linkedom";
 import type {
   LocalizedText,
   MarketAiSummaryResponse,
+  MarketIndexArchiveResponse,
   MarketIndexHistoryResponse,
   MarketIndexLatestResponse,
   MarketIndexRange,
   MarketIndicesAdminRunResponse,
+  MarketSummaryType,
   ReportListItem,
   StockDailyReport,
   StockDetailListResponse,
@@ -25,8 +27,11 @@ import type {
   StockQuoteSnapshot
 } from "@china-stocks/contracts";
 import {
-  getMarketAiSummaryByDate,
-  getLatestMarketAiSummary,
+  getArchivedMarketIndicesByDate,
+  getFinalMarketAiSummariesByDate,
+  getLatestFinalMarketAiSummaries,
+  getLatestIntradayMarketAiSummaries,
+  joinRegionalSummaries,
   getLiveMarketIndicesHistory,
   getLiveMarketIndicesLatest,
   runMarketIndicesAdminSync,
@@ -375,7 +380,8 @@ const NEWS_BODY_PER_STOCK_LIMIT_DEFAULT = 2;
 const NEWS_BODY_TIMEOUT_MS_DEFAULT = 4500;
 const NEWS_BODY_MAX_CHARS_DEFAULT = 900;
 const REPORT_NEWS_IMPORT_BATCH_SIZE = 10;
-const MARKET_INDICES_SUMMARY_CRON_DST = "15 20 * * 1-5";
+const MARKET_INDICES_INTRADAY_CRON = "0 * * * 1-5";
+const MARKET_INDICES_FINAL_CRON = "15 20 * * 1-5";
 const MORNING_BRIEF_MIN_ZH_CHARS = 180;
 const MORNING_BRIEF_MAX_ZH_CHARS = 300;
 const MORNING_BRIEF_MIN_EN_WORDS = 120;
@@ -465,6 +471,48 @@ app.get(
 );
 
 app.get(
+  "/indices/snapshot/:date",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get archived market index snapshot by date",
+    parameters: [
+      {
+        name: "date",
+        in: "path",
+        required: true,
+        schema: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        description: "Snapshot date in YYYY-MM-DD format."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Archived grouped market index snapshot",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid date parameter"
+      }
+    }
+  }),
+  async (c) => {
+    const snapshotDate = parseSummaryDate(c.req.param("date"));
+    if (!snapshotDate) {
+      return c.text("Invalid date. Use YYYY-MM-DD.", 400);
+    }
+
+    const payload = await getArchivedMarketIndicesByDate(c.env, snapshotDate);
+    return c.json<MarketIndexArchiveResponse>(payload);
+  }
+);
+
+app.get(
   "/indices/history",
   describeRoute({
     tags: ["Market Indices"],
@@ -519,13 +567,13 @@ app.get(
 );
 
 app.get(
-  "/indices/summary/latest",
+  "/indices/summary/intraday/latest",
   describeRoute({
     tags: ["Market Indices"],
-    summary: "Get latest archived global market AI summary",
+    summary: "Get latest intraday regional market AI summaries",
     responses: {
       "200": {
-        description: "Latest AI summary payload",
+        description: "Latest intraday AI summary payload",
         content: {
           "application/json": {
             schema: {
@@ -538,16 +586,41 @@ app.get(
     }
   }),
   async (c) => {
-    const payload = await getLatestMarketAiSummary(c.env);
+    const payload = await getLatestIntradayMarketAiSummaries(c.env);
     return c.json<MarketAiSummaryResponse>(payload);
   }
 );
 
 app.get(
-  "/indices/summary/:date",
+  "/indices/summary/final/latest",
   describeRoute({
     tags: ["Market Indices"],
-    summary: "Get archived global market AI summary by date",
+    summary: "Get latest final regional market AI summaries",
+    responses: {
+      "200": {
+        description: "Latest final AI summary payload",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      }
+    }
+  }),
+  async (c) => {
+    const payload = await getLatestFinalMarketAiSummaries(c.env);
+    return c.json<MarketAiSummaryResponse>(payload);
+  }
+);
+
+app.get(
+  "/indices/summary/final/:date",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get final regional market AI summaries by date",
     parameters: [
       {
         name: "date",
@@ -580,8 +653,65 @@ app.get(
       return c.text("Invalid date. Use YYYY-MM-DD.", 400);
     }
 
-    const payload = await getMarketAiSummaryByDate(c.env, summaryDate);
+    const payload = await getFinalMarketAiSummariesByDate(c.env, summaryDate);
     return c.json<MarketAiSummaryResponse>(payload);
+  }
+);
+
+app.get("/indices/summary/latest", async (c) => {
+  const payload = await getLatestFinalMarketAiSummaries(c.env);
+  return c.json<MarketAiSummaryResponse>(payload);
+});
+
+app.get("/indices/summary/:date", async (c) => {
+  const summaryDate = parseSummaryDate(c.req.param("date"));
+  if (!summaryDate) {
+    return c.text("Invalid date. Use YYYY-MM-DD.", 400);
+  }
+
+  const payload = await getFinalMarketAiSummariesByDate(c.env, summaryDate);
+  return c.json<MarketAiSummaryResponse>(payload);
+});
+
+app.get(
+  "/indices/snapshot/final/:date",
+  describeRoute({
+    tags: ["Market Indices"],
+    summary: "Get final archived market index snapshot by date",
+    parameters: [
+      {
+        name: "date",
+        in: "path",
+        required: true,
+        schema: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        description: "Snapshot date in YYYY-MM-DD format."
+      }
+    ],
+    responses: {
+      "200": {
+        description: "Archived grouped market index snapshot",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        }
+      },
+      "400": {
+        description: "Invalid date parameter"
+      }
+    }
+  }),
+  async (c) => {
+    const snapshotDate = parseSummaryDate(c.req.param("date"));
+    if (!snapshotDate) {
+      return c.text("Invalid date. Use YYYY-MM-DD.", 400);
+    }
+
+    const payload = await getArchivedMarketIndicesByDate(c.env, snapshotDate);
+    return c.json<MarketIndexArchiveResponse>(payload);
   }
 );
 
@@ -621,6 +751,7 @@ app.get(
     if (authError) {
       return new Response(authError.message, { status: authError.status });
     }
+    const summaryType = parseSummaryType(c.req.query("summaryType")) ?? "intraday";
 
     const payload = await trackSchedulerRun(
       c.env.STATUS_BUCKET,
@@ -632,11 +763,12 @@ app.get(
           message: "Market indices sync completed.",
           metadata: {
             summaryDate: result.summaryDate,
+            summaryType: result.summaryType,
             snapshotCount: result.snapshotCount
           }
         })
       },
-      () => runMarketIndicesAdminSync(c.env)
+      () => runMarketIndicesAdminSync(c.env, summaryType)
     );
     return c.json<MarketIndicesAdminRunResponse>(payload);
   }
@@ -743,6 +875,13 @@ app.post(
         required: true,
         schema: { type: "string" },
         description: "Admin token"
+      },
+      {
+        name: "summaryType",
+        in: "query",
+        required: false,
+        schema: { type: "string", enum: ["intraday", "final"], default: "intraday" },
+        description: "Summary mode to generate."
       }
     ],
     responses: {
@@ -1550,8 +1689,13 @@ app.get(
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
-    if (event.cron === MARKET_INDICES_SUMMARY_CRON_DST) {
-      await runMarketIndicesScheduledSync(env);
+    if (event.cron === MARKET_INDICES_INTRADAY_CRON) {
+      await runMarketIndicesScheduledSync(env, "intraday");
+      return;
+    }
+
+    if (event.cron === MARKET_INDICES_FINAL_CRON) {
+      await runMarketIndicesScheduledSync(env, "final");
       return;
     }
 
@@ -3525,6 +3669,14 @@ function parseSummaryDate(rawDate: string | undefined): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
+function parseSummaryType(rawType: string | undefined): MarketSummaryType | null {
+  const normalized = rawType?.trim() ?? "";
+  if (normalized === "intraday" || normalized === "final") {
+    return normalized;
+  }
+  return null;
+}
+
 function buildMorningBriefNewsPool(stocks: Stock[], newsBySymbol: Map<string, NewsItem[]>): MorningBriefNewsItem[] {
   return stocks
     .flatMap((stock) => {
@@ -3585,8 +3737,8 @@ async function loadMorningBriefIndicesContext(_env: Env): Promise<{ lines: strin
 
 async function loadArchivedIndicesSummary(env: Env): Promise<string | null> {
   try {
-    const payload = await getLatestMarketAiSummary(env);
-    return normalizeStoredBriefText(payload.item?.summaryZh ?? null);
+    const payload = await getLatestFinalMarketAiSummaries(env);
+    return normalizeStoredBriefText(joinRegionalSummaries(payload.items, "zh"));
   } catch {
     return null;
   }

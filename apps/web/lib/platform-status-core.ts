@@ -32,7 +32,7 @@ export type PlatformStatusPageData = {
 type BuildPlatformStatusDataInput = {
   scheduler: SchedulerStatusResponse | null;
   stockReports: ReportListItem[];
-  marketSummary: MarketAiSummary | null;
+  marketSummary: MarketAiSummary[];
   cryptoLatestReport: DailyReport | null;
   cryptoMacro: CryptoMacroSnapshot | null;
   cryptoMarketNews: MarketNewsItem[];
@@ -121,6 +121,7 @@ export function buildPlatformStatusPageData(input: BuildPlatformStatusDataInput)
   const scheduler = normalizeSchedulerStatusResponse(input.scheduler, generatedAt);
   const latestStockReport = input.stockReports[0] ?? null;
   const latestMarketNews = input.cryptoMarketNews[0] ?? null;
+  const latestMarketSummary = [...input.marketSummary].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
 
   return {
     generatedAt,
@@ -135,10 +136,10 @@ export function buildPlatformStatusPageData(input: BuildPlatformStatusDataInput)
       },
       {
         key: "market_indices_summary",
-        state: toFreshnessState(input.marketSummary?.createdAt ?? null, now, 36),
-        updatedAt: input.marketSummary?.createdAt ?? null,
-        primary: input.marketSummary?.summaryDate ?? "-",
-        secondary: input.marketSummary ? `${input.marketSummary.snapshotCount} snapshots` : null
+        state: toFreshnessState(latestMarketSummary?.createdAt ?? null, now, 36),
+        updatedAt: latestMarketSummary?.createdAt ?? null,
+        primary: latestMarketSummary?.summaryDate ?? "-",
+        secondary: latestMarketSummary ? `${input.marketSummary.length} regions` : null
       },
       {
         key: "crypto_daily_report",

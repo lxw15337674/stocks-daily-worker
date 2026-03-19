@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, Globe2, LineChart, Newspaper, ScrollText, Table2 } from "lucide-react";
 
@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import {
   Sidebar,
   SidebarContent,
@@ -38,7 +39,6 @@ import {
   useSidebar
 } from "@/components/ui/sidebar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { MarketAiSummary } from "@china-stocks/contracts";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath, stocksAdminPath, stocksMarketPath } from "@/lib/platform-routes";
 import { buildMarketPageSearch, useMarketPageData } from "@/lib/stocks-market";
@@ -49,17 +49,6 @@ type MarketPageProps = {
   indexKeys?: string;
   summaryDate?: string;
 };
-
-function resolveSummaryText(
-  lang: Language,
-  summary: MarketAiSummary | null | undefined
-): string | null {
-  if (!summary) {
-    return null;
-  }
-
-  return (lang === "zh" ? summary.summaryZh : summary.summaryEn) ?? summary.summaryZh ?? summary.summaryEn ?? null;
-}
 
 type MarketQuickNavItem = {
   id: string;
@@ -119,7 +108,7 @@ export default function MarketPage(props: MarketPageProps) {
     ],
     [t]
   );
-  const [activeQuickNavId, setActiveQuickNavId] = useState("market-overview");
+  const activeQuickNavId = useScrollSpy(quickNavItems.map((item) => item.id), { offset: 128 });
   const quickNavLabel = lang === "zh" ? "快速定位" : "Quick Navigation";
   const { data, isLoading } = useMarketPageData({
     range: props.range,
@@ -127,45 +116,14 @@ export default function MarketPage(props: MarketPageProps) {
     summaryDate: props.summaryDate
   });
 
-  useEffect(() => {
-    const sections = quickNavItems
-      .map((item) => document.getElementById(item.id))
-      .filter((section): section is HTMLElement => section !== null);
-
-    if (sections.length === 0) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const activeEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-
-        if (activeEntries[0]?.target.id) {
-          setActiveQuickNavId(activeEntries[0].target.id);
-        }
-      },
-      {
-        threshold: [0.2, 0.5, 0.8],
-        rootMargin: "-20% 0px -60% 0px"
-      }
-    );
-
-    sections.forEach((section) => observer.observe(section));
-
-    return () => observer.disconnect();
-  }, [quickNavItems]);
-
   if (!data || isLoading) {
     return <RouteSegmentLoading title="Loading market" description={t("chartLoading")} />;
   }
 
-  const { history, initialRange, latest, requestedSummaryDate, selectedIndexKeys, summary } = data;
-
-  const summaryText = resolveSummaryText(lang, summary);
+  const { history, initialRange, latest, requestedSummaryDate, selectedIndexKeys, snapshotVariant, summary } = data;
   const items = latest?.regions.flatMap((region) => region.items) ?? [];
-  const summaryDateValue = requestedSummaryDate ?? summary?.summaryDate ?? "";
+  const summaries = summary;
+  const summaryDateValue = requestedSummaryDate ?? summaries[0]?.summaryDate ?? "";
   const latestSummaryHref = `${stocksMarketPath(lang)}?${buildMarketPageSearch({
     range: initialRange,
     indexKeys: selectedIndexKeys
@@ -197,7 +155,7 @@ export default function MarketPage(props: MarketPageProps) {
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <CardTitle className="text-3xl">{t("pageTitle")}</CardTitle>
-                          <Badge variant="outline">{t("liveBadge")}</Badge>
+                          <Badge variant="outline">{snapshotVariant === "archive" ? t("archiveBadge") : t("liveBadge")}</Badge>
                         </div>
                         <p className="max-w-3xl text-sm leading-7 text-muted-foreground">{t("pageSubtitle")}</p>
                       </div>
@@ -229,8 +187,8 @@ export default function MarketPage(props: MarketPageProps) {
                   <p className="meta">{t("latestDescription")}</p>
                 </CardHeader>
                 <CardContent>
-                  {hasMarketContent(latest, summary) ? (
-                    <MarketStatusGrid lang={lang} latest={latest} />
+                  {hasMarketContent(latest, summaries) ? (
+                    <MarketStatusGrid lang={lang} latest={latest} summaries={summaries} variant={snapshotVariant} />
                   ) : (
                     <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
                       <EmptyHeader>
@@ -272,23 +230,45 @@ export default function MarketPage(props: MarketPageProps) {
                       <Link href={latestSummaryHref}>{t("summaryArchiveLatest")}</Link>
                     </Button>
                   </form>
-
-                  <div className="rounded-md border border-border/70 bg-background/45 p-4">
-                    <p className="leading-7 text-foreground/90">{summaryText ?? t("noSummary")}</p>
-                  </div>
-                  {requestedSummaryDate && !summary ? (
+                  {requestedSummaryDate && summaries.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("summaryMissingForDate", { date: requestedSummaryDate })}</p>
                   ) : null}
-                  {summary ? (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <span className="rounded-full border border-border/70 px-2.5 py-1">
-                        {commonT("reportDate")}: {summary.summaryDate}
-                      </span>
-                      <span className="rounded-full border border-border/70 px-2.5 py-1">
-                        {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
-                      </span>
+                  {summaries.length > 0 ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {summaries.map((item) => {
+                        const regionLabel = item.region === "cn" ? t("regionCn") : item.region === "hk" ? t("regionHk") : t("regionUs");
+                        return (
+                          <Card key={`${item.summaryType}-${item.region}`} size="sm" className="bg-background/45">
+                            <CardContent className="p-3 text-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-medium text-foreground">{regionLabel}</p>
+                                <Badge variant="secondary">
+                                  {item.summaryType === "intraday" ? t("intradaySummaryLabel") : t("finalSummaryLabel")}
+                                </Badge>
+                              </div>
+                              <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                                <p>
+                                  {commonT("reportDate")}: {item.summaryDate}
+                                </p>
+                                <p>
+                                  {commonT("generatedAt")}: {formatMarketTimestamp(item.createdAt, lang)}
+                                </p>
+                                {item.sourceQuoteTimestamp ? (
+                                  <p>
+                                    {t("updatedAtLabel")}: {formatMarketTimestamp(item.sourceQuoteTimestamp, lang)}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="rounded-md border border-dashed border-border/70 bg-background/30 p-4 text-sm text-muted-foreground">
+                      {t("noSummary")}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </section>

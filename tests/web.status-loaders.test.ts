@@ -62,11 +62,13 @@ function createSchedulerStatus(): SchedulerStatusResponse {
 function createMarketSummary(): MarketAiSummary {
   return {
     summaryDate: "2026-03-13",
-    scope: "global_indices",
+    region: "cn",
+    summaryType: "final",
     summaryZh: "摘要",
     summaryEn: "Summary",
     model: "gpt-5.2",
     snapshotCount: 8,
+    sourceQuoteTimestamp: "2026-03-13T09:55:00.000Z",
     createdAt: "2026-03-13T10:00:00.000Z"
   };
 }
@@ -153,7 +155,7 @@ test("buildPlatformStatusPageData merges scheduler and freshness signals", () =>
   const result = buildPlatformStatusPageData({
     scheduler: createSchedulerStatus(),
     stockReports,
-    marketSummary: createMarketSummary(),
+    marketSummary: [createMarketSummary()],
     cryptoLatestReport: createCryptoReport(),
     cryptoMacro: createMacroSnapshot(),
     cryptoMarketNews,
@@ -175,7 +177,7 @@ test("buildPlatformStatusPageData falls back to missing states cleanly", () => {
   const result = buildPlatformStatusPageData({
     scheduler: null,
     stockReports: [],
-    marketSummary: null,
+    marketSummary: [],
     cryptoLatestReport: null,
     cryptoMacro: null,
     cryptoMarketNews: [],

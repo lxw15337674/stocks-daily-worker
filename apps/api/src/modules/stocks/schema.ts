@@ -93,6 +93,13 @@ export const marketIndexSnapshots = sqliteTable(
     previousClose: real("previous_close").notNull(),
     changeAbs: real("change_abs").notNull(),
     changePct: real("change_pct").notNull(),
+    dayOpen: real("day_open"),
+    dayHigh: real("day_high"),
+    dayLow: real("day_low"),
+    dayVolume: integer("day_volume"),
+    dayRangePct: real("day_range_pct"),
+    fiftyTwoWeekHigh: real("fifty_two_week_high"),
+    fiftyTwoWeekLow: real("fifty_two_week_low"),
     currency: text("currency").notNull(),
     quoteTimestamp: text("quote_timestamp").notNull(),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -111,15 +118,19 @@ export const marketAiSummaries = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     summaryDate: text("summary_date").notNull(),
     scope: text("scope").notNull(),
+    region: text("region"),
+    summaryType: text("summary_type"),
     summaryZh: text("summary_zh"),
     summaryEn: text("summary_en"),
     model: text("model"),
     snapshotCount: integer("snapshot_count").notNull().default(0),
+    sourceQuoteTimestamp: text("source_quote_timestamp"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
   },
   (table) => ({
     summaryUnique: uniqueIndex("idx_market_ai_summaries_date_scope_unique").on(table.summaryDate, table.scope),
-    summaryDateIdx: index("idx_market_ai_summaries_date").on(table.summaryDate)
+    summaryDateIdx: index("idx_market_ai_summaries_date").on(table.summaryDate),
+    summaryDateRegionTypeIdx: index("idx_market_ai_summaries_date_region_type").on(table.summaryDate, table.region, table.summaryType)
   })
 );

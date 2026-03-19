@@ -4,11 +4,15 @@ import type {
   MarketAiSummary,
   MarketAiSummaryRecord,
   MarketAiSummaryResponse,
+  MarketIndexArchiveResponse,
   MarketIndexKey,
+  MarketIndexLatestRegionGroup,
+  MarketIndexLiveItem,
   MarketIndexRange,
   MarketIndexSnapshot,
   MarketIndicesAdminRunResponse,
-  MarketRegion
+  MarketRegion,
+  MarketSummaryType
 } from "@china-stocks/contracts";
 import {
   compareSnapshots,
@@ -32,14 +36,16 @@ interface Env {
 }
 
 type SummaryBuildResult = {
+  region: MarketRegion;
   summaryZh: string;
   summaryEn: string;
   model: string | null;
+  sourceQuoteTimestamp: string | null;
 };
 
-const SUMMARY_SCOPE = "global_indices";
+const SUMMARY_SCOPE_PREFIX = "global_indices";
 const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
-const SHANGHAI_TIMEZONE = "Asia/Shanghai";
+const MARKET_DATE_TIMEZONE = "America/New_York";
 
 export async function getLiveMarketIndicesLatest() {
   return getLiveMarketIndicesLatestCore();
@@ -49,78 +55,95 @@ export async function getLiveMarketIndicesHistory(requestedIndexKeys: string[], 
   return getLiveMarketIndicesHistoryCore(requestedIndexKeys, range);
 }
 
-export async function getLatestMarketAiSummary(env: Env): Promise<MarketAiSummaryResponse> {
+export async function getArchivedMarketIndicesByDate(env: Env, snapshotDate: string): Promise<MarketIndexArchiveResponse> {
   if (!env.DB) {
-    return { item: null };
+    return buildArchivedMarketIndicesResponse(snapshotDate, []);
   }
 
   await ensureIndicesSchema(env.DB);
-  const record = await getLatestPersistedSummaryRecord(env.DB);
-  return {
-    item: record ? toMarketAiSummary(record) : null
-  };
+  return getPersistedSnapshotResponseByDate(env.DB, snapshotDate);
 }
 
-export async function getMarketAiSummaryByDate(env: Env, summaryDate: string): Promise<MarketAiSummaryResponse> {
+export async function getLatestIntradayMarketAiSummaries(env: Env): Promise<MarketAiSummaryResponse> {
+  return getLatestMarketAiSummariesByType(env, "intraday");
+}
+
+export async function getLatestFinalMarketAiSummaries(env: Env): Promise<MarketAiSummaryResponse> {
+  return getLatestMarketAiSummariesByType(env, "final");
+}
+
+export async function getFinalMarketAiSummariesByDate(env: Env, summaryDate: string): Promise<MarketAiSummaryResponse> {
   if (!env.DB) {
-    return { item: null };
+    return { items: [] };
   }
 
   await ensureIndicesSchema(env.DB);
-  const record = await getPersistedSummaryRecordByDate(env.DB, summaryDate);
   return {
-    item: record ? toMarketAiSummary(record) : null
+    items: await getPersistedSummaryItemsByDateAndType(env.DB, summaryDate, "final")
   };
 }
 
-export async function runMarketIndicesAdminSync(env: Env): Promise<MarketIndicesAdminRunResponse> {
-  const record = await syncAndPersistGlobalMarketSummary(env);
+export async function runMarketIndicesAdminSync(
+  env: Env,
+  summaryType: MarketSummaryType = "intraday"
+): Promise<MarketIndicesAdminRunResponse> {
+  const result = await syncAndPersistRegionalMarketSummaries(env, summaryType);
   return {
     ok: true,
-    summaryDate: record.summaryDate,
-    snapshotCount: record.snapshotCount,
-    summary: toMarketAiSummary(record)
+    summaryDate: result.summaryDate,
+    summaryType,
+    snapshotCount: result.snapshotCount,
+    summaries: result.summaries.map(toMarketAiSummary)
   };
 }
 
-export async function runMarketIndicesScheduledSync(env: Env): Promise<void> {
+export async function runMarketIndicesScheduledSync(env: Env, summaryType: MarketSummaryType): Promise<void> {
   try {
-    await syncAndPersistGlobalMarketSummary(env);
+    await syncAndPersistRegionalMarketSummaries(env, summaryType);
   } catch (error) {
-    console.error("[MARKET_INDICES] Scheduled sync failed:", error);
+    console.error(`[MARKET_INDICES] Scheduled ${summaryType} sync failed:`, error);
     throw error;
   }
 }
 
-async function syncAndPersistGlobalMarketSummary(env: Env): Promise<MarketAiSummaryRecord> {
+async function getLatestMarketAiSummariesByType(env: Env, summaryType: MarketSummaryType): Promise<MarketAiSummaryResponse> {
   if (!env.DB) {
-    throw new Error("DB binding is required for global market summary sync.");
+    return { items: [] };
+  }
+
+  await ensureIndicesSchema(env.DB);
+  return {
+    items: await getLatestPersistedSummaryItemsByType(env.DB, summaryType)
+  };
+}
+
+async function syncAndPersistRegionalMarketSummaries(
+  env: Env,
+  summaryType: MarketSummaryType
+): Promise<{ summaryDate: string; snapshotCount: number; summaries: MarketAiSummaryRecord[] }> {
+  if (!env.DB) {
+    throw new Error("DB binding is required for market summary sync.");
   }
 
   await ensureIndicesSchema(env.DB);
   const items = await fetchLatestMarketSnapshots();
-  const summaryDate = formatDate(new Date(), SHANGHAI_TIMEZONE);
-  const summary = await buildMarketSummary(env, items);
+  const summaryDate = formatDate(new Date(), MARKET_DATE_TIMEZONE);
+  const summaries = await buildRegionalSummaries(env, items);
 
-  await persistMarketSnapshots(env.DB, summaryDate, items);
-  const createdAt = await persistMarketSummary(env.DB, summaryDate, items, summary);
+  if (summaryType === "final") {
+    await persistMarketSnapshots(env.DB, summaryDate, items);
+  }
+  const records = await persistMarketSummaries(env.DB, summaryDate, items, summaries, summaryType);
 
   return {
     summaryDate,
-    scope: SUMMARY_SCOPE,
-    summary: {
-      zh: summary.summaryZh,
-      en: summary.summaryEn
-    },
     snapshotCount: items.length,
-    createdAt,
-    items,
-    model: summary.model
+    summaries: records
   };
 }
 
 async function ensureIndicesSchema(db: D1Database): Promise<void> {
-  const statements = [
+  const createStatements = [
     `CREATE TABLE IF NOT EXISTS market_index_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       snapshot_date TEXT NOT NULL,
@@ -156,8 +179,43 @@ async function ensureIndicesSchema(db: D1Database): Promise<void> {
     "CREATE INDEX IF NOT EXISTS idx_market_ai_summaries_date ON market_ai_summaries(summary_date)"
   ];
 
-  for (const statement of statements) {
+  for (const statement of createStatements) {
     await db.prepare(statement).run();
+  }
+
+  const alterStatements = [
+    "ALTER TABLE market_index_snapshots ADD COLUMN day_open REAL",
+    "ALTER TABLE market_index_snapshots ADD COLUMN day_high REAL",
+    "ALTER TABLE market_index_snapshots ADD COLUMN day_low REAL",
+    "ALTER TABLE market_index_snapshots ADD COLUMN day_volume INTEGER",
+    "ALTER TABLE market_index_snapshots ADD COLUMN day_range_pct REAL",
+    "ALTER TABLE market_index_snapshots ADD COLUMN fifty_two_week_high REAL",
+    "ALTER TABLE market_index_snapshots ADD COLUMN fifty_two_week_low REAL",
+    "ALTER TABLE market_ai_summaries ADD COLUMN region TEXT",
+    "ALTER TABLE market_ai_summaries ADD COLUMN summary_type TEXT",
+    "ALTER TABLE market_ai_summaries ADD COLUMN source_quote_timestamp TEXT"
+  ];
+
+  for (const statement of alterStatements) {
+    await runAlterIfNeeded(db, statement);
+  }
+
+  const indexStatements = [
+    "CREATE INDEX IF NOT EXISTS idx_market_ai_summaries_date_region_type ON market_ai_summaries(summary_date, region, summary_type)"
+  ];
+  for (const statement of indexStatements) {
+    await db.prepare(statement).run();
+  }
+}
+
+async function runAlterIfNeeded(db: D1Database, statement: string): Promise<void> {
+  try {
+    await db.prepare(statement).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("duplicate column name")) {
+      throw error;
+    }
   }
 }
 
@@ -178,6 +236,13 @@ async function persistMarketSnapshots(dbBinding: D1Database, summaryDate: string
         previousClose: item.previousClose,
         changeAbs: item.changeAbs,
         changePct: item.changePct,
+        dayOpen: item.dayOpen,
+        dayHigh: item.dayHigh,
+        dayLow: item.dayLow,
+        dayVolume: item.dayVolume,
+        dayRangePct: item.dayRangePct,
+        fiftyTwoWeekHigh: item.fiftyTwoWeekHigh,
+        fiftyTwoWeekLow: item.fiftyTwoWeekLow,
         currency: item.currency,
         quoteTimestamp: item.quoteTimestamp
       })
@@ -192,6 +257,13 @@ async function persistMarketSnapshots(dbBinding: D1Database, summaryDate: string
           previousClose: item.previousClose,
           changeAbs: item.changeAbs,
           changePct: item.changePct,
+          dayOpen: item.dayOpen,
+          dayHigh: item.dayHigh,
+          dayLow: item.dayLow,
+          dayVolume: item.dayVolume,
+          dayRangePct: item.dayRangePct,
+          fiftyTwoWeekHigh: item.fiftyTwoWeekHigh,
+          fiftyTwoWeekLow: item.fiftyTwoWeekLow,
           currency: item.currency,
           quoteTimestamp: item.quoteTimestamp,
           updatedAt: sql`CURRENT_TIMESTAMP`
@@ -200,308 +272,356 @@ async function persistMarketSnapshots(dbBinding: D1Database, summaryDate: string
   }
 }
 
-async function persistMarketSummary(
+async function persistMarketSummaries(
   dbBinding: D1Database,
   summaryDate: string,
   items: MarketIndexSnapshot[],
-  summary: SummaryBuildResult
-): Promise<string> {
+  summaries: SummaryBuildResult[],
+  summaryType: MarketSummaryType
+): Promise<MarketAiSummaryRecord[]> {
   const db = drizzle(dbBinding);
 
-  await db
-    .insert(marketAiSummaries)
-    .values({
-      summaryDate,
-      scope: SUMMARY_SCOPE,
-      summaryZh: summary.summaryZh,
-      summaryEn: summary.summaryEn,
-      snapshotCount: items.length,
-      model: summary.model
-    })
-    .onConflictDoUpdate({
-      target: [marketAiSummaries.summaryDate, marketAiSummaries.scope],
-      set: {
+  for (const summary of summaries) {
+    await db
+      .insert(marketAiSummaries)
+      .values({
+        summaryDate,
+        scope: resolveSummaryScope(summary.region, summaryType),
+        region: summary.region,
+        summaryType,
         summaryZh: summary.summaryZh,
         summaryEn: summary.summaryEn,
-        snapshotCount: items.length,
-        model: summary.model,
-        updatedAt: sql`CURRENT_TIMESTAMP`
-      }
-    });
-
-  const row = (
-    await db
-      .select({
-        createdAt: marketAiSummaries.createdAt
+        snapshotCount: items.filter((item) => item.region === summary.region).length,
+        sourceQuoteTimestamp: summary.sourceQuoteTimestamp,
+        model: summary.model
       })
-      .from(marketAiSummaries)
-      .where(eq(marketAiSummaries.summaryDate, summaryDate))
-      .limit(1)
-  )[0];
+      .onConflictDoUpdate({
+        target: [marketAiSummaries.summaryDate, marketAiSummaries.scope],
+        set: {
+          region: summary.region,
+          summaryType,
+          summaryZh: summary.summaryZh,
+          summaryEn: summary.summaryEn,
+          snapshotCount: items.filter((item) => item.region === summary.region).length,
+          sourceQuoteTimestamp: summary.sourceQuoteTimestamp,
+          model: summary.model,
+          updatedAt: sql`CURRENT_TIMESTAMP`
+        }
+      });
+  }
 
-  return row?.createdAt ?? new Date().toISOString();
+  return getPersistedSummaryRecordsByDateAndType(dbBinding, summaryDate, summaryType);
 }
 
-async function getLatestPersistedSummaryRecord(dbBinding: D1Database): Promise<MarketAiSummaryRecord | null> {
+async function getPersistedSnapshotResponseByDate(
+  dbBinding: D1Database,
+  snapshotDate: string
+): Promise<MarketIndexArchiveResponse> {
   const db = drizzle(dbBinding);
-  const summaryRow = (
+  const snapshotRows = await db
+    .select({
+      indexKey: marketIndexSnapshots.indexKey,
+      symbol: marketIndexSnapshots.symbol,
+      region: marketIndexSnapshots.region,
+      nameZh: marketIndexSnapshots.nameZh,
+      nameEn: marketIndexSnapshots.nameEn,
+      close: marketIndexSnapshots.close,
+      previousClose: marketIndexSnapshots.previousClose,
+      changeAbs: marketIndexSnapshots.changeAbs,
+      changePct: marketIndexSnapshots.changePct,
+      dayOpen: marketIndexSnapshots.dayOpen,
+      dayHigh: marketIndexSnapshots.dayHigh,
+      dayLow: marketIndexSnapshots.dayLow,
+      dayVolume: marketIndexSnapshots.dayVolume,
+      dayRangePct: marketIndexSnapshots.dayRangePct,
+      fiftyTwoWeekHigh: marketIndexSnapshots.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: marketIndexSnapshots.fiftyTwoWeekLow,
+      currency: marketIndexSnapshots.currency,
+      quoteTimestamp: marketIndexSnapshots.quoteTimestamp
+    })
+    .from(marketIndexSnapshots)
+    .where(eq(marketIndexSnapshots.snapshotDate, snapshotDate));
+
+  const items = snapshotRows.map(mapSnapshotRowToRecord).sort(compareSnapshots);
+  return buildArchivedMarketIndicesResponse(snapshotDate, items);
+}
+
+async function getLatestPersistedSummaryItemsByType(
+  dbBinding: D1Database,
+  summaryType: MarketSummaryType
+): Promise<MarketAiSummary[]> {
+  const db = drizzle(dbBinding);
+  const latestRow = (
     await db
       .select({
-        summaryDate: marketAiSummaries.summaryDate,
-        scope: marketAiSummaries.scope,
-        summaryZh: marketAiSummaries.summaryZh,
-        summaryEn: marketAiSummaries.summaryEn,
-        snapshotCount: marketAiSummaries.snapshotCount,
-        createdAt: marketAiSummaries.createdAt,
-        model: marketAiSummaries.model
+        summaryDate: marketAiSummaries.summaryDate
       })
       .from(marketAiSummaries)
-      .where(eq(marketAiSummaries.scope, SUMMARY_SCOPE))
+      .where(eq(marketAiSummaries.summaryType, summaryType))
       .orderBy(desc(marketAiSummaries.summaryDate), desc(marketAiSummaries.id))
       .limit(1)
   )[0];
 
-  if (!summaryRow) {
-    return null;
+  if (!latestRow) {
+    return [];
   }
 
-  const snapshotRows = await db
-    .select({
-      indexKey: marketIndexSnapshots.indexKey,
-      symbol: marketIndexSnapshots.symbol,
-      region: marketIndexSnapshots.region,
-      nameZh: marketIndexSnapshots.nameZh,
-      nameEn: marketIndexSnapshots.nameEn,
-      close: marketIndexSnapshots.close,
-      previousClose: marketIndexSnapshots.previousClose,
-      changeAbs: marketIndexSnapshots.changeAbs,
-      changePct: marketIndexSnapshots.changePct,
-      currency: marketIndexSnapshots.currency,
-      quoteTimestamp: marketIndexSnapshots.quoteTimestamp
-    })
-    .from(marketIndexSnapshots)
-    .where(eq(marketIndexSnapshots.snapshotDate, summaryRow.summaryDate));
-
-  const items = snapshotRows
-    .map((row) => {
-      const definition = TRACKED_MARKET_INDICES.find((item) => item.indexKey === row.indexKey) ?? null;
-      return {
-        indexKey: row.indexKey as MarketIndexKey,
-        symbol: row.symbol,
-        region: row.region as MarketRegion,
-        nameZh: row.nameZh,
-        nameEn: row.nameEn,
-        close: row.close,
-        previousClose: row.previousClose,
-        changeAbs: row.changeAbs,
-        changePct: row.changePct,
-        dayOpen: null,
-        dayHigh: null,
-        dayLow: null,
-        dayVolume: null,
-        dayRangePct: null,
-        fiftyTwoWeekHigh: null,
-        fiftyTwoWeekLow: null,
-        currency: row.currency,
-        quoteTimestamp: row.quoteTimestamp,
-        isPrimary: definition?.isPrimary ?? false
-      };
-    })
-    .sort(compareSnapshots);
-
-  return {
-    summaryDate: summaryRow.summaryDate,
-    scope: summaryRow.scope,
-    summary: {
-      zh: summaryRow.summaryZh ?? null,
-      en: summaryRow.summaryEn ?? null
-    },
-    snapshotCount: summaryRow.snapshotCount,
-    createdAt: summaryRow.createdAt,
-    items,
-    model: summaryRow.model ?? null
-  };
+  return getPersistedSummaryItemsByDateAndType(dbBinding, latestRow.summaryDate, summaryType);
 }
 
-async function getPersistedSummaryRecordByDate(
+async function getPersistedSummaryItemsByDateAndType(
   dbBinding: D1Database,
-  summaryDate: string
-): Promise<MarketAiSummaryRecord | null> {
+  summaryDate: string,
+  summaryType: MarketSummaryType
+): Promise<MarketAiSummary[]> {
+  const records = await getPersistedSummaryRecordsByDateAndType(dbBinding, summaryDate, summaryType);
+  return records.map(toMarketAiSummary);
+}
+
+async function getPersistedSummaryRecordsByDateAndType(
+  dbBinding: D1Database,
+  summaryDate: string,
+  summaryType: MarketSummaryType
+): Promise<MarketAiSummaryRecord[]> {
   const db = drizzle(dbBinding);
-  const summaryRow = (
-    await db
-      .select({
-        summaryDate: marketAiSummaries.summaryDate,
-        scope: marketAiSummaries.scope,
-        summaryZh: marketAiSummaries.summaryZh,
-        summaryEn: marketAiSummaries.summaryEn,
-        snapshotCount: marketAiSummaries.snapshotCount,
-        createdAt: marketAiSummaries.createdAt,
-        model: marketAiSummaries.model
-      })
-      .from(marketAiSummaries)
-      .where(and(eq(marketAiSummaries.scope, SUMMARY_SCOPE), eq(marketAiSummaries.summaryDate, summaryDate)))
-      .orderBy(desc(marketAiSummaries.id))
-      .limit(1)
-  )[0];
-
-  if (!summaryRow) {
-    return null;
-  }
-
-  const snapshotRows = await db
+  const summaryRows = await db
     .select({
-      indexKey: marketIndexSnapshots.indexKey,
-      symbol: marketIndexSnapshots.symbol,
-      region: marketIndexSnapshots.region,
-      nameZh: marketIndexSnapshots.nameZh,
-      nameEn: marketIndexSnapshots.nameEn,
-      close: marketIndexSnapshots.close,
-      previousClose: marketIndexSnapshots.previousClose,
-      changeAbs: marketIndexSnapshots.changeAbs,
-      changePct: marketIndexSnapshots.changePct,
-      currency: marketIndexSnapshots.currency,
-      quoteTimestamp: marketIndexSnapshots.quoteTimestamp
+      summaryDate: marketAiSummaries.summaryDate,
+      region: marketAiSummaries.region,
+      summaryType: marketAiSummaries.summaryType,
+      summaryZh: marketAiSummaries.summaryZh,
+      summaryEn: marketAiSummaries.summaryEn,
+      snapshotCount: marketAiSummaries.snapshotCount,
+      sourceQuoteTimestamp: marketAiSummaries.sourceQuoteTimestamp,
+      createdAt: marketAiSummaries.createdAt,
+      model: marketAiSummaries.model
     })
-    .from(marketIndexSnapshots)
-    .where(eq(marketIndexSnapshots.snapshotDate, summaryRow.summaryDate));
+    .from(marketAiSummaries)
+    .where(and(eq(marketAiSummaries.summaryDate, summaryDate), eq(marketAiSummaries.summaryType, summaryType)))
+    .orderBy(desc(marketAiSummaries.id));
 
-  const items = snapshotRows
-    .map((row) => {
-      const definition = TRACKED_MARKET_INDICES.find((item) => item.indexKey === row.indexKey) ?? null;
+  return summaryRows
+    .map((row): MarketAiSummaryRecord | null => {
+      const region = normalizeMarketRegion(row.region);
+      const normalizedType = normalizeSummaryType(row.summaryType);
+      if (!region || !normalizedType) {
+        return null;
+      }
+
       return {
-        indexKey: row.indexKey as MarketIndexKey,
-        symbol: row.symbol,
-        region: row.region as MarketRegion,
-        nameZh: row.nameZh,
-        nameEn: row.nameEn,
-        close: row.close,
-        previousClose: row.previousClose,
-        changeAbs: row.changeAbs,
-        changePct: row.changePct,
-        dayOpen: null,
-        dayHigh: null,
-        dayLow: null,
-        dayVolume: null,
-        dayRangePct: null,
-        fiftyTwoWeekHigh: null,
-        fiftyTwoWeekLow: null,
-        currency: row.currency,
-        quoteTimestamp: row.quoteTimestamp,
-        isPrimary: definition?.isPrimary ?? false
+        summaryDate: row.summaryDate,
+        region,
+        summaryType: normalizedType,
+        summary: {
+          zh: row.summaryZh ?? null,
+          en: row.summaryEn ?? null
+        },
+        snapshotCount: row.snapshotCount,
+        sourceQuoteTimestamp: row.sourceQuoteTimestamp ?? null,
+        createdAt: row.createdAt,
+        model: row.model ?? null
       };
     })
-    .sort(compareSnapshots);
+    .filter((item): item is MarketAiSummaryRecord => item !== null)
+    .sort((left, right) => REGION_ORDER.indexOf(left.region) - REGION_ORDER.indexOf(right.region));
+}
 
+function normalizeMarketRegion(value: string | null): MarketRegion | null {
+  if (value === "cn" || value === "hk" || value === "us") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeSummaryType(value: string | null): MarketSummaryType | null {
+  if (value === "intraday" || value === "final") {
+    return value;
+  }
+  return null;
+}
+
+function resolveSummaryScope(region: MarketRegion, summaryType: MarketSummaryType): string {
+  return `${SUMMARY_SCOPE_PREFIX}_${region}_${summaryType}`;
+}
+
+function mapSnapshotRowToRecord(row: {
+  indexKey: string;
+  symbol: string;
+  region: string;
+  nameZh: string;
+  nameEn: string;
+  close: number;
+  previousClose: number;
+  changeAbs: number;
+  changePct: number;
+  dayOpen: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  dayVolume: number | null;
+  dayRangePct: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  currency: string;
+  quoteTimestamp: string;
+}): MarketIndexSnapshot {
+  const definition = TRACKED_MARKET_INDICES.find((item) => item.indexKey === row.indexKey) ?? null;
   return {
-    summaryDate: summaryRow.summaryDate,
-    scope: summaryRow.scope,
-    summary: {
-      zh: summaryRow.summaryZh ?? null,
-      en: summaryRow.summaryEn ?? null
-    },
-    snapshotCount: summaryRow.snapshotCount,
-    createdAt: summaryRow.createdAt,
-    items,
-    model: summaryRow.model ?? null
+    indexKey: row.indexKey as MarketIndexKey,
+    symbol: row.symbol,
+    region: row.region as MarketRegion,
+    nameZh: row.nameZh,
+    nameEn: row.nameEn,
+    close: row.close,
+    previousClose: row.previousClose,
+    changeAbs: row.changeAbs,
+    changePct: row.changePct,
+    dayOpen: row.dayOpen,
+    dayHigh: row.dayHigh,
+    dayLow: row.dayLow,
+    dayVolume: row.dayVolume,
+    dayRangePct: row.dayRangePct,
+    fiftyTwoWeekHigh: row.fiftyTwoWeekHigh,
+    fiftyTwoWeekLow: row.fiftyTwoWeekLow,
+    currency: row.currency,
+    quoteTimestamp: row.quoteTimestamp,
+    isPrimary: definition?.isPrimary ?? false
   };
 }
 
-async function buildMarketSummary(env: Env, items: MarketIndexSnapshot[]): Promise<SummaryBuildResult> {
-  const fallbackZh = buildFallbackSummaryZh(items);
-  const fallbackEn = buildFallbackSummaryEn(items);
+function buildArchivedMarketIndicesResponse(
+  snapshotDate: string,
+  items: MarketIndexSnapshot[]
+): MarketIndexArchiveResponse {
+  const regions: MarketIndexLatestRegionGroup[] = REGION_ORDER.map((region) => {
+    const definitions = TRACKED_MARKET_INDICES.filter((item) => item.region === region);
+    const primaryDefinition = definitions.find((item) => item.isPrimary) ?? definitions[0] ?? null;
+    return {
+      region,
+      primaryIndexKey: primaryDefinition?.indexKey ?? "",
+      items: items
+        .filter((item) => item.region === region)
+        .map((item): MarketIndexLiveItem => ({
+          indexKey: item.indexKey,
+          symbol: item.symbol,
+          region: item.region,
+          nameZh: item.nameZh,
+          nameEn: item.nameEn,
+          price: item.close,
+          previousClose: item.previousClose,
+          changeAbs: item.changeAbs,
+          changePct: item.changePct,
+          dayOpen: item.dayOpen,
+          dayHigh: item.dayHigh,
+          dayLow: item.dayLow,
+          dayVolume: item.dayVolume,
+          dayRangePct: item.dayRangePct,
+          fiftyTwoWeekHigh: item.fiftyTwoWeekHigh,
+          fiftyTwoWeekLow: item.fiftyTwoWeekLow,
+          currency: item.currency,
+          quoteTimestamp: item.quoteTimestamp,
+          isPrimary: item.isPrimary
+        }))
+    };
+  });
+
+  const updatedAt =
+    items
+      .map((item) => item.quoteTimestamp)
+      .filter((value) => value.length > 0)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+  return {
+    snapshotDate,
+    updatedAt,
+    regions
+  };
+}
+
+async function buildRegionalSummaries(env: Env, items: MarketIndexSnapshot[]): Promise<SummaryBuildResult[]> {
+  const results = await Promise.all(
+    REGION_ORDER.map(async (region) => buildRegionalSummary(env, region, items.filter((item) => item.region === region)))
+  );
+  return results.filter((item): item is SummaryBuildResult => item !== null);
+}
+
+async function buildRegionalSummary(
+  env: Env,
+  region: MarketRegion,
+  items: MarketIndexSnapshot[]
+): Promise<SummaryBuildResult | null> {
+  if (items.length === 0) {
+    return null;
+  }
+
+  const fallbackZh = buildFallbackSummaryZh(region, items);
+  const fallbackEn = buildFallbackSummaryEn(region, items);
 
   const aiRaw = await callAiCompatible(
     env,
-    "You are a market editor. Summarize only from the provided global index snapshot and trading metrics. Return strict JSON with keys summaryZh and summaryEn. Keep both concise, factual, and free of investment advice.",
-    buildSummaryPrompt(items)
+    "You are a market editor. Summarize only the provided regional index snapshot and trading metrics. Return strict JSON with keys summaryZh and summaryEn. Keep both concise, factual, and free of investment advice.",
+    buildRegionalSummaryPrompt(region, items)
   );
 
   const parsed = parseSummaryJson(aiRaw);
-  if (parsed?.summaryZh && parsed.summaryEn) {
-    return {
-      summaryZh: parsed.summaryZh,
-      summaryEn: parsed.summaryEn,
-      model: env.AI_MODEL ?? OPENAI_DEFAULT_MODEL
-    };
-  }
-
   return {
-    summaryZh: fallbackZh,
-    summaryEn: fallbackEn,
-    model: null
+    region,
+    summaryZh: parsed?.summaryZh ?? fallbackZh,
+    summaryEn: parsed?.summaryEn ?? fallbackEn,
+    model: parsed ? env.AI_MODEL ?? OPENAI_DEFAULT_MODEL : null,
+    sourceQuoteTimestamp: items.map((item) => item.quoteTimestamp).sort((left, right) => right.localeCompare(left))[0] ?? null
   };
 }
 
-function buildSummaryPrompt(items: MarketIndexSnapshot[]): string {
-  const primaryLines = REGION_ORDER.map((region) => pickPrimarySnapshot(items, region))
-    .filter((item): item is MarketIndexSnapshot => item !== null)
+function buildRegionalSummaryPrompt(region: MarketRegion, items: MarketIndexSnapshot[]): string {
+  const primary = pickPrimarySnapshot(items, region);
+  const itemLines = items
     .map(
       (item) =>
-        `- ${regionLabelEn(item.region)} | ${item.nameEn} | change=${formatSignedPct(item.changePct)} | O/H/L=${formatPromptNumber(item.dayOpen)}/${formatPromptNumber(item.dayHigh)}/${formatPromptNumber(item.dayLow)} | vol=${formatPromptVolume(item.dayVolume)} | range=${formatPromptPct(item.dayRangePct)}`
-    )
-    .join("\n");
-
-  const lines = items
-    .map(
-      (item) =>
-        `- ${item.region.toUpperCase()} | ${item.indexKey} | ${item.nameEn} | close=${item.close.toFixed(2)} | change=${formatSignedPct(item.changePct)} | range=${formatPromptPct(item.dayRangePct)}`
+        `- ${item.nameEn} | close=${formatPromptNumber(item.close)} | prev=${formatPromptNumber(item.previousClose)} | move=${formatSignedPct(item.changePct)} | O/H/L=${formatPromptNumber(item.dayOpen)}/${formatPromptNumber(item.dayHigh)}/${formatPromptNumber(item.dayLow)} | vol=${formatPromptVolume(item.dayVolume)} | range=${formatPromptPct(item.dayRangePct)} | 52w=${formatPromptNumber(item.fiftyTwoWeekLow)}-${formatPromptNumber(item.fiftyTwoWeekHigh)}`
     )
     .join("\n");
 
   return [
-    "Generate one concise bilingual summary for the latest global market indices snapshot.",
+    `Generate one concise bilingual summary for the ${regionLabelEn(region)} market.`,
     "Requirements:",
     "1. summaryZh <= 90 Chinese characters.",
-    "2. summaryEn <= 220 English characters.",
-    "3. Mention relative strength or weakness across CN, HK, and US markets when possible.",
-    "4. Mention intraday trading metrics (range or O/H/L/volume) when useful.",
-    "5. Do not infer macro causes that are not in the data.",
-    `Primary metrics:\n${primaryLines || "- No primary metrics"}`,
-    `Snapshot:\n${lines || "- No snapshot data"}`
+    "2. summaryEn <= 180 English characters.",
+    "3. Describe only what is observable in the supplied data.",
+    "4. Mention direction, structure, and trading metrics when useful, such as high/low range, open/high/low, or volume.",
+    "5. Do not infer macro causes or provide investment advice.",
+    primary
+      ? `Primary benchmark: ${primary.nameEn}, move=${formatSignedPct(primary.changePct)}, O/H/L=${formatPromptNumber(primary.dayOpen)}/${formatPromptNumber(primary.dayHigh)}/${formatPromptNumber(primary.dayLow)}, vol=${formatPromptVolume(primary.dayVolume)}, range=${formatPromptPct(primary.dayRangePct)}`
+      : "Primary benchmark: unavailable",
+    `Snapshot:\n${itemLines}`
   ].join("\n");
 }
 
-function buildFallbackSummaryZh(items: MarketIndexSnapshot[]): string {
+function buildFallbackSummaryZh(region: MarketRegion, items: MarketIndexSnapshot[]): string {
   if (items.length === 0) {
-    return "当前未获取到全球指数快照。";
+    return `当前未获取到${regionLabelZh(region)}指数快照。`;
   }
 
-  const grouped = REGION_ORDER.map((region) => {
-    const primary = pickPrimarySnapshot(items, region);
-    return primary ? `${regionLabelZh(region)}${formatSignedPct(primary.changePct)}` : null;
-  }).filter((item): item is string => item !== null);
-  const ranges = REGION_ORDER.map((region) => {
-    const primary = pickPrimarySnapshot(items, region);
-    return primary && primary.dayRangePct !== null ? `${regionLabelZh(region)}振幅${primary.dayRangePct.toFixed(2)}%` : null;
-  }).filter((item): item is string => item !== null);
+  const primary = pickPrimarySnapshot(items, region) ?? items[0]!;
+  const strongest = [...items].sort((left, right) => right.changePct - left.changePct)[0]!;
+  const weakest = [...items].sort((left, right) => left.changePct - right.changePct)[0]!;
+  const volumeClause = primary.dayVolume !== null ? `，成交量约${formatPromptVolume(primary.dayVolume)}` : "";
+  const rangeClause = primary.dayRangePct !== null ? `，日振幅${primary.dayRangePct.toFixed(2)}%` : "";
 
-  const leader = [...items].sort((left, right) => right.changePct - left.changePct)[0];
-  const laggard = [...items].sort((left, right) => left.changePct - right.changePct)[0];
-  const rangeClause = ranges.length > 0 ? `；当日振幅参考：${ranges.join("，")}` : "";
-
-  return `全球指数快照显示${grouped.join("，")}；表现最强的是${leader.nameZh}${formatSignedPct(leader.changePct)}，最弱的是${laggard.nameZh}${formatSignedPct(laggard.changePct)}${rangeClause}。`;
+  return `${regionLabelZh(region)}方面，${primary.nameZh}${formatSignedPct(primary.changePct)}，区间高低点为${formatPromptNumber(primary.dayHigh)}/${formatPromptNumber(primary.dayLow)}${volumeClause}${rangeClause}；同区间内偏强的是${strongest.nameZh}，偏弱的是${weakest.nameZh}。`;
 }
 
-function buildFallbackSummaryEn(items: MarketIndexSnapshot[]): string {
+function buildFallbackSummaryEn(region: MarketRegion, items: MarketIndexSnapshot[]): string {
   if (items.length === 0) {
-    return "No global index snapshot is currently available.";
+    return `No ${regionLabelEn(region)} index snapshot is currently available.`;
   }
 
-  const grouped = REGION_ORDER.map((region) => {
-    const primary = pickPrimarySnapshot(items, region);
-    return primary ? `${regionLabelEn(region)} ${formatSignedPct(primary.changePct)}` : null;
-  }).filter((item): item is string => item !== null);
-  const ranges = REGION_ORDER.map((region) => {
-    const primary = pickPrimarySnapshot(items, region);
-    return primary && primary.dayRangePct !== null ? `${regionLabelEn(region)} range ${primary.dayRangePct.toFixed(2)}%` : null;
-  }).filter((item): item is string => item !== null);
+  const primary = pickPrimarySnapshot(items, region) ?? items[0]!;
+  const strongest = [...items].sort((left, right) => right.changePct - left.changePct)[0]!;
+  const weakest = [...items].sort((left, right) => left.changePct - right.changePct)[0]!;
+  const volumeClause = primary.dayVolume !== null ? `, with volume around ${formatPromptVolume(primary.dayVolume)}` : "";
+  const rangeClause = primary.dayRangePct !== null ? ` and an intraday range of ${primary.dayRangePct.toFixed(2)}%` : "";
 
-  const leader = [...items].sort((left, right) => right.changePct - left.changePct)[0];
-  const laggard = [...items].sort((left, right) => left.changePct - right.changePct)[0];
-  const rangeClause = ranges.length > 0 ? ` Intraday ranges: ${ranges.join(", ")}.` : "";
-
-  return `Global indices showed ${grouped.join(", ")}. The strongest move came from ${leader.nameEn} at ${formatSignedPct(leader.changePct)}, while ${laggard.nameEn} was weakest at ${formatSignedPct(laggard.changePct)}.${rangeClause}`;
+  return `${regionLabelEn(region)} was led by ${primary.nameEn} at ${formatSignedPct(primary.changePct)}${rangeClause}${volumeClause}. Within the same region, ${strongest.nameEn} was strongest while ${weakest.nameEn} lagged.`;
 }
 
 function pickPrimarySnapshot(items: MarketIndexSnapshot[], region: MarketRegion): MarketIndexSnapshot | null {
@@ -608,23 +728,28 @@ function resolveChatCompletionsEndpoint(baseUrl: string): string {
 function toMarketAiSummary(record: MarketAiSummaryRecord): MarketAiSummary {
   return {
     summaryDate: record.summaryDate,
-    scope: record.scope,
+    region: record.region,
+    summaryType: record.summaryType,
     summaryZh: record.summary.zh,
     summaryEn: record.summary.en,
     model: record.model ?? null,
     snapshotCount: record.snapshotCount,
+    sourceQuoteTimestamp: record.sourceQuoteTimestamp,
     createdAt: record.createdAt
   };
 }
 
-function guessCurrency(region: MarketRegion): string {
-  if (region === "cn") {
-    return "CNY";
-  }
-  if (region === "hk") {
-    return "HKD";
-  }
-  return "USD";
+export function joinRegionalSummaries(
+  items: MarketAiSummary[],
+  language: "zh" | "en"
+): string | null {
+  const text = items
+    .sort((left, right) => REGION_ORDER.indexOf(left.region) - REGION_ORDER.indexOf(right.region))
+    .map((item) => (language === "zh" ? item.summaryZh : item.summaryEn) ?? item.summaryZh ?? item.summaryEn ?? null)
+    .filter((item): item is string => Boolean(item && item.length > 0))
+    .join(language === "zh" ? " " : " ");
+
+  return text.length > 0 ? text : null;
 }
 
 function sanitizeParagraph(value: string): string {
@@ -677,10 +802,6 @@ function regionLabelEn(region: MarketRegion): string {
     return "Hong Kong";
   }
   return "US";
-}
-
-function toIsoDate(timestampSeconds: number): string {
-  return new Date(timestampSeconds * 1000).toISOString().slice(0, 10);
 }
 
 function formatDate(date: Date, timeZone: string): string {

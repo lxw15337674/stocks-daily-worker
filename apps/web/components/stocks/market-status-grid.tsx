@@ -1,5 +1,11 @@
 import Link from "next/link";
-import type { MarketAiSummary, MarketIndexLatestResponse, MarketRegion } from "@china-stocks/contracts";
+import type {
+  MarketAiSummary,
+  MarketIndexArchiveResponse,
+  MarketIndexLatestResponse,
+  MarketIndexLiveItem,
+  MarketRegion
+} from "@china-stocks/contracts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,15 +18,15 @@ import {
   formatMarketPrice,
   formatMarketTimestamp,
   getMarketChangePanelClass,
-  getMarketChangeTextClass,
   hasMarketContent,
   pickPrimaryMarketItem
 } from "./market-utils";
 
 type MarketStatusGridProps = {
   lang: Language;
-  latest: MarketIndexLatestResponse | null;
-  summary?: MarketAiSummary | null;
+  latest: MarketIndexLatestResponse | MarketIndexArchiveResponse | null;
+  summaries?: MarketAiSummary[] | null;
+  variant?: "live" | "archive";
   title?: string;
   description?: string;
   actionHref?: string;
@@ -38,100 +44,116 @@ function resolveRegionLabel(lang: Language, region: MarketRegion): string {
   return t("regionUs");
 }
 
-export function MarketStatusGrid(props: MarketStatusGridProps) {
-  const { lang, latest, summary = null, title, description, actionHref, actionLabel } = props;
+type MarketIndexPanelCardProps = {
+  item: MarketIndexLiveItem;
+  lang: Language;
+  badgeLabel: string;
+};
+
+function MarketIndexPanelCard(props: MarketIndexPanelCardProps) {
+  const { item, lang, badgeLabel } = props;
   const t = getFixedT(lang, "stocks", "market");
-  const commonT = getFixedT(lang, "common");
 
-  if (!hasMarketContent(latest, summary)) {
-    return null;
-  }
+  return (
+    <Card size="sm" className={getMarketChangePanelClass(lang, item.region, item.changePct)}>
+      <CardContent className="px-2.5 py-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="text-sm font-medium leading-4 text-foreground">
+                {lang === "zh" ? item.nameZh : item.nameEn}
+              </p>
+              <Badge variant="secondary" className="h-5 px-2 text-[11px]">
+                {badgeLabel}
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-4 opacity-80">{item.symbol}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xl font-semibold leading-none">
+              {formatMarketMove(item.changePct)}
+            </p>
+            <p className="mt-0.5 text-sm leading-4 opacity-80">
+              {formatMarketPrice(item.price, item.currency, lang)}
+            </p>
+          </div>
+        </div>
+        <div className="mt-2">
+          <MarketTradingMetrics item={item} lang={lang} />
+        </div>
+        <p className="mt-1.5 text-[11px] leading-4 opacity-80">
+          {t("updatedAtLabel")}: {formatMarketTimestamp(item.quoteTimestamp, lang)}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
-  const summaryText =
-    (lang === "zh" ? summary?.summaryZh : summary?.summaryEn) ?? summary?.summaryZh ?? summary?.summaryEn ?? null;
+export function MarketStatusGrid(props: MarketStatusGridProps) {
+  const { lang, latest, summaries = [], variant = "live", title, description, actionHref, actionLabel } = props;
+  const t = getFixedT(lang, "stocks", "market");
+  const normalizedSummaries = summaries ?? [];
+  const hasContent = hasMarketContent(latest, normalizedSummaries);
+  const regionBadgeLabel = variant === "archive" ? t("archiveBadge") : t("liveBadge");
+  const itemBadgeLabel = variant === "archive" ? t("archiveBadge") : t("latestLabel");
+  const summaryByRegion = new Map(normalizedSummaries.map((item) => [item.region, item]));
 
   const grid = (
-    <div className="grid gap-2.5 lg:grid-cols-2 2xl:grid-cols-3">
+    <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
       {(latest?.regions ?? []).map((regionGroup) => {
         const primary = pickPrimaryMarketItem(regionGroup.items, regionGroup.primaryIndexKey);
-        const secondary = regionGroup.items.filter((item) => item.indexKey !== primary?.indexKey);
+        const orderedItems = primary
+          ? [primary, ...regionGroup.items.filter((item) => item.indexKey !== primary.indexKey)]
+          : regionGroup.items;
+        const regionSummary = summaryByRegion.get(regionGroup.region) ?? null;
+        const regionSummaryText =
+          (lang === "zh" ? regionSummary?.summaryZh : regionSummary?.summaryEn) ??
+          regionSummary?.summaryZh ??
+          regionSummary?.summaryEn ??
+          null;
 
         return (
           <Card key={regionGroup.region} className="h-full">
-            <CardHeader className="pb-2.5">
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-lg">{resolveRegionLabel(lang, regionGroup.region)}</CardTitle>
-                <Badge variant="outline">{t("liveBadge")}</Badge>
+                <Badge variant="outline">{regionBadgeLabel}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {primary ? (
-                <Card size="sm" className={getMarketChangePanelClass(lang, primary.region, primary.changePct)}>
-                  <CardContent className="p-2">
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium leading-5 text-foreground">
-                            {lang === "zh" ? primary.nameZh : primary.nameEn}
-                          </p>
-                          <Badge variant="secondary">{t("primaryLabel")}</Badge>
-                        </div>
-                        <p className="mt-0.5 text-xs opacity-80">{primary.symbol}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-2xl font-semibold leading-none">
-                          {formatMarketMove(primary.changePct)}
-                        </p>
-                        <p className="mt-0.5 text-sm opacity-80">
-                          {formatMarketPrice(primary.price, primary.currency, lang)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-2.5">
-                      <MarketTradingMetrics item={primary} lang={lang} />
-                    </div>
-                    <p className="mt-2 text-xs leading-5 opacity-80">
-                      {t("updatedAtLabel")}: {formatMarketTimestamp(primary.quoteTimestamp, lang)}
+            <CardContent className="space-y-2">
+              {regionSummaryText ? (
+                <Card size="sm" className="bg-background/45">
+                  <CardContent className="p-3">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {variant === "archive" ? t("finalSummaryLabel") : t("intradaySummaryLabel")}
                     </p>
+                    <p className="mt-1.5 text-sm leading-6 text-foreground/90">{regionSummaryText}</p>
+                    {regionSummary?.sourceQuoteTimestamp ? (
+                      <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                        {t("updatedAtLabel")}: {formatMarketTimestamp(regionSummary.sourceQuoteTimestamp, lang)}
+                      </p>
+                    ) : null}
                   </CardContent>
                 </Card>
-              ) : (
+              ) : null}
+              {orderedItems.length === 0 ? (
                 <Empty className="border border-dashed border-border/70 bg-background/20 py-6">
                   <EmptyHeader>
                     <EmptyTitle>{t("unavailable")}</EmptyTitle>
                   </EmptyHeader>
                 </Empty>
-              )}
-
-              {secondary.length > 0 ? (
-                <div className="space-y-1.5">
-                  {secondary.map((item) => (
-                    <Card key={item.indexKey} size="sm" className="bg-background/45">
-                      <CardContent className="flex flex-col gap-1.5 px-2.5 py-2.5">
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium leading-5 text-foreground">
-                              {lang === "zh" ? item.nameZh : item.nameEn}
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {item.symbol}
-                            </p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="whitespace-nowrap text-sm font-medium text-foreground">
-                              {formatMarketPrice(item.price, item.currency, lang)}
-                            </p>
-                            <p className={`mt-0.5 text-xs font-medium ${getMarketChangeTextClass(lang, item.region, item.changePct)}`}>
-                              {formatMarketMove(item.changePct)}
-                            </p>
-                          </div>
-                        </div>
-                        <MarketTradingMetrics item={item} lang={lang} />
-                      </CardContent>
-                    </Card>
+              ) : (
+                <div className="space-y-2">
+                  {orderedItems.map((item, index) => (
+                    <MarketIndexPanelCard
+                      key={item.indexKey}
+                      item={item}
+                      lang={lang}
+                      badgeLabel={index === 0 && primary ? t("primaryLabel") : itemBadgeLabel}
+                    />
                   ))}
                 </div>
-              ) : null}
+              )}
             </CardContent>
           </Card>
         );
@@ -139,7 +161,10 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
     </div>
   );
 
-  if (!title && !description && !actionHref && !summary) {
+  if (!title && !description && !actionHref && normalizedSummaries.length === 0) {
+    if (!hasContent) {
+      return null;
+    }
     return grid;
   }
 
@@ -163,26 +188,14 @@ export function MarketStatusGrid(props: MarketStatusGridProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {summary || summaryText ? (
-          <Card size="sm" className="bg-background/45">
-            <CardContent className="p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-foreground">{t("summaryTitle")}</p>
-                {summary ? (
-                  <span className="text-xs text-muted-foreground">
-                    {commonT("reportDate")}: {summary.summaryDate}
-                    {" · "}
-                    {commonT("generatedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-2 text-sm leading-6 text-foreground/90">
-                {summaryText ?? t("noSummary")}
-              </p>
-            </CardContent>
-          </Card>
+        {!hasContent ? (
+          <Empty className="border border-dashed border-border/70 bg-background/20 py-8">
+            <EmptyHeader>
+              <EmptyTitle>{t("unavailable")}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : null}
-        {grid}
+        {hasContent ? grid : null}
       </CardContent>
     </Card>
   );

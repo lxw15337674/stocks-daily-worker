@@ -5,6 +5,7 @@ import type {
   LocalizedText,
   MarketAiSummary,
   MarketAiSummaryResponse,
+  MarketIndexArchiveResponse,
   MarketIndexHistoryResponse,
   MarketIndexLatestResponse,
   MarketIndexRange,
@@ -120,6 +121,34 @@ export async function fetchStockIndicesLatest(): Promise<MarketIndexLatestRespon
   }
 }
 
+export async function fetchStockIndicesSnapshotByDate(date: string): Promise<MarketIndexArchiveResponse | null> {
+  const normalized = date.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return await clientFetchJson<MarketIndexArchiveResponse>(joinStocksApi(`/indices/snapshot/${encodeURIComponent(normalized)}`));
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchStockIndicesFinalSnapshotByDate(date: string): Promise<MarketIndexArchiveResponse | null> {
+  const normalized = date.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return await clientFetchJson<MarketIndexArchiveResponse>(
+      joinStocksApi(`/indices/snapshot/final/${encodeURIComponent(normalized)}`)
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchStockIndicesHistory(
   indexKeys: string[],
   range: MarketIndexRange
@@ -137,28 +166,62 @@ export async function fetchStockIndicesHistory(
   }
 }
 
-export async function fetchStockIndicesSummaryLatest(): Promise<MarketAiSummary | null> {
+export async function fetchStockIndicesSummaryLatest(): Promise<MarketAiSummary[]> {
   try {
     const result = await clientFetchJson<MarketAiSummaryResponse>(joinStocksApi("/indices/summary/latest"));
-    return result.item ?? null;
+    return result.items ?? [];
   } catch {
-    return null;
+    return [];
   }
 }
 
-export async function fetchStockIndicesSummaryByDate(date: string): Promise<MarketAiSummary | null> {
+export async function fetchStockIndicesSummaryByDate(date: string): Promise<MarketAiSummary[]> {
   const normalized = date.trim();
   if (!normalized) {
-    return null;
+    return [];
   }
 
   try {
     const result = await clientFetchJson<MarketAiSummaryResponse>(
       joinStocksApi(`/indices/summary/${encodeURIComponent(normalized)}`)
     );
-    return result.item ?? null;
+    return result.items ?? [];
   } catch {
-    return null;
+    return [];
+  }
+}
+
+export async function fetchStockIndicesIntradaySummaryLatest(): Promise<MarketAiSummary[]> {
+  try {
+    const result = await clientFetchJson<MarketAiSummaryResponse>(joinStocksApi("/indices/summary/intraday/latest"));
+    return result.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchStockIndicesFinalSummaryLatest(): Promise<MarketAiSummary[]> {
+  try {
+    const result = await clientFetchJson<MarketAiSummaryResponse>(joinStocksApi("/indices/summary/final/latest"));
+    return result.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchStockIndicesFinalSummaryByDate(date: string): Promise<MarketAiSummary[]> {
+  const normalized = date.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const result = await clientFetchJson<MarketAiSummaryResponse>(
+      joinStocksApi(`/indices/summary/final/${encodeURIComponent(normalized)}`)
+    );
+    return result.items ?? [];
+  } catch {
+    return [];
   }
 }
 
@@ -199,11 +262,11 @@ export function useStockIndicesHistory(indexKeys: string[], range: MarketIndexRa
 }
 
 export function useStockIndicesSummaryLatest() {
-  return useSWR<MarketAiSummary | null>("stock-indices-summary-latest", fetchStockIndicesSummaryLatest);
+  return useSWR<MarketAiSummary[]>("stock-indices-summary-latest", fetchStockIndicesSummaryLatest);
 }
 
 export function useStockIndicesSummaryByDate(date: string | null) {
-  return useSWR<MarketAiSummary | null>(
+  return useSWR<MarketAiSummary[]>(
     date ? ["stock-indices-summary-by-date", date] : null,
     () => fetchStockIndicesSummaryByDate(date ?? "")
   );

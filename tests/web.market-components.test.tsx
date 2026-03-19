@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { MarketIndexLatestResponse } from "../packages/contracts/src/index.ts";
+import type { MarketAiSummary, MarketIndexLatestResponse } from "../packages/contracts/src/index.ts";
 import { MarketStatusGrid } from "../apps/web/components/stocks/market-status-grid.tsx";
 
 function createLatest(): MarketIndexLatestResponse {
@@ -50,6 +50,22 @@ function createLatest(): MarketIndexLatestResponse {
   };
 }
 
+function createSummaries(): MarketAiSummary[] {
+  return [
+    {
+      summaryDate: "2026-03-15",
+      region: "cn",
+      summaryType: "intraday",
+      summaryZh: "A股盘中摘要",
+      summaryEn: "China intraday summary",
+      model: "gpt-5.2",
+      snapshotCount: 3,
+      sourceQuoteTimestamp: "2026-03-15T02:00:00.000Z",
+      createdAt: "2026-03-15T02:05:00.000Z"
+    }
+  ];
+}
+
 test("MarketStatusGrid renders trading metrics labels", () => {
   const html = renderToStaticMarkup(
     MarketStatusGrid({
@@ -58,7 +74,6 @@ test("MarketStatusGrid renders trading metrics labels", () => {
     })
   );
 
-  assert.match(html, /交易指标/);
   assert.match(html, /最高/);
   assert.match(html, /今开/);
   assert.match(html, /52周最高/);
@@ -66,4 +81,18 @@ test("MarketStatusGrid renders trading metrics labels", () => {
   assert.match(html, /52周最低/);
   assert.match(html, /成交量/);
   assert.match(html, /日振幅/);
+});
+
+test("MarketStatusGrid renders regional AI summaries inside region cards", () => {
+  const html = renderToStaticMarkup(
+    MarketStatusGrid({
+      lang: "zh",
+      latest: createLatest(),
+      summaries: createSummaries(),
+      variant: "live"
+    })
+  );
+
+  assert.match(html, /盘中摘要/);
+  assert.match(html, /A股盘中摘要/);
 });

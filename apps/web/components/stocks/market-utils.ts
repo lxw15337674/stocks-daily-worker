@@ -1,4 +1,10 @@
-import type { MarketAiSummary, MarketIndexLatestResponse, MarketIndexLiveItem, MarketRegion } from "@china-stocks/contracts";
+import type {
+  MarketAiSummary,
+  MarketIndexArchiveResponse,
+  MarketIndexLatestResponse,
+  MarketIndexLiveItem,
+  MarketRegion
+} from "@china-stocks/contracts";
 import { getChangePanelClass, getChangeTextClass } from "@/lib/change-color";
 import type { Language } from "@/lib/i18n";
 
@@ -142,10 +148,10 @@ export function pickPrimaryMarketItem(items: MarketIndexLiveItem[], primaryIndex
 }
 
 export function hasMarketContent(
-  latest: MarketIndexLatestResponse | null,
-  summary: MarketAiSummary | null
+  latest: MarketIndexLatestResponse | MarketIndexArchiveResponse | null,
+  summaries: MarketAiSummary[] | null | undefined
 ): boolean {
-  if (summary) {
+  if ((summaries?.length ?? 0) > 0) {
     return true;
   }
 

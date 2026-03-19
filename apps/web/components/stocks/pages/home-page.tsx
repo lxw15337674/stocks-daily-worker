@@ -1,26 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Globe2, Newspaper, ScrollText, TrendingUp } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Globe2, Newspaper, ScrollText, TrendingUp } from "lucide-react";
 
-import { MarketStatusGrid } from "@/components/stocks/market-status-grid";
-import { StocksHomeDateToolbar } from "@/components/stocks-home-date-toolbar";
+import { HomeMarketPulseArchive } from "@/components/stocks/home-market-pulse-archive";
+import { HomeMarketPulseLive } from "@/components/stocks/home-market-pulse-live";
 import { RouteSegmentLoading } from "@/components/platform/route-segment-loading";
-import { StatusCard } from "@/components/platform/status-card";
 import { Button } from "@/components/ui/button";
 import { HomeContentTabs } from "@/components/home-content-tabs";
+import { Input } from "@/components/ui/input";
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupContent,
   SidebarGroupLabel,
   SidebarInset,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarSeparator,
   SidebarTrigger,
   useSidebar
 } from "@/components/ui/sidebar";
@@ -30,10 +33,11 @@ import {
   useStockList,
   useStockReportByDate
 } from "@/lib/api";
+import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { addDaysToReportDate, isValidReportDate, toReadableDate } from "@/lib/date";
 import { getFixedT, type Language } from "@/lib/i18n";
 import { assetHomePath, assetInstrumentPath, stocksMarketPath } from "@/lib/platform-routes";
-import { useHomeMarketPulse } from "@/lib/stocks-market";
+import { getTodayMarketDate } from "@/lib/stocks-market";
 import { buildParsedRowsFromStockReport, resolveLocalizedText } from "@/lib/stocks-report";
 import type { ParsedReportStockRow } from "@/lib/report-parser";
 
@@ -43,7 +47,6 @@ type HomePageProps = {
 };
 
 const HOME_SECTION_IDS = {
-  date: "stocks-home-date",
   marketPulse: "stocks-home-market-pulse",
   featured: "stocks-home-featured",
   report: "stocks-home-report",
@@ -57,18 +60,8 @@ type HomeQuickNavItem = {
   icon: LucideIcon;
 };
 
-function getTodayEtDateString(): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date());
-
-  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  return `${year}-${month}-${day}`;
+function buildHomeDateHref(lang: Language, targetDate: string | null): string | null {
+  return targetDate ? `${assetHomePath(lang, "stocks")}?date=${encodeURIComponent(targetDate)}` : null;
 }
 
 function calculateLatestStreak(changeValues: Array<number | null>): { direction: "up" | "down" | "flat"; count: number } {
@@ -148,35 +141,130 @@ function countRecentNewsByDays(publishedAtValues: string[], reportDate: string, 
   }).length;
 }
 
+function HomeSidebarDateControls(props: {
+  lang: Language;
+  date: string;
+  previousDate: string | null;
+  nextDate: string | null;
+  groupLabel: string;
+}) {
+  const { lang, date, previousDate, nextDate, groupLabel } = props;
+  const router = useRouter();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const stocksT = getFixedT(lang, "stocks", "home");
+  const [selectedDate, setSelectedDate] = useState(date);
+
+  useEffect(() => {
+    setSelectedDate(date);
+  }, [date]);
+
+  function closeSidebarOnMobile() {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  }
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isValidReportDate(selectedDate)) {
+      return;
+    }
+
+    closeSidebarOnMobile();
+    router.push(buildHomeDateHref(lang, selectedDate) ?? assetHomePath(lang, "stocks"));
+  }
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <div className="flex flex-col gap-3 px-2 py-1.5">
+          <div className="rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+              {stocksT("tradingDate")}
+            </p>
+            <p className="mt-1 text-sm font-medium text-foreground">{date}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {previousDate ? (
+              <Button asChild variant="outline" size="sm" className="w-full justify-center">
+                <Link href={buildHomeDateHref(lang, previousDate) ?? "#"} onClick={closeSidebarOnMobile}>
+                  <ChevronLeft />
+                  {stocksT("previousDay")}
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" className="w-full justify-center" disabled>
+                <ChevronLeft />
+                {stocksT("previousDay")}
+              </Button>
+            )}
+
+            {nextDate ? (
+              <Button asChild variant="outline" size="sm" className="w-full justify-center">
+                <Link href={buildHomeDateHref(lang, nextDate) ?? "#"} onClick={closeSidebarOnMobile}>
+                  {stocksT("nextDay")}
+                  <ChevronRight />
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" className="w-full justify-center" disabled>
+                {stocksT("nextDay")}
+                <ChevronRight />
+              </Button>
+            )}
+          </div>
+
+          <form className="flex flex-col gap-2" onSubmit={onSubmit}>
+            <Input
+              id="stocks-sidebar-report-date"
+              name="date"
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              required
+              className="bg-background/70 text-sm"
+              aria-label={stocksT("chooseDate")}
+            />
+            <Button type="submit" variant="secondary" size="sm" className="w-full">
+              <CalendarDays />
+              {stocksT("jump")}
+            </Button>
+          </form>
+        </div>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 function HomeQuickNav(props: { items: HomeQuickNavItem[]; activeId: string; groupLabel: string }) {
   const { items, activeId, groupLabel } = props;
   const { isMobile, setOpenMobile } = useSidebar();
 
   return (
-    <SidebarContent>
-      <SidebarGroup>
-        <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
-        <SidebarMenu>
-          {items.map((item) => (
-            <SidebarMenuItem key={item.id}>
-              <SidebarMenuButton asChild isActive={activeId === item.id}>
-                <a
-                  href={`#${item.id}`}
-                  onClick={() => {
-                    if (isMobile) {
-                      setOpenMobile(false);
-                    }
-                  }}
-                >
-                  <item.icon />
-                  <span>{item.label}</span>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarGroup>
-    </SidebarContent>
+    <SidebarGroup>
+      <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
+      <SidebarMenu>
+        {items.map((item) => (
+          <SidebarMenuItem key={item.id}>
+            <SidebarMenuButton asChild isActive={activeId === item.id}>
+              <a
+                href={`#${item.id}`}
+                onClick={() => {
+                  if (isMobile) {
+                    setOpenMobile(false);
+                  }
+                }}
+              >
+                <item.icon />
+                <span>{item.label}</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+      </SidebarMenu>
+    </SidebarGroup>
   );
 }
 
@@ -188,9 +276,9 @@ export default function HomePage(props: HomePageProps) {
   const queryDate = props.date?.trim() ?? "";
   const { data: history = [], isLoading: isHistoryLoading } = useReportList(120);
   const { data: stockItems = [], isLoading: isStockItemsLoading } = useStockList();
-  const { data: marketPulse, isLoading: isMarketPulseLoading } = useHomeMarketPulse();
+  const todayDate = getTodayMarketDate();
 
-  const date = isValidReportDate(queryDate) ? queryDate : history[0]?.reportDateEt ?? getTodayEtDateString();
+  const date = isValidReportDate(queryDate) ? queryDate : history[0]?.reportDateEt ?? todayDate;
   const { data: report, isLoading: isReportLoading } = useStockReportByDate(date);
 
   const reportRows = useMemo(() => (report ? buildParsedRowsFromStockReport(report, lang) : []), [report, lang]);
@@ -208,7 +296,6 @@ export default function HomePage(props: HomePageProps) {
   const { data: stockDetails = [], isLoading: isStockDetailsLoading } = useStockDetails(tableSymbols);
   const quickNavItems = useMemo<HomeQuickNavItem[]>(
     () => [
-      { id: HOME_SECTION_IDS.date, label: stocksT("tradingDate"), icon: CalendarDays },
       { id: HOME_SECTION_IDS.marketPulse, label: stocksT("marketPulseTitle"), icon: Globe2 },
       { id: HOME_SECTION_IDS.featured, label: stocksT("featuredTitle"), icon: Newspaper },
       { id: HOME_SECTION_IDS.report, label: stocksT("fullReport"), icon: ScrollText },
@@ -217,51 +304,13 @@ export default function HomePage(props: HomePageProps) {
     ],
     [moversT, stocksT]
   );
-  const [activeQuickNavId, setActiveQuickNavId] = useState<string>(HOME_SECTION_IDS.date);
+  const activeQuickNavId = useScrollSpy(quickNavItems.map((item) => item.id), { offset: 128 });
   const quickNavLabel = lang === "zh" ? "快速定位" : "Quick Navigation";
+  const dateGroupLabel = lang === "zh" ? "时间切换" : "Date";
+  const isTodayView = date === todayDate;
 
-  useEffect(() => {
-    const sections = quickNavItems
-      .map((item) => document.getElementById(item.id))
-      .filter((section): section is HTMLElement => section !== null);
-
-    if (sections.length === 0) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const activeEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-
-        if (activeEntries[0]?.target.id) {
-          setActiveQuickNavId(activeEntries[0].target.id);
-        }
-      },
-      {
-        threshold: [0.2, 0.5, 0.8],
-        rootMargin: "-20% 0px -60% 0px"
-      }
-    );
-
-    sections.forEach((section) => observer.observe(section));
-
-    return () => observer.disconnect();
-  }, [quickNavItems]);
-
-  if (isHistoryLoading || isStockItemsLoading || isMarketPulseLoading || isReportLoading || isStockDetailsLoading || !marketPulse) {
+  if (isHistoryLoading || isStockItemsLoading || isReportLoading || isStockDetailsLoading) {
     return <RouteSegmentLoading title="Loading stocks" description={channelT("loading")} />;
-  }
-
-  if (!report) {
-    return (
-      <StatusCard title={channelT("missingReportTitle")} body={channelT("missingReportDescription")}>
-        <Button asChild>
-          <Link href={assetHomePath(lang, "stocks")}>{channelT("backToChannelHome")}</Link>
-        </Button>
-      </StatusCard>
-    );
   }
 
   const previousDate = addDaysToReportDate(date, -1);
@@ -303,7 +352,17 @@ export default function HomePage(props: HomePageProps) {
   return (
     <SidebarProvider defaultOpen>
       <Sidebar side="left" collapsible="offcanvas">
-        <HomeQuickNav items={quickNavItems} activeId={activeQuickNavId} groupLabel={quickNavLabel} />
+        <SidebarContent>
+          <HomeSidebarDateControls
+            lang={lang}
+            date={date}
+            previousDate={previousDate}
+            nextDate={nextDate}
+            groupLabel={dateGroupLabel}
+          />
+          <SidebarSeparator />
+          <HomeQuickNav items={quickNavItems} activeId={activeQuickNavId} groupLabel={quickNavLabel} />
+        </SidebarContent>
       </Sidebar>
       <SidebarInset>
         <main className="page-shell">
@@ -313,25 +372,26 @@ export default function HomePage(props: HomePageProps) {
           </div>
 
           <div className="space-y-6">
-            <section id={HOME_SECTION_IDS.date} className="scroll-mt-24">
-              <StocksHomeDateToolbar
-                lang={lang}
-                date={date}
-                previousDate={previousDate}
-                nextDate={nextDate}
-              />
-            </section>
-
             <section id={HOME_SECTION_IDS.marketPulse} className="scroll-mt-24">
-              <MarketStatusGrid
-                lang={lang}
-                latest={marketPulse.latest}
-                summary={marketPulse.summary}
-                title={stocksT("marketPulseTitle")}
-                description={stocksT("marketPulseDescription")}
-                actionHref={stocksMarketPath(lang)}
-                actionLabel={stocksT("marketPulseAction")}
-              />
+              {isTodayView ? (
+                <HomeMarketPulseLive
+                  lang={lang}
+                  todayDate={todayDate}
+                  title={stocksT("marketPulseTitle")}
+                  description={stocksT("marketPulseDescription")}
+                  actionHref={stocksMarketPath(lang)}
+                  actionLabel={stocksT("marketPulseAction")}
+                />
+              ) : (
+                <HomeMarketPulseArchive
+                  lang={lang}
+                  date={date}
+                  title={stocksT("marketPulseTitle")}
+                  description={stocksT("marketPulseArchiveDescription")}
+                  actionHref={`${stocksMarketPath(lang)}?summaryDate=${encodeURIComponent(date)}`}
+                  actionLabel={stocksT("marketPulseAction")}
+                />
+              )}
             </section>
 
             <HomeContentTabs
@@ -339,15 +399,19 @@ export default function HomePage(props: HomePageProps) {
               date={date}
               readableDate={toReadableDate(date, lang)}
               rows={enhancedRows}
-              overview={resolveLocalizedText(report.overview.brief, lang)}
-              newsGroups={report.newsGroups.map((group) => ({
-                ...group,
-                detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
-              }))}
+              overview={report ? resolveLocalizedText(report.overview.brief, lang) : null}
+              newsGroups={
+                report
+                  ? report.newsGroups.map((group) => ({
+                      ...group,
+                      detailUrl: assetInstrumentPath(lang, "stocks", group.symbol)
+                    }))
+                  : []
+              }
               reportMeta={{
-                generatedAt: report.createdAt,
-                sampleScope: String(report.sampleSize),
-                validQuotes: String(report.validQuoteCount)
+                generatedAt: report?.createdAt,
+                sampleScope: report ? String(report.sampleSize) : undefined,
+                validQuotes: report ? String(report.validQuoteCount) : undefined
               }}
               sectionIds={{
                 featured: HOME_SECTION_IDS.featured,

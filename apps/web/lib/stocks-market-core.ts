@@ -1,5 +1,6 @@
 import type {
   MarketAiSummary,
+  MarketIndexArchiveResponse,
   MarketIndexHistoryResponse,
   MarketIndexKey,
   MarketIndexLatestResponse,
@@ -17,9 +18,10 @@ export type MarketPageQuery = {
 
 export type MarketServerDeps = {
   fetchLatest: () => Promise<MarketIndexLatestResponse | null>;
+  fetchSnapshotByDate: (date: string) => Promise<MarketIndexArchiveResponse | null>;
   fetchHistory: (indexKeys: string[], range: MarketIndexRange) => Promise<MarketIndexHistoryResponse | null>;
-  fetchLatestSummary: () => Promise<MarketAiSummary | null>;
-  fetchSummaryByDate: (date: string) => Promise<MarketAiSummary | null>;
+  fetchLatestIntradaySummaries: () => Promise<MarketAiSummary[]>;
+  fetchFinalSummariesByDate: (date: string) => Promise<MarketAiSummary[]>;
 };
 
 const MARKET_INDEX_KEY_SET = new Set<string>(MARKET_INDEX_KEYS);
@@ -47,6 +49,25 @@ export function parseMarketIndexKeys(value: string | undefined): MarketIndexKey[
 export function normalizeMarketSummaryDate(value: string | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+}
+
+export function getTodayMarketDate(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+export function isTodayMarketDate(value: string | undefined): boolean {
+  const normalized = normalizeMarketSummaryDate(value);
+  return normalized !== null && normalized === getTodayMarketDate();
 }
 
 export function buildMarketPageSearch(input: {
@@ -81,24 +102,38 @@ export async function loadMarketPageData(query: MarketPageQuery, deps: MarketSer
   const initialRange = resolveMarketIndexRange(query.range);
   const selectedIndexKeys = parseMarketIndexKeys(query.indexKeys);
   const requestedSummaryDate = normalizeMarketSummaryDate(query.summaryDate);
+  const useArchivedSnapshot = requestedSummaryDate !== null && !isTodayMarketDate(requestedSummaryDate);
+  const snapshotVariant: "live" | "archive" = useArchivedSnapshot ? "archive" : "live";
 
-  const [latest, history, summary] = await Promise.all([
-    deps.fetchLatest(),
+  const [liveLatest, archivedLatest, history, summary] = await Promise.all([
+    useArchivedSnapshot ? Promise.resolve(null) : deps.fetchLatest(),
+    useArchivedSnapshot && requestedSummaryDate ? deps.fetchSnapshotByDate(requestedSummaryDate) : Promise.resolve(null),
     deps.fetchHistory(selectedIndexKeys, initialRange),
-    requestedSummaryDate ? deps.fetchSummaryByDate(requestedSummaryDate) : deps.fetchLatestSummary()
+    useArchivedSnapshot && requestedSummaryDate
+      ? deps.fetchFinalSummariesByDate(requestedSummaryDate)
+      : deps.fetchLatestIntradaySummaries()
   ]);
 
   return {
     initialRange,
-    latest,
+    latest: archivedLatest ?? liveLatest,
     history,
     summary,
     requestedSummaryDate,
+    snapshotVariant,
     selectedIndexKeys
   };
 }
 
-export async function loadHomeMarketPulse(deps: MarketServerDeps) {
-  const [latest, summary] = await Promise.all([deps.fetchLatest(), deps.fetchLatestSummary()]);
-  return { latest, summary };
+export async function loadHomeLiveMarketPulse(todayDate: string, deps: MarketServerDeps) {
+  const [latest, summaries] = await Promise.all([deps.fetchLatest(), deps.fetchLatestIntradaySummaries()]);
+  return {
+    latest,
+    summaries: summaries.filter((item) => item.summaryDate === todayDate)
+  };
+}
+
+export async function loadHomeArchivedMarketPulse(date: string, deps: MarketServerDeps) {
+  const [latest, summaries] = await Promise.all([deps.fetchSnapshotByDate(date), deps.fetchFinalSummariesByDate(date)]);
+  return { latest, summaries };
 }

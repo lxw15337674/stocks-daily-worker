@@ -1,6 +1,5 @@
 import type { MarketIndexLiveItem } from "@china-stocks/contracts";
 
-import { Badge } from "@/components/ui/badge";
 import { CardContent } from "@/components/ui/card";
 import { getFixedT, type Language } from "@/lib/i18n";
 
@@ -19,9 +18,9 @@ function MetricCell(props: { label: string; value: string }) {
   const { label, value } = props;
 
   return (
-    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-1">
-      <p className="font-normal tracking-wide text-muted-foreground">{label}</p>
-      <p className="text-right leading-4 font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+      <p className="truncate text-[11px] font-normal leading-4 tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-sm leading-4 font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );
 }
@@ -32,13 +31,8 @@ export function MarketTradingMetrics(props: MarketTradingMetricsProps) {
   const metrics = formatMarketTradingMetrics(item, lang);
 
   return (
-    <CardContent className="flex flex-col gap-2 ">
-      <div className="flex items-center justify-between">
-        <p className="font-medium uppercase tracking-wide text-muted-foreground">{t("metricsLabel")}</p>
-        <Badge variant="outline">{t("latestLabel")}</Badge>
-      </div>
-
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+    <CardContent className="px-0">
+      <div className="grid grid-cols-3 gap-x-3 gap-y-1">
         <MetricCell label={t("highLabel")} value={metrics.high} />
         <MetricCell label={t("openLabel")} value={metrics.open} />
         <MetricCell label={t("week52HighLabel")} value={metrics.fiftyTwoWeekHigh} />

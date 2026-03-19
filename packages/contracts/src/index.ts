@@ -167,6 +167,12 @@ export type MarketIndexLatestResponse = {
   regions: MarketIndexLatestRegionGroup[];
 };
 
+export type MarketIndexArchiveResponse = {
+  snapshotDate: string;
+  updatedAt: string | null;
+  regions: MarketIndexLatestRegionGroup[];
+};
+
 export type MarketIndexHistoryPoint = {
   tradingDate: string;
   close: number;
@@ -209,28 +215,34 @@ export type MarketIndexSnapshot = {
   isPrimary: boolean;
 };
 
+export const MARKET_SUMMARY_TYPES = ["intraday", "final"] as const;
+export type MarketSummaryType = (typeof MARKET_SUMMARY_TYPES)[number];
+
 export type MarketAiSummary = {
   summaryDate: string;
-  scope: string;
+  region: MarketRegion;
+  summaryType: MarketSummaryType;
   summaryZh: string | null;
   summaryEn: string | null;
   model: string | null;
   snapshotCount: number;
+  sourceQuoteTimestamp: string | null;
   createdAt: string;
 };
 
 export type MarketAiSummaryRecord = {
   summaryDate: string;
-  scope: string;
+  region: MarketRegion;
+  summaryType: MarketSummaryType;
   summary: LocalizedText;
   snapshotCount: number;
+  sourceQuoteTimestamp: string | null;
   createdAt: string;
-  items: MarketIndexSnapshot[];
   model?: string | null;
 };
 
 export type MarketAiSummaryResponse = {
-  item: MarketAiSummary | null;
+  items: MarketAiSummary[];
 };
 
 export const INTELLIGENCE_SENTIMENTS = [-1, 0, 1] as const;
@@ -310,8 +322,9 @@ export type IntelligenceWallResponse = {
 export type MarketIndicesAdminRunResponse = {
   ok: true;
   summaryDate: string;
+  summaryType: MarketSummaryType;
   snapshotCount: number;
-  summary: MarketAiSummary;
+  summaries: MarketAiSummary[];
 };
 
 export const SCHEDULER_JOB_KEYS = [

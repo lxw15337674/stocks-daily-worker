@@ -22,7 +22,7 @@ type MarketAdminPanelProps = {
 export function MarketAdminPanel(props: MarketAdminPanelProps) {
   const { lang, onUnauthorized } = props;
   const { t } = useTranslation("stocks");
-  const [summary, setSummary] = useState<MarketAiSummary | null>(null);
+  const [summaries, setSummaries] = useState<MarketAiSummary[]>([]);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -32,8 +32,8 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
     setLoading(true);
     setError("");
     try {
-      const payload = await clientFetchJson<{ item?: MarketAiSummary | null }>("/api/indices/summary/latest");
-      setSummary(payload.item ?? null);
+      const payload = await clientFetchJson<{ items?: MarketAiSummary[] }>("/api/indices/summary/final/latest");
+      setSummaries(payload.items ?? []);
     } catch (cause) {
       if (cause instanceof ClientFetchError && cause.status === 401) {
         onUnauthorized?.();
@@ -58,7 +58,7 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
       const payload = await clientFetchJson<MarketIndicesAdminRunResponse>("/api/indices/admin/run", {
         method: "GET"
       });
-      setSummary(payload.summary);
+      setSummaries(payload.summaries);
       setSuccessMessage(t("admin.marketPanelRunSuccess", { date: payload.summaryDate }));
     } catch (cause) {
       if (cause instanceof ClientFetchError && cause.status === 401) {
@@ -110,34 +110,36 @@ export function MarketAdminPanel(props: MarketAdminPanelProps) {
             <AlertDescription>{t("admin.loading")}</AlertDescription>
           </Alert>
         ) : null}
-        {!loading && !summary ? (
+        {!loading && summaries.length === 0 ? (
           <Alert>
             <AlertDescription>{t("admin.marketPanelNoSummary")}</AlertDescription>
           </Alert>
         ) : null}
-        {summary ? (
+        {summaries.length > 0 ? (
           <div className="space-y-3 rounded-md border border-border/70 bg-background/40 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{t("admin.marketPanelLatestStatus")}</Badge>
-              <Badge variant="secondary">{summary.summaryDate}</Badge>
+              <Badge variant="secondary">{summaries[0]?.summaryDate}</Badge>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("admin.marketPanelLastDate")}</p>
-                <p className="text-sm font-medium">{summary.summaryDate}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("admin.marketPanelGeneratedAt")}</p>
-                <p className="text-sm font-medium">{formatMarketTimestamp(summary.createdAt, lang)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("admin.marketPanelSnapshotCount")}</p>
-                <p className="text-sm font-medium">{summary.snapshotCount}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("admin.marketPanelModel")}</p>
-                <p className="text-sm font-medium">{summary.model ?? "-"}</p>
-              </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {summaries.map((summary) => (
+                <div key={`${summary.summaryType}-${summary.region}`} className="space-y-2 rounded-md border border-border/70 bg-background/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">
+                      {summary.region === "cn" ? t("market.regionCn") : summary.region === "hk" ? t("market.regionHk") : t("market.regionUs")}
+                    </p>
+                    <Badge variant="secondary">
+                      {summary.summaryType === "intraday" ? t("market.intradaySummaryLabel") : t("market.finalSummaryLabel")}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>{t("admin.marketPanelLastDate")}: {summary.summaryDate}</p>
+                    <p>{t("admin.marketPanelGeneratedAt")}: {formatMarketTimestamp(summary.createdAt, lang)}</p>
+                    <p>{t("admin.marketPanelSnapshotCount")}: {summary.snapshotCount}</p>
+                    <p>{t("admin.marketPanelModel")}: {summary.model ?? "-"}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}

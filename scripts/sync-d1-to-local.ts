@@ -128,6 +128,17 @@ function resolveRunnerCommand(): string {
   return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
+function resolveSpawnCommand(command: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform === "win32" && command.toLowerCase().endsWith(".cmd")) {
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/s", "/c", command, ...args]
+    };
+  }
+
+  return { command, args };
+}
+
 function stringifyCommand(command: string, args: string[]): string {
   return [command, ...args]
     .map((part) => (/[\s"]/u.test(part) ? JSON.stringify(part) : part))
@@ -136,13 +147,14 @@ function stringifyCommand(command: string, args: string[]): string {
 
 function runCommand(command: string, args: string[], options: RunOptions = {}) {
   const printable = stringifyCommand(command, args);
+  const spawned = resolveSpawnCommand(command, args);
   console.log(`\n> ${printable}`);
 
   if (options.dryRun) {
     return { status: 0, stdout: "", stderr: "" };
   }
 
-  const result = spawnSync(command, args, {
+  const result = spawnSync(spawned.command, spawned.args, {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: options.captureOutput ? "pipe" : "inherit"
@@ -191,18 +203,20 @@ function localTableExists(dbConfig: DbConfig): boolean {
 
 function getExistingLocalTables(dbConfig: DbConfig): string[] {
   const runnerCommand = resolveRunnerCommand();
+  const runnerArgs = wranglerArgs([
+    "d1",
+    "execute",
+    dbConfig.localBinding,
+    "--local",
+    "--yes",
+    "--json",
+    "--command",
+    "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;"
+  ]);
+  const spawned = resolveSpawnCommand(runnerCommand, runnerArgs);
   const result = spawnSync(
-    runnerCommand,
-    wranglerArgs([
-      "d1",
-      "execute",
-      dbConfig.localBinding,
-      "--local",
-      "--yes",
-      "--json",
-      "--command",
-      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;"
-    ]),
+    spawned.command,
+    spawned.args,
     {
       cwd: repoRoot,
       encoding: "utf8",

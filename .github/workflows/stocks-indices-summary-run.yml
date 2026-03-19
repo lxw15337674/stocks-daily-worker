@@ -2,11 +2,21 @@ name: Stocks Indices Summary Run
 
 on:
   schedule:
+    - cron: "0 * * * 1-5"
     - cron: "15 20 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      summary_type:
+        description: "Summary mode to generate"
+        required: true
+        default: intraday
+        type: choice
+        options:
+          - intraday
+          - final
 
 concurrency:
-  group: stocks-indices-summary-run
+  group: stocks-indices-summary-run-${{ github.event.schedule || github.event.inputs.summary_type || 'manual' }}
   cancel-in-progress: false
 
 jobs:
@@ -14,10 +24,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
+      - name: Resolve summary mode
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            summary_type="${{ github.event.inputs.summary_type }}"
+          elif [ "${{ github.event.schedule }}" = "15 20 * * 1-5" ]; then
+            summary_type="final"
+          else
+            summary_type="intraday"
+          fi
+
+          echo "summary_type=${summary_type}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved summary_type=${summary_type}"
+
       - name: Trigger market indices summary
         env:
           STOCKS_API_BASE_URL: ${{ secrets.STOCKS_API_BASE_URL }}
           STOCKS_ADMIN_TOKEN: ${{ secrets.STOCKS_ADMIN_TOKEN }}
+          SUMMARY_TYPE: ${{ steps.resolve.outputs.summary_type }}
         run: |
           set -euo pipefail
 
@@ -29,9 +57,13 @@ jobs:
             echo "Missing secret: STOCKS_ADMIN_TOKEN"
             exit 1
           fi
+          if [ -z "${SUMMARY_TYPE:-}" ]; then
+            echo "Missing summary type."
+            exit 1
+          fi
 
-          endpoint="${STOCKS_API_BASE_URL%/}/api/v1/stocks/indices/admin/run"
-          echo "Triggering: ${endpoint}"
+          endpoint="${STOCKS_API_BASE_URL%/}/api/v1/stocks/indices/admin/run?summaryType=${SUMMARY_TYPE}"
+          echo "Triggering (${SUMMARY_TYPE}): ${endpoint}"
 
           attempt=1
           max_attempts=3
@@ -45,7 +77,7 @@ jobs:
             echo "${response_body}"
 
             if [ "${status_code}" -ge 200 ] && [ "${status_code}" -lt 300 ]; then
-              echo "Market indices summary completed."
+              echo "Market indices ${SUMMARY_TYPE} summary completed."
               exit 0
             fi
 
@@ -53,5 +85,5 @@ jobs:
             sleep 8
           done
 
-          echo "Market indices summary failed after retries."
+          echo "Market indices ${SUMMARY_TYPE} summary failed after retries."
           exit 1

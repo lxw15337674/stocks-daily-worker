@@ -203,6 +203,7 @@ type StocksNamespace = {
     validQuotes: string;
     marketPulseTitle: string;
     marketPulseDescription: string;
+    marketPulseArchiveDescription: string;
     marketPulseSummaryFallback: string;
     marketPulseAction: string;
     labels: {
@@ -260,6 +261,9 @@ type StocksNamespace = {
     backHome: string;
     adminLinkLabel: string;
     liveBadge: string;
+    archiveBadge: string;
+    intradaySummaryLabel: string;
+    finalSummaryLabel: string;
     summaryTitle: string;
     summaryDescription: string;
     summaryArchiveLabel: string;
@@ -687,6 +691,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       validQuotes: "有效行情",
       marketPulseTitle: "市场脉搏",
       marketPulseDescription: "实时拉取中港美主要指数，用最小快照和 AI 摘要补足当天的大盘上下文。",
+      marketPulseArchiveDescription: "历史日期只展示该交易日归档下来的指数快照与摘要；若当天未归档，则这里保持为空。",
       marketPulseSummaryFallback: "最新归档摘要暂不可用，请先参考下方实时指数表现。",
       marketPulseAction: "查看全球指数页",
       labels: {
@@ -765,6 +770,9 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       backHome: "返回股票首页",
       adminLinkLabel: "指数管理",
       liveBadge: "实时拉取",
+      archiveBadge: "历史归档",
+      intradaySummaryLabel: "盘中摘要",
+      finalSummaryLabel: "归档摘要",
       summaryTitle: "AI 摘要",
       summaryDescription: "归档层只保存 AI 文本与最小快照，方便回看每日市场语境。",
       summaryArchiveLabel: "按日期查看归档摘要",
@@ -1057,6 +1065,7 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       validQuotes: "Valid quotes",
       marketPulseTitle: "Market Pulse",
       marketPulseDescription: "Live CN, HK, and US index reads with only minimal snapshots and AI summaries stored for archive replay.",
+      marketPulseArchiveDescription: "Historical dates show only the archived snapshot and summary saved for that trading day; if no archive exists, this section stays empty.",
       marketPulseSummaryFallback: "The latest archived market summary is unavailable. Use the live index snapshot below instead.",
       marketPulseAction: "Open Global Indices",
       labels: {
@@ -1136,6 +1145,9 @@ export const STOCKS_DICTIONARIES: Record<Language, StocksNamespace> = {
       backHome: "Back to Stocks",
       adminLinkLabel: "Index Admin",
       liveBadge: "Live",
+      archiveBadge: "Archive",
+      intradaySummaryLabel: "Intraday Summary",
+      finalSummaryLabel: "Final Summary",
       summaryTitle: "AI Summary",
       summaryDescription: "The archive keeps only AI text plus a minimal snapshot so each day still has reproducible market context.",
       summaryArchiveLabel: "Replay archived summary by date",
@@ -1431,6 +1443,9 @@ export function getI18nOptions(language: Language) {
     resources: I18N_RESOURCES,
     interpolation: {
       escapeValue: false
+    },
+    react: {
+      useSuspense: false
     },
     returnObjects: true,
     initImmediate: false

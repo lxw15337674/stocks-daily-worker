@@ -61,7 +61,7 @@ export function SiteHeader(props: SiteHeaderProps) {
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-border/80 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-      <div className="layout-container flex flex-col gap-2 py-2.5 md:flex-row md:flex-nowrap md:items-center md:justify-between">
+      <div className="layout-container flex flex-col gap-2 py-2.5 md:min-h-[var(--site-header-height)] md:flex-row md:flex-nowrap md:items-center md:justify-between">
         <div className="min-w-0 md:max-w-sm md:shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
