@@ -1,8 +1,8 @@
 name: Crypto News Ingestion Run
 
 on:
-  schedule:
-    - cron: "10 0 * * *"
+  # schedule:
+  #   - cron: "10 0 * * *"
   workflow_dispatch: {}
 
 concurrency:
